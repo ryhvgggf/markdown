@@ -197,8 +197,8 @@ export function MarkdownEditor({
       let insertTags = "";
       for (const file of mediaFiles) {
         const saved = await saveUploadedMedia(file);
-        insertTags += `\n![[${saved.filename}]]\n`;
-      }
+        insertTags += `\n![[${saved.id}|${saved.filename}]]\n`;
+    }
       insertTextAtCursor(insertTags);
       setUploadMessage(`已成功儲存並插入 ${mediaFiles.length} 個多媒體檔案！`);
       setTimeout(() => setUploadMessage(null), 3000);
