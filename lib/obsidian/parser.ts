@@ -111,17 +111,47 @@ export function renderMarkdownToHtml(
 
   const processInline = (text: string) => {
     // 1. 嵌入多媒體語法 ![[filename.ext]]
-    text = text.replace(/!\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g, (_, filename, alt) => {
-      const cleanFile = filename.trim();
-      const altText = (alt || cleanFile).trim();
-      const isVid = isVideoFile(altText);
-      return `<div class="obsidian-media-container my-3 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 p-2 inline-block max-w-full" data-media-name="${escapeHtml(cleanFile)}" data-is-video="${isVid}">
+    text = text.replace(
+  /!\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g,
+  (_, mediaId, filename) => {
+    const cleanMediaId = mediaId.trim();
+
+    const displayName =
+      (filename || cleanMediaId).trim();
+
+    const isVid =
+      isVideoFile(displayName);
+
+    return `
+      <div
+        class="obsidian-media-container my-3 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 p-2 inline-block max-w-full"
+        data-media-id="${escapeHtml(cleanMediaId)}"
+        data-media-name="${escapeHtml(displayName)}"
+        data-is-video="${isVid}"
+      >
         <span class="text-xs text-purple-400 flex items-center gap-1.5 font-mono">
-          <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="3" stroke-dasharray="32" stroke-linecap="round"></circle></svg>
-          載入附件: ${escapeHtml(altText)}
+          <svg
+            class="w-4 h-4 animate-spin"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke-width="3"
+              stroke-dasharray="32"
+              stroke-linecap="round"
+            ></circle>
+          </svg>
+
+          載入附件: ${escapeHtml(displayName)}
         </span>
-      </div>`;
-    });
+      </div>
+    `;
+  }
+);
 
     // 2. 一般圖片語法 ![alt](src)
     text = text.replace(/!\[([^\]]*)\]\(([^\)]+)\)/g, (_, alt, src) => {
