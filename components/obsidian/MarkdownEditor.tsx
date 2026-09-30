@@ -16,6 +16,7 @@ import {
   saveUploadedMedia,
   resolveMediaUrl,
   revokeAllActiveMediaUrls,
+  deleteSavedMedia,
 } from "@/lib/obsidian/media";
 
 /**
