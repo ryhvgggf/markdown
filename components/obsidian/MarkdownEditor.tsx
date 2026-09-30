@@ -20,7 +20,7 @@ import {
 } from "@/lib/obsidian/media";
 
 /**
- * 防止動態文字直接插入 innerHTML
+ * 防止動態文字直接插入 innerHTML。
  */
 function escapeHtml(value: string): string {
   return value
@@ -69,12 +69,6 @@ export function MarkdownEditor({
   const [isDragging, setIsDragging] =
     useState(false);
 
-  /**
-   * 經 DOMPurify 清理後的 HTML。
-   *
-   * 初始空字串可以避免 Next.js Server Rendering
-   * 階段直接使用瀏覽器 DOMPurify。
-   */
   const [renderedHtml, setRenderedHtml] =
     useState("");
 
@@ -88,8 +82,11 @@ export function MarkdownEditor({
     useRef<HTMLDivElement>(null);
 
   /**
-   * 切換筆記或 Component 卸載時，
-   * 釋放 Blob Object URLs。
+   * 切換筆記或元件卸載時，
+   * 釋放 Blob Object URL。
+   *
+   * 注意：
+   * 這不會刪掉 IndexedDB 裡面的檔案。
    */
   useEffect(() => {
     return () => {
@@ -98,7 +95,7 @@ export function MarkdownEditor({
   }, [note?.id]);
 
   /**
-   * Markdown → HTML
+   * Markdown → HTML。
    */
   const rawHtml = useMemo(() => {
     if (!note) {
@@ -117,9 +114,7 @@ export function MarkdownEditor({
   ]);
 
   /**
-   * XSS 防護
-   *
-   * DOMPurify 只在瀏覽器端執行。
+   * XSS 防護。
    */
   useEffect(() => {
     if (!rawHtml) {
@@ -130,11 +125,13 @@ export function MarkdownEditor({
     const safeHtml =
       DOMPurify.sanitize(rawHtml);
 
-    setRenderedHtml(safeHtml);
+    setRenderedHtml(
+      safeHtml
+    );
   }, [rawHtml]);
 
   /**
-   * 平滑移動到 Markdown Heading。
+   * 跳到指定 Markdown Heading。
    */
   const scrollToHeading = useCallback(
     (slug: string) => {
@@ -168,18 +165,16 @@ export function MarkdownEditor({
 
           targetEl =
             previewRef.current.querySelector<HTMLElement>(
-              '[id="' + escaped + '"]'
+              `[id="${escaped}"]`
             ) ||
             previewRef.current.querySelector<HTMLElement>(
-              '[data-heading-slug="' +
-                escaped +
-                '"]'
+              `[data-heading-slug="${escaped}"]`
             );
         }
-      } catch (e) {
+      } catch (error) {
         console.warn(
           "無法定位標題錨點:",
-          e
+          error
         );
       }
 
@@ -210,7 +205,7 @@ export function MarkdownEditor({
   );
 
   /**
-   * 外部指定 Heading 時自動定位。
+   * 外部指定 Heading 時自動跳轉。
    */
   useEffect(() => {
     if (
@@ -220,17 +215,14 @@ export function MarkdownEditor({
       return;
     }
 
-    const timer = setTimeout(() => {
-      scrollToHeading(
-        targetHeadingSlug
-      );
+    const timer =
+      setTimeout(() => {
+        scrollToHeading(
+          targetHeadingSlug
+        );
 
-      if (
-        onClearTargetHeadingSlug
-      ) {
-        onClearTargetHeadingSlug();
-      }
-    }, 200);
+        onClearTargetHeadingSlug?.();
+      }, 200);
 
     return () =>
       clearTimeout(timer);
@@ -242,8 +234,9 @@ export function MarkdownEditor({
   ]);
 
   /**
-   * 將 IndexedDB 裡面的媒體
-   * 轉成 Blob URL 放到預覽畫面。
+   * IndexedDB 媒體
+   * → Blob URL
+   * → 預覽畫面。
    */
   useEffect(() => {
     if (
@@ -260,44 +253,47 @@ export function MarkdownEditor({
 
     const mediaNodes =
       container.querySelectorAll<HTMLElement>(
-        ".obsidian-media-container[data-media-name]"
+        ".obsidian-media-container[data-media-id]"
       );
 
     mediaNodes.forEach(
       async (el) => {
+        const mediaId =
+          el.getAttribute(
+            "data-media-id"
+          );
+
         const mediaName =
           el.getAttribute(
             "data-media-name"
           );
 
-        const isVid =
+        const isVideo =
           el.getAttribute(
             "data-is-video"
           ) === "true";
 
-        /**
-         * getAttribute 可能回傳 null，
-         * 所以一定要先判斷。
-         */
-        if (!mediaName) {
+        if (!mediaId) {
           return;
         }
 
-        /**
-         * 真正輸出進 innerHTML 的文字，
-         * 必須先 Escape。
-         */
+        const displayName =
+          mediaName || mediaId;
+
+        const safeMediaId =
+          escapeHtml(mediaId);
+
         const safeMediaName =
-          escapeHtml(mediaName);
+          escapeHtml(displayName);
 
         try {
           /**
-           * 查 IndexedDB 必須使用原始 ID，
-           * 不能用 safeMediaName。
+           * 必須使用真正 Media ID
+           * 去 IndexedDB 查詢。
            */
           const objectUrl =
             await resolveMediaUrl(
-              mediaName
+              mediaId
             );
 
           if (
@@ -307,8 +303,19 @@ export function MarkdownEditor({
             return;
           }
 
+          /**
+           * 找得到圖片 / 影片。
+           */
           if (objectUrl) {
-            if (isVid) {
+            const safeObjectUrl =
+              escapeHtml(
+                objectUrl
+              );
+
+            /**
+             * 影片。
+             */
+            if (isVideo) {
               el.innerHTML = `
                 <div
                   class="relative group/media inline-block my-2 max-w-full"
@@ -316,58 +323,110 @@ export function MarkdownEditor({
                   <video
                     controls
                     class="rounded-2xl max-h-96 max-w-full border border-slate-800 shadow-md"
-                    src="${objectUrl}"
+                    src="${safeObjectUrl}"
                   >
                     無法播放此影片格式
                   </video>
 
-                  <a
-                    href="${objectUrl}"
-                    download="${safeMediaName}"
-                    title="下載原始影片 (${safeMediaName})"
-                    class="opacity-0 group-hover/media:opacity-100 absolute top-3 right-3 bg-slate-900/85 hover:bg-purple-600 text-white text-[11px] px-2.5 py-1 rounded-xl shadow-lg border border-slate-700/80 backdrop-blur-md transition flex items-center gap-1 cursor-pointer select-none"
+                  <div
+                    class="opacity-0 group-hover/media:opacity-100 absolute top-3 right-3 flex items-center gap-2 transition"
                   >
-                    <span>⬇️</span>
-                    <span>下載原檔</span>
-                  </a>
+                    <a
+                      href="${safeObjectUrl}"
+                      download="${safeMediaName}"
+                      title="下載原始影片"
+                      class="bg-slate-900/90 hover:bg-purple-600 text-white text-[11px] px-2.5 py-1 rounded-xl shadow-lg border border-slate-700/80 backdrop-blur-md flex items-center gap-1 cursor-pointer select-none"
+                    >
+                      <span>⬇️</span>
+                      <span>下載</span>
+                    </a>
+
+                    <button
+                      type="button"
+                      data-delete-media-id="${safeMediaId}"
+                      data-delete-media-name="${safeMediaName}"
+                      title="永久刪除影片"
+                      class="bg-red-950/90 hover:bg-red-600 text-red-200 hover:text-white text-[11px] px-2.5 py-1 rounded-xl shadow-lg border border-red-800/80 backdrop-blur-md flex items-center gap-1 cursor-pointer select-none"
+                    >
+                      <span>🗑</span>
+                      <span>刪除</span>
+                    </button>
+                  </div>
                 </div>
               `;
-            } else {
+            }
+
+            /**
+             * 圖片。
+             */
+            else {
               el.innerHTML = `
                 <div
                   class="relative group/media inline-block my-2 max-w-full"
                 >
                   <img
-                    src="${objectUrl}"
+                    src="${safeObjectUrl}"
                     alt="${safeMediaName}"
                     class="rounded-2xl max-h-96 max-w-full object-contain border border-slate-800 shadow-md hover:opacity-95 transition"
                   />
 
-                  <a
-                    href="${objectUrl}"
-                    download="${safeMediaName}"
-                    title="下載原始圖片 (${safeMediaName})"
-                    class="opacity-0 group-hover/media:opacity-100 absolute top-3 right-3 bg-slate-900/85 hover:bg-purple-600 text-white text-[11px] px-2.5 py-1 rounded-xl shadow-lg border border-slate-700/80 backdrop-blur-md transition flex items-center gap-1 cursor-pointer select-none"
+                  <div
+                    class="opacity-0 group-hover/media:opacity-100 absolute top-3 right-3 flex items-center gap-2 transition"
                   >
-                    <span>⬇️</span>
-                    <span>下載原檔</span>
-                  </a>
+                    <a
+                      href="${safeObjectUrl}"
+                      download="${safeMediaName}"
+                      title="下載原始圖片"
+                      class="bg-slate-900/90 hover:bg-purple-600 text-white text-[11px] px-2.5 py-1 rounded-xl shadow-lg border border-slate-700/80 backdrop-blur-md flex items-center gap-1 cursor-pointer select-none"
+                    >
+                      <span>⬇️</span>
+                      <span>下載</span>
+                    </a>
+
+                    <button
+                      type="button"
+                      data-delete-media-id="${safeMediaId}"
+                      data-delete-media-name="${safeMediaName}"
+                      title="永久刪除圖片"
+                      class="bg-red-950/90 hover:bg-red-600 text-red-200 hover:text-white text-[11px] px-2.5 py-1 rounded-xl shadow-lg border border-red-800/80 backdrop-blur-md flex items-center gap-1 cursor-pointer select-none"
+                    >
+                      <span>🗑</span>
+                      <span>刪除</span>
+                    </button>
+                  </div>
                 </div>
               `;
             }
-          } else {
+          }
+
+          /**
+           * IndexedDB 已經不存在檔案。
+           */
+          else {
             el.innerHTML = `
-              <span
-                class="text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 px-2.5 py-1 rounded-full inline-flex items-center gap-1 font-mono"
+              <div
+                class="inline-flex items-center gap-2"
               >
-                ⚠️ 附件「${safeMediaName}」不存在於本機庫
-              </span>
+                <span
+                  class="text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 px-2.5 py-1 rounded-full font-mono"
+                >
+                  ⚠️ 附件「${safeMediaName}」不存在於本機庫
+                </span>
+
+                <button
+                  type="button"
+                  data-remove-media-id="${safeMediaId}"
+                  class="text-xs text-red-300 hover:text-white bg-red-950/60 hover:bg-red-700 border border-red-800/60 px-2.5 py-1 rounded-full cursor-pointer"
+                >
+                  移除引用
+                </button>
+              </div>
             `;
           }
-        } catch (err) {
+        } catch (error) {
           console.error(
             "載入媒體失敗:",
-            err
+            error
           );
 
           if (
@@ -375,11 +434,23 @@ export function MarkdownEditor({
             el.parentElement
           ) {
             el.innerHTML = `
-              <span
-                class="text-xs text-red-400 font-mono"
+              <div
+                class="inline-flex items-center gap-2"
               >
-                載入失敗: ${safeMediaName}
-              </span>
+                <span
+                  class="text-xs text-red-400 font-mono"
+                >
+                  載入失敗：${safeMediaName}
+                </span>
+
+                <button
+                  type="button"
+                  data-remove-media-id="${safeMediaId}"
+                  class="text-xs text-red-300 hover:text-white bg-red-950/60 hover:bg-red-700 border border-red-800/60 px-2.5 py-1 rounded-full cursor-pointer"
+                >
+                  移除引用
+                </button>
+              </div>
             `;
           }
         }
@@ -395,7 +466,122 @@ export function MarkdownEditor({
   ]);
 
   /**
-   * 沒有選擇筆記。
+   * 從 Markdown 移除指定 Media ID 的引用。
+   *
+   * 支援：
+   * ![[media-xxx]]
+   * ![[media-xxx|image.png]]
+   */
+  const removeMediaReference = (
+    mediaId: string
+  ) => {
+    if (!note) {
+      return;
+    }
+
+    const escapedId =
+      mediaId.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
+
+    const pattern =
+      new RegExp(
+        `!\\[\\[${escapedId}(?:\\|[^\\]]*)?\\]\\]`,
+        "g"
+      );
+
+    let newContent =
+      note.content.replace(
+        pattern,
+        ""
+      );
+
+    /**
+     * 刪除媒體後避免產生太多空行。
+     */
+    newContent =
+      newContent.replace(
+        /\n{3,}/g,
+        "\n\n"
+      );
+
+    if (
+      newContent !==
+      note.content
+    ) {
+      onUpdateContent(
+        newContent
+      );
+    }
+  };
+
+  /**
+   * 永久刪除 IndexedDB 裡面的圖片 / 影片。
+   */
+  const handleDeleteMedia =
+    async (
+      mediaId: string,
+      mediaName: string
+    ) => {
+      if (!mediaId) {
+        return;
+      }
+
+      const confirmed =
+        window.confirm(
+          `確定要刪除「${mediaName}」嗎？\n\n` +
+          `這會永久刪除瀏覽器 IndexedDB 中的檔案，` +
+          `並移除目前筆記中的媒體引用。`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        /**
+         * 真正刪除 IndexedDB Blob。
+         */
+        await deleteSavedMedia(
+          mediaId
+        );
+
+        /**
+         * 刪除目前 Markdown 的引用。
+         */
+        removeMediaReference(
+          mediaId
+        );
+
+        setUploadMessage(
+          `已刪除：${mediaName}`
+        );
+
+        setTimeout(() => {
+          setUploadMessage(
+            null
+          );
+        }, 2500);
+      } catch (error: unknown) {
+        console.error(
+          "刪除媒體失敗:",
+          error
+        );
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : String(error);
+
+        alert(
+          `刪除媒體失敗：${message}`
+        );
+      }
+    };
+
+  /**
+   * 尚未選擇筆記。
    */
   if (!note) {
     return (
@@ -423,7 +609,7 @@ export function MarkdownEditor({
   }
 
   /**
-   * Markdown 格式插入。
+   * 插入 Markdown 格式。
    */
   const insertFormatting = (
     prefix: string,
@@ -457,11 +643,16 @@ export function MarkdownEditor({
       }${suffix}`;
 
     const newContent =
-      text.substring(0, start) +
+      text.substring(
+        0,
+        start
+      ) +
       replacement +
       text.substring(end);
 
-    onUpdateContent(newContent);
+    onUpdateContent(
+      newContent
+    );
 
     setTimeout(() => {
       textarea.focus();
@@ -505,7 +696,10 @@ export function MarkdownEditor({
       textarea.value;
 
     const newContent =
-      text.substring(0, start) +
+      text.substring(
+        0,
+        start
+      ) +
       insertion +
       text.substring(start);
 
@@ -528,7 +722,7 @@ export function MarkdownEditor({
   };
 
   /**
-   * 圖片 / 影片處理。
+   * 圖片 / 影片上傳。
    */
   const handleProcessFiles =
     async (
@@ -555,7 +749,9 @@ export function MarkdownEditor({
         return;
       }
 
-      setIsUploading(true);
+      setIsUploading(
+        true
+      );
 
       setUploadMessage(
         `正在儲存 ${mediaFiles.length} 個檔案到 IndexedDB...`
@@ -574,12 +770,10 @@ export function MarkdownEditor({
             );
 
           /**
-           * Markdown 保存 Media ID，
-           * 顯示檔案名稱。
+           * Media ID 放左邊。
+           * 原始檔名放右邊。
            *
-           * 範例：
-           *
-           * ![[media-123abc|image.png]]
+           * ![[media-xxx|photo.png]]
            */
           insertTags +=
             `\n![[${saved.id}|${saved.filename}]]\n`;
@@ -594,24 +788,28 @@ export function MarkdownEditor({
         );
 
         setTimeout(() => {
-          setUploadMessage(null);
+          setUploadMessage(
+            null
+          );
         }, 3000);
-      } catch (err: unknown) {
+      } catch (error: unknown) {
         const message =
-          err instanceof Error
-            ? err.message
-            : String(err);
+          error instanceof Error
+            ? error.message
+            : String(error);
 
         alert(
-          `儲存多媒體失敗: ${message}`
+          `儲存多媒體失敗：${message}`
         );
       } finally {
-        setIsUploading(false);
+        setIsUploading(
+          false
+        );
       }
     };
 
   /**
-   * 剪貼簿貼上圖片。
+   * Clipboard 貼上圖片 / 影片。
    */
   const handlePaste = (
     e: React.ClipboardEvent<HTMLTextAreaElement>
@@ -619,8 +817,8 @@ export function MarkdownEditor({
     if (
       e.clipboardData &&
       e.clipboardData.files &&
-      e.clipboardData.files
-        .length > 0
+      e.clipboardData.files.length >
+        0
     ) {
       const hasMedia =
         Array.from(
@@ -638,62 +836,59 @@ export function MarkdownEditor({
       if (hasMedia) {
         e.preventDefault();
 
-        handleProcessFiles(
+        void handleProcessFiles(
           e.clipboardData.files
         );
       }
     }
   };
 
-  /**
-   * Drag Over。
-   */
   const handleDragOver = (
     e: React.DragEvent<HTMLDivElement>
   ) => {
     e.preventDefault();
     e.stopPropagation();
 
-    setIsDragging(true);
+    setIsDragging(
+      true
+    );
   };
 
-  /**
-   * Drag Leave。
-   */
   const handleDragLeave = (
     e: React.DragEvent<HTMLDivElement>
   ) => {
     e.preventDefault();
     e.stopPropagation();
 
-    setIsDragging(false);
+    setIsDragging(
+      false
+    );
   };
 
-  /**
-   * Drop 圖片。
-   */
   const handleDrop = (
     e: React.DragEvent<HTMLDivElement>
   ) => {
     e.preventDefault();
     e.stopPropagation();
 
-    setIsDragging(false);
+    setIsDragging(
+      false
+    );
 
     if (
       e.dataTransfer &&
       e.dataTransfer.files &&
-      e.dataTransfer.files
-        .length > 0
+      e.dataTransfer.files.length >
+        0
     ) {
-      handleProcessFiles(
+      void handleProcessFiles(
         e.dataTransfer.files
       );
     }
   };
 
   /**
-   * 預覽區點擊 Wikilink / Tag。
+   * 預覽區點擊事件。
    */
   const handlePreviewClick = (
     e: React.MouseEvent<HTMLDivElement>
@@ -702,7 +897,73 @@ export function MarkdownEditor({
       e.target as HTMLElement;
 
     /**
+     * =========================
+     * 刪除圖片 / 影片
+     * =========================
+     */
+    const deleteButton =
+      target.closest<HTMLButtonElement>(
+        "[data-delete-media-id]"
+      );
+
+    if (deleteButton) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const mediaId =
+        deleteButton.getAttribute(
+          "data-delete-media-id"
+        );
+
+      const mediaName =
+        deleteButton.getAttribute(
+          "data-delete-media-name"
+        ) ||
+        mediaId ||
+        "未知檔案";
+
+      if (mediaId) {
+        void handleDeleteMedia(
+          mediaId,
+          mediaName
+        );
+      }
+
+      return;
+    }
+
+    /**
+     * =========================
+     * 移除失效附件引用
+     * =========================
+     */
+    const removeButton =
+      target.closest<HTMLButtonElement>(
+        "[data-remove-media-id]"
+      );
+
+    if (removeButton) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const mediaId =
+        removeButton.getAttribute(
+          "data-remove-media-id"
+        );
+
+      if (mediaId) {
+        removeMediaReference(
+          mediaId
+        );
+      }
+
+      return;
+    }
+
+    /**
+     * =========================
      * Wikilink
+     * =========================
      */
     const linkEl =
       target.closest<HTMLAnchorElement>(
@@ -744,7 +1005,9 @@ export function MarkdownEditor({
     }
 
     /**
+     * =========================
      * Tag
+     * =========================
      */
     const tagEl =
       target.closest<HTMLElement>(
@@ -763,7 +1026,9 @@ export function MarkdownEditor({
         );
 
       if (tag) {
-        onSelectTag(tag);
+        onSelectTag(
+          tag
+        );
       }
 
       return;
@@ -783,7 +1048,7 @@ export function MarkdownEditor({
 
   return (
     <div className="flex h-full flex-col bg-slate-950 text-slate-100 min-w-0 relative">
-      {/* 上傳狀態 */}
+      {/* 狀態訊息 */}
       {uploadMessage && (
         <div className="absolute top-3 right-5 z-50 rounded-full bg-purple-600 px-4 py-1.5 text-xs text-white shadow-xl flex items-center gap-2 animate-bounce">
           <svg
@@ -816,11 +1081,12 @@ export function MarkdownEditor({
             e.target.files.length >
               0
           ) {
-            handleProcessFiles(
+            void handleProcessFiles(
               e.target.files
             );
 
-            e.target.value = "";
+            e.target.value =
+              "";
           }
         }}
         multiple
@@ -828,7 +1094,7 @@ export function MarkdownEditor({
         className="hidden"
       />
 
-      {/* 頂部操作列 */}
+      {/* 頂部工具列 */}
       <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/70 px-4 py-2.5">
         <div className="flex items-center gap-3 min-w-0">
           <h2 className="text-base font-bold text-slate-100 truncate tracking-tight flex items-center gap-2">
@@ -850,7 +1116,7 @@ export function MarkdownEditor({
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* 插入圖片 / 影片 */}
+          {/* 插入媒體 */}
           <button
             type="button"
             onClick={() =>
@@ -923,7 +1189,7 @@ export function MarkdownEditor({
             </svg>
           </button>
 
-          {/* 檢視模式 */}
+          {/* 模式切換 */}
           <div className="flex rounded-full bg-slate-900/90 p-0.5 border border-slate-700/80 shadow-inner">
             <button
               type="button"
@@ -949,8 +1215,7 @@ export function MarkdownEditor({
                 )
               }
               className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition cursor-pointer hidden md:inline-block ${
-                viewMode ===
-                "split"
+                viewMode === "split"
                   ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-900/40"
                   : "text-slate-400 hover:text-slate-200"
               }`}
@@ -966,8 +1231,7 @@ export function MarkdownEditor({
                 )
               }
               className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition cursor-pointer ${
-                viewMode ===
-                "preview"
+                viewMode === "preview"
                   ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-900/40"
                   : "text-slate-400 hover:text-slate-200"
               }`}
@@ -979,8 +1243,7 @@ export function MarkdownEditor({
       </div>
 
       {/* Markdown 工具列 */}
-      {viewMode !==
-        "preview" && (
+      {viewMode !== "preview" && (
         <div className="flex items-center gap-1.5 overflow-x-auto border-b border-slate-800 bg-slate-900/40 px-4 py-1.5 text-slate-400 text-xs">
           <button
             type="button"
@@ -1118,7 +1381,7 @@ export function MarkdownEditor({
         </div>
       )}
 
-      {/* 主要工作區 */}
+      {/* 工作區 */}
       <div
         onDragOver={
           handleDragOver
@@ -1126,14 +1389,16 @@ export function MarkdownEditor({
         onDragLeave={
           handleDragLeave
         }
-        onDrop={handleDrop}
+        onDrop={
+          handleDrop
+        }
         className={`flex-1 overflow-hidden flex min-h-0 relative ${
           isDragging
             ? "ring-2 ring-purple-500 bg-purple-950/20"
             : ""
         }`}
       >
-        {/* 拖曳圖片提示 */}
+        {/* Drag Drop 提示 */}
         {isDragging && (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs border-2 border-dashed border-purple-500 rounded-3xl pointer-events-none">
             <div className="text-center">
@@ -1164,21 +1429,20 @@ export function MarkdownEditor({
 
         {/* 編輯區 */}
         {(
-          viewMode ===
-            "edit" ||
-          viewMode ===
-            "split"
+          viewMode === "edit" ||
+          viewMode === "split"
         ) && (
           <div
             className={`flex flex-col h-full ${
-              viewMode ===
-              "split"
+              viewMode === "split"
                 ? "w-1/2 border-r border-slate-800"
                 : "w-full"
             }`}
           >
             <textarea
-              ref={textareaRef}
+              ref={
+                textareaRef
+              }
               value={
                 note.content
               }
@@ -1198,19 +1462,18 @@ export function MarkdownEditor({
 
         {/* 預覽區 */}
         {(
-          viewMode ===
-            "preview" ||
-          viewMode ===
-            "split"
+          viewMode === "preview" ||
+          viewMode === "split"
         ) && (
           <div
-            ref={previewRef}
+            ref={
+              previewRef
+            }
             onClick={
               handlePreviewClick
             }
             className={`flex flex-col h-full overflow-y-auto p-6 bg-slate-900/30 ${
-              viewMode ===
-              "split"
+              viewMode === "split"
                 ? "w-1/2"
                 : "w-full"
             }`}
