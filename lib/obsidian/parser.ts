@@ -114,7 +114,7 @@ export function renderMarkdownToHtml(
     text = text.replace(/!\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g, (_, filename, alt) => {
       const cleanFile = filename.trim();
       const altText = (alt || cleanFile).trim();
-      const isVid = isVideoFile(cleanFile);
+      const isVid = isVideoFile(altText);
       return `<div class="obsidian-media-container my-3 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 p-2 inline-block max-w-full" data-media-name="${escapeHtml(cleanFile)}" data-is-video="${isVid}">
         <span class="text-xs text-purple-400 flex items-center gap-1.5 font-mono">
           <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="3" stroke-dasharray="32" stroke-linecap="round"></circle></svg>
