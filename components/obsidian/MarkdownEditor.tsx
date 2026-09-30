@@ -484,7 +484,6 @@ export function MarkdownEditor({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
               <p className="text-sm font-bold text-purple-200">放開滑鼠以儲存圖片或影片至本機庫</p>
-              <p className="text-xs text-slate-400 mt-1">檔案將儲存至 IndexedDB 並自動插入 Markdown</p>
             </div>
           </div>
         )}
