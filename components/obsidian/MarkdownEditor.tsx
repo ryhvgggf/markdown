@@ -1,9 +1,19 @@
 "use client";
 
+import DOMPurify from "dompurify";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { renderMarkdownToHtml } from "@/lib/obsidian/parser";
 import { Note, ViewMode } from "@/lib/obsidian/types";
 import { saveUploadedMedia, resolveMediaUrl, revokeAllActiveMediaUrls } from "@/lib/obsidian/media";
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
 interface MarkdownEditorProps {
   note: Note | null;
@@ -45,10 +55,17 @@ export function MarkdownEditor({
   }, [note?.id]);
 
   // 靜態渲染 HTML
-  const renderedHtml = useMemo(() => {
-    if (!note) return "";
-    return renderMarkdownToHtml(note.content, existingTitles, note.title);
-  }, [note?.content, existingTitles, note?.title]);
+const renderedHtml = useMemo(() => {
+  if (!note) return "";
+
+  const rawHtml = renderMarkdownToHtml(
+    note.content,
+    existingTitles,
+    note.title
+  );
+
+  return DOMPurify.sanitize(rawHtml);
+}, [note?.content, existingTitles, note?.title]);
 
   // 平滑滾動定位至指定標題並發光高亮
   const scrollToHeading = useCallback((slug: string) => {
@@ -60,7 +77,8 @@ export function MarkdownEditor({
         targetEl = elById;
       }
       if (!targetEl) {
-        const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(slug) : slug.replace(/[^a-zA-Z0-9_-]/g, '\\const targetEl = previewRef.current.querySelector<HTMLElement>(`#${slug}`);');
+        const escaped =
+        typeof CSS !== "undefined" && CSS.escape ? CSS.escape(slug): slug.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
         targetEl = previewRef.current.querySelector<HTMLElement>('[id="' + escaped + '"]') ||
                    previewRef.current.querySelector<HTMLElement>('[data-heading-slug="' + escaped + '"]');
       }
@@ -98,6 +116,7 @@ export function MarkdownEditor({
 
     mediaNodes.forEach(async (el) => {
       const mediaName = el.getAttribute("data-media-name");
+      const safeMediaName = escapeHtml(mediaName);
       const isVid = el.getAttribute("data-is-video") === "true";
       if (!mediaName) return;
 
@@ -107,12 +126,12 @@ export function MarkdownEditor({
 
         if (objectUrl) {
           if (isVid) {
-            el.innerHTML = `<div class="relative group/media inline-block my-2 max-w-full"><video controls class="rounded-2xl max-h-96 max-w-full border border-slate-800 shadow-md" src="${objectUrl}">無法播放此影片格式</video><a href="${objectUrl}" download="${mediaName}" title="下載原始影片 (${mediaName})" class="opacity-0 group-hover/media:opacity-100 absolute top-3 right-3 bg-slate-900/85 hover:bg-purple-600 text-white text-[11px] px-2.5 py-1 rounded-xl shadow-lg border border-slate-700/80 backdrop-blur-md transition flex items-center gap-1 cursor-pointer select-none"><span>⬇️</span><span>下載原檔</span></a></div>`;
+            el.innerHTML = `<div class="relative group/media inline-block my-2 max-w-full"><video controls class="rounded-2xl max-h-96 max-w-full border border-slate-800 shadow-md" src="${objectUrl}">無法播放此影片格式</video><a href="${objectUrl}" download="${safeMediaName}" title="下載原始影片 (${mediaName})" class="opacity-0 group-hover/media:opacity-100 absolute top-3 right-3 bg-slate-900/85 hover:bg-purple-600 text-white text-[11px] px-2.5 py-1 rounded-xl shadow-lg border border-slate-700/80 backdrop-blur-md transition flex items-center gap-1 cursor-pointer select-none"><span>⬇️</span><span>下載原檔</span></a></div>`;
           } else {
-            el.innerHTML = `<div class="relative group/media inline-block my-2 max-w-full"><img src="${objectUrl}" alt="${mediaName}" class="rounded-2xl max-h-96 max-w-full object-contain border border-slate-800 shadow-md hover:opacity-95 transition" /><a href="${objectUrl}" download="${mediaName}" title="下載原始圖片 (${mediaName})" class="opacity-0 group-hover/media:opacity-100 absolute top-3 right-3 bg-slate-900/85 hover:bg-purple-600 text-white text-[11px] px-2.5 py-1 rounded-xl shadow-lg border border-slate-700/80 backdrop-blur-md transition flex items-center gap-1 cursor-pointer select-none"><span>⬇️</span><span>下載原檔</span></a></div>`;
+            el.innerHTML = `<div class="relative group/media inline-block my-2 max-w-full"><img src="${objectUrl}" alt="${safeMediaName}" class="rounded-2xl max-h-96 max-w-full object-contain border border-slate-800 shadow-md hover:opacity-95 transition" /><a href="${objectUrl}" download="${safeMediaName}" title="下載原始圖片 (${mediaName})" class="opacity-0 group-hover/media:opacity-100 absolute top-3 right-3 bg-slate-900/85 hover:bg-purple-600 text-white text-[11px] px-2.5 py-1 rounded-xl shadow-lg border border-slate-700/80 backdrop-blur-md transition flex items-center gap-1 cursor-pointer select-none"><span>⬇️</span><span>下載原檔</span></a></div>`;
           }
         } else {
-          el.innerHTML = `<span class="text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 px-2.5 py-1 rounded-full inline-flex items-center gap-1 font-mono">⚠️ 附件「${mediaName}」不存在於本機庫</span>`;
+          el.innerHTML = `<span class="text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 px-2.5 py-1 rounded-full inline-flex items-center gap-1 font-mono">⚠️ 附件「${safeMediaName}」不存在於本機庫</span>`;
         }
       } catch (err) {
         if (!isCancelled && el.parentElement) {
