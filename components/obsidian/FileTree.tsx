@@ -1,18 +1,43 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef } from "react";
-import { NoteMetadata, FolderNode } from "@/lib/obsidian/types";
-import { getCustomFolders, saveCustomFolders } from "@/lib/obsidian/db";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+
+import {
+  getCustomFolders,
+  saveCustomFolders,
+} from "@/lib/obsidian/db";
+import {
+  FolderNode,
+  NoteMetadata,
+} from "@/lib/obsidian/types";
 
 interface FileTreeProps {
   notes: NoteMetadata[];
   activeNoteId: string | null;
   onSelectNote: (id: string) => void;
-  onCreateNote: (initialTitle?: string, folder?: string) => void;
+  onCreateNote: (
+    initialTitle?: string,
+    folder?: string
+  ) => void;
   onDeleteNote: (id: string) => void;
-  onRenameNote: (id: string, newTitle: string) => void;
-  onMoveNoteFolder?: (noteId: string, targetFolder: string) => void;
-  onMoveFolder?: (sourceFolder: string, targetParent: string) => void;
+  onRenameNote: (
+    id: string,
+    newTitle: string
+  ) => void;
+  onMoveNoteFolder?: (
+    noteId: string,
+    targetFolder: string
+  ) => void;
+  onMoveFolder?: (
+    sourceFolder: string,
+    targetParent: string
+  ) => void;
   selectedTag: string | null;
   onClearTagFilter: () => void;
 }
@@ -23,6 +48,14 @@ interface DragItemData {
   path?: string;
   title?: string;
   name?: string;
+}
+
+function normalizeFolderPath(path: string): string {
+  return path
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("/");
 }
 
 export default function FileTree({
@@ -37,949 +70,2410 @@ export default function FileTree({
   selectedTag,
   onClearTagFilter,
 }: FileTreeProps) {
-  const [search, setSearch] = useState("");
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [nameError, setNameError] = useState("");
+  const [search, setSearch] =
+    useState("");
 
-  // 自訂建立的資料夾列表
-  const [customFolders, setCustomFolders] = useState<string[]>([]);
-  // 展開的資料夾路徑 Set
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [
+    editingNoteId,
+    setEditingNoteId,
+  ] =
+    useState<
+      string | null
+    >(null);
 
-  // 雙軌拖曳引擎狀態
-  const [isDragging, setIsDragging] = useState(false);
-  const [activeDragItem, setActiveDragItem] = useState<DragItemData | null>(null);
-  const [dragPos, setDragPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [dragOverPath, setDragOverPath] = useState<string | null>(null);
+  const [
+    editTitle,
+    setEditTitle,
+  ] =
+    useState("");
 
-  const pointerStartRef = useRef<{ x: number; y: number; item: DragItemData } | null>(null);
-  const dragItemRef = useRef<DragItemData | null>(null);
-  const dragOverPathRef = useRef<string | null>(null);
-  const hoverExpandTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [
+    nameError,
+    setNameError,
+  ] =
+    useState("");
 
-  // 建立資料夾狀態
-  const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
-  const [targetParentFolder, setTargetParentFolder] = useState<string>("");
-  const [newFolderName, setNewFolderName] = useState("");
-  const [folderError, setFolderError] = useState("");
+  const [
+    customFolders,
+    setCustomFolders,
+  ] =
+    useState<string[]>(
+      []
+    );
 
-  // 重新命名資料夾狀態
-  const [renamingFolder, setRenamingFolder] = useState<{ oldPath: string; newName: string } | null>(null);
+  const [
+    expandedFolders,
+    setExpandedFolders,
+  ] =
+    useState<Set<string>>(
+      new Set()
+    );
 
-  // 刪除資料夾狀態
-  const [deletingFolder, setDeletingFolder] = useState<{ path: string; count: number } | null>(null);
+  const [
+    isDragging,
+    setIsDragging,
+  ] =
+    useState(false);
 
-  // 刪除筆記狀態
-  const [deletingNote, setDeletingNote] = useState<{ id: string; title: string } | null>(null);
+  const [
+    activeDragItem,
+    setActiveDragItem,
+  ] =
+    useState<
+      DragItemData | null
+    >(null);
 
-  // 初始化自本機讀取資料夾與展開狀態
-  useEffect(() => {
-    const folders = getCustomFolders();
-    setCustomFolders(folders);
-
-    const initialExpanded = new Set<string>(folders);
-    notes.forEach((n) => {
-      if (n.folder) {
-        initialExpanded.add(n.folder);
-        const parts = n.folder.split("/");
-        let acc = "";
-        for (const p of parts) {
-          acc = acc ? `${acc}/${p}` : p;
-          initialExpanded.add(acc);
-        }
-      }
+  const [
+    dragPos,
+    setDragPos,
+  ] =
+    useState({
+      x: 0,
+      y: 0,
     });
-    setExpandedFolders(initialExpanded);
+
+  const [
+    dragOverPath,
+    setDragOverPath,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const pointerStartRef =
+    useRef<{
+      x: number;
+      y: number;
+      item: DragItemData;
+    } | null>(
+      null
+    );
+
+  const dragItemRef =
+    useRef<DragItemData | null>(
+      null
+    );
+
+  const dragOverPathRef =
+    useRef<
+      string | null
+    >(null);
+
+  const hoverExpandTimerRef =
+    useRef<
+      ReturnType<
+        typeof setTimeout
+      > | null
+    >(null);
+
+  const [
+    showCreateFolderModal,
+    setShowCreateFolderModal,
+  ] =
+    useState(false);
+
+  const [
+    targetParentFolder,
+    setTargetParentFolder,
+  ] =
+    useState("");
+
+  const [
+    newFolderName,
+    setNewFolderName,
+  ] =
+    useState("");
+
+  const [
+    folderError,
+    setFolderError,
+  ] =
+    useState("");
+
+  const [
+    renamingFolder,
+    setRenamingFolder,
+  ] =
+    useState<{
+      oldPath: string;
+      newName: string;
+    } | null>(
+      null
+    );
+
+  const [
+    deletingFolder,
+    setDeletingFolder,
+  ] =
+    useState<{
+      path: string;
+      count: number;
+    } | null>(
+      null
+    );
+
+  const [
+    deletingNote,
+    setDeletingNote,
+  ] =
+    useState<{
+      id: string;
+      title: string;
+    } | null>(
+      null
+    );
+
+  useEffect(() => {
+    const folders =
+      getCustomFolders();
+
+    setCustomFolders(
+      folders
+    );
+
+    const initial =
+      new Set<string>(
+        folders
+      );
+
+    for (const note of notes) {
+      if (!note.folder) {
+        continue;
+      }
+
+      const parts =
+        note.folder.split(
+          "/"
+        );
+
+      let current =
+        "";
+
+      for (const part of parts) {
+        current =
+          current
+            ? `${current}/${part}`
+            : part;
+
+        initial.add(
+          current
+        );
+      }
+    }
+
+    setExpandedFolders(
+      initial
+    );
   }, [notes]);
 
-  // 切換資料夾展開/收合
-  const toggleFolder = (folderPath: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(folderPath)) {
-        next.delete(folderPath);
-      } else {
-        next.add(folderPath);
-      }
-      return next;
-    });
-  };
+  const allFolderPaths =
+    useMemo(() => {
+      const set =
+        new Set<string>(
+          customFolders.map(
+            normalizeFolderPath
+          )
+        );
 
-  // 建立新資料夾
-  const handleCreateFolder = () => {
-    const trimmed = newFolderName.trim().replace(/^\/+|\/+$/g, "");
-    if (!trimmed) {
-      setFolderError("資料夾名稱不能為空");
-      return;
-    }
-    if (trimmed.includes("/")) {
-      setFolderError("子資料夾名稱請勿包含斜線「/」");
-      return;
-    }
+      for (const note of notes) {
+        if (
+          note.folder
+        ) {
+          const parts =
+            normalizeFolderPath(
+              note.folder
+            ).split(
+              "/"
+            );
 
-    const fullPath = targetParentFolder ? `${targetParentFolder}/${trimmed}` : trimmed;
-    if (customFolders.includes(fullPath) || notes.some((n) => n.folder === fullPath)) {
-      setFolderError("已存在同名資料夾");
-      return;
-    }
+          let current =
+            "";
 
-    const nextFolders = [...customFolders, fullPath];
-    setCustomFolders(nextFolders);
-    saveCustomFolders(nextFolders);
+          for (const part of parts) {
+            if (!part) continue;
 
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      next.add(fullPath);
-      if (targetParentFolder) {
-        const parts = targetParentFolder.split("/");
-        let acc = "";
-        for (const p of parts) {
-          acc = acc ? `${acc}/${p}` : p;
-          next.add(acc);
+            current =
+              current
+                ? `${current}/${part}`
+                : part;
+
+            set.add(
+              current
+            );
+          }
         }
       }
-      return next;
-    });
 
-    setShowCreateFolderModal(false);
-    setNewFolderName("");
-    setTargetParentFolder("");
-    setFolderError("");
-  };
+      return set;
+    }, [
+      customFolders,
+      notes,
+    ]);
 
-  // 重新命名資料夾
-  const handleRenameFolder = () => {
-    if (!renamingFolder) return;
-    const trimmed = renamingFolder.newName.trim().replace(/^\/+|\/+$/g, "");
-    if (!trimmed) return;
+  const folderExists =
+    (
+      path: string,
+      exceptPath?: string
+    ) => {
+      const clean =
+        normalizeFolderPath(
+          path
+        );
 
-    const oldPath = renamingFolder.oldPath;
-    const parent = oldPath.includes("/") ? oldPath.substring(0, oldPath.lastIndexOf("/")) : "";
-    const newPath = parent ? `${parent}/${trimmed}` : trimmed;
-
-    if (oldPath === newPath) {
-      setRenamingFolder(null);
-      return;
-    }
-
-    const nextCustom = customFolders.map((f) => {
-      if (f === oldPath) return newPath;
-      if (f.startsWith(oldPath + "/")) return newPath + f.slice(oldPath.length);
-      return f;
-    });
-    setCustomFolders(nextCustom);
-    saveCustomFolders(nextCustom);
-
-    if (onMoveNoteFolder) {
-      notes.forEach((n) => {
-        if (n.folder === oldPath) {
-          onMoveNoteFolder(n.id, newPath);
-        } else if (n.folder?.startsWith(oldPath + "/")) {
-          onMoveNoteFolder(n.id, newPath + n.folder.slice(oldPath.length));
-        }
-      });
-    }
-
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(oldPath)) {
-        next.delete(oldPath);
-        next.add(newPath);
+      if (!clean) {
+        return false;
       }
-      return next;
-    });
 
-    setRenamingFolder(null);
-  };
-
-  // 確認刪除資料夾
-  const handleConfirmDeleteFolder = () => {
-    if (!deletingFolder) return;
-    const targetPath = deletingFolder.path;
-
-    if (onMoveNoteFolder) {
-      notes.forEach((n) => {
-        if (n.folder === targetPath || n.folder?.startsWith(targetPath + "/")) {
-          onMoveNoteFolder(n.id, "");
-        }
-      });
-    }
-
-    const nextCustom = customFolders.filter(
-      (f) => f !== targetPath && !f.startsWith(targetPath + "/")
-    );
-    setCustomFolders(nextCustom);
-    saveCustomFolders(nextCustom);
-
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      next.delete(targetPath);
-      return next;
-    });
-
-    setDeletingFolder(null);
-  };
-
-  // 判斷是否為無效放置（避免循環嵌套）
-  const isInvalidDropTarget = (targetPath: string, itemToCheck?: DragItemData | null) => {
-    const item = itemToCheck || dragItemRef.current || activeDragItem;
-    if (!item) return false;
-    if (item.type === "note") return false;
-    if (item.type === "folder" && item.path) {
-      const source = item.path;
-      if (source === targetPath) return true;
-      if (targetPath.startsWith(source + "/")) return true;
-      const currentParent = source.includes("/") ? source.substring(0, source.lastIndexOf("/")) : "";
-      if (currentParent === targetPath) return true;
-    }
-    return false;
-  };
-
-  // 執行放置邏輯 (Commit Move)
-  const commitDrop = (targetPath: string, payload?: DragItemData | null) => {
-    const item = payload || dragItemRef.current || activeDragItem;
-    if (!item) return;
-    if (isInvalidDropTarget(targetPath, item)) return;
-
-    if (item.type === "note" && item.id) {
-      if (onMoveNoteFolder) {
-        onMoveNoteFolder(item.id, targetPath);
+      if (
+        exceptPath &&
+        clean ===
+          normalizeFolderPath(
+            exceptPath
+          )
+      ) {
+        return false;
       }
-      if (targetPath) {
-        setExpandedFolders((prev) => new Set(prev).add(targetPath));
-      }
-    } else if (item.type === "folder" && item.path) {
-      if (onMoveFolder) {
-        onMoveFolder(item.path, targetPath);
-      } else {
-        const source = item.path;
-        const folderName = source.split("/").pop() || "";
-        const newPath = targetPath ? `${targetPath}/${folderName}` : folderName;
 
-        const nextCustom = customFolders.map((f) => {
-          if (f === source) return newPath;
-          if (f.startsWith(source + "/")) return newPath + f.slice(source.length);
-          return f;
-        });
-        setCustomFolders(nextCustom);
-        saveCustomFolders(nextCustom);
-
-        if (onMoveNoteFolder) {
-          notes.forEach((n) => {
-            if (n.folder === source) {
-              onMoveNoteFolder(n.id, newPath);
-            } else if (n.folder?.startsWith(source + "/")) {
-              onMoveNoteFolder(n.id, newPath + n.folder.slice(source.length));
-            }
-          });
-        }
-      }
-      if (targetPath) {
-        setExpandedFolders((prev) => new Set(prev).add(targetPath));
-      }
-    }
-  };
-
-  // ================= 雙軌拖曳引擎 (Universal Pointer DnD) =================
-  const startPointerDrag = (e: React.PointerEvent, item: DragItemData) => {
-    // 點擊在按鈕或輸入框時不觸發拖曳
-    const target = e.target as HTMLElement;
-    if (target.closest("button") || target.closest("input")) return;
-
-    pointerStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      item,
+      return allFolderPaths.has(
+        clean
+      );
     };
-    dragItemRef.current = item;
 
-    const handlePointerMove = (moveEvt: PointerEvent) => {
-      if (!pointerStartRef.current) return;
-      const dx = moveEvt.clientX - pointerStartRef.current.x;
-      const dy = moveEvt.clientY - pointerStartRef.current.y;
+  const toggleFolder =
+    (
+      folderPath: string,
+      event?: React.MouseEvent
+    ) => {
+      event?.stopPropagation();
 
-      // 移動超過 4px 判定為拖曳開始
-      if (!isDragging && Math.hypot(dx, dy) > 4) {
-        setIsDragging(true);
-        setActiveDragItem(pointerStartRef.current.item);
+      setExpandedFolders(
+        (previous) => {
+          const next =
+            new Set(
+              previous
+            );
+
+          if (
+            next.has(
+              folderPath
+            )
+          ) {
+            next.delete(
+              folderPath
+            );
+          } else {
+            next.add(
+              folderPath
+            );
+          }
+
+          return next;
+        }
+      );
+    };
+
+  const handleCreateFolder =
+    () => {
+      const name =
+        newFolderName
+          .trim()
+          .replace(
+            /^\/+|\/+$/g,
+            ""
+          );
+
+      if (!name) {
+        setFolderError(
+          "資料夾名稱不能為空"
+        );
+        return;
       }
 
-      setDragPos({ x: moveEvt.clientX, y: moveEvt.clientY });
+      if (
+        name.includes(
+          "/"
+        )
+      ) {
+        setFolderError(
+          "子資料夾名稱不能包含「/」"
+        );
+        return;
+      }
 
-      // 透過坐標偵測當前游標底下的目標元素
-      const elem = document.elementFromPoint(moveEvt.clientX, moveEvt.clientY) as HTMLElement | null;
-      if (elem) {
-        const folderEl = elem.closest("[data-folder-path]") as HTMLElement | null;
-        const rootEl = elem.closest("[data-drop-root]") as HTMLElement | null;
+      const fullPath =
+        normalizeFolderPath(
+          targetParentFolder
+            ? `${targetParentFolder}/${name}`
+            : name
+        );
 
-        if (folderEl) {
-          const path = folderEl.getAttribute("data-folder-path") || "";
-          setDragOverPath(path);
-          dragOverPathRef.current = path;
+      if (
+        folderExists(
+          fullPath
+        )
+      ) {
+        setFolderError(
+          "目標位置已存在同名資料夾"
+        );
+        return;
+      }
 
-          // 自動展開懸浮資料夾
-          if (path && !expandedFolders.has(path)) {
-            if (!hoverExpandTimerRef.current) {
-              hoverExpandTimerRef.current = setTimeout(() => {
-                setExpandedFolders((prev) => new Set(prev).add(path));
-              }, 450);
+      const next =
+        Array.from(
+          new Set([
+            ...customFolders,
+            fullPath,
+          ])
+        );
+
+      setCustomFolders(
+        next
+      );
+
+      saveCustomFolders(
+        next
+      );
+
+      setExpandedFolders(
+        (previous) => {
+          const result =
+            new Set(
+              previous
+            );
+
+          result.add(
+            fullPath
+          );
+
+          if (
+            targetParentFolder
+          ) {
+            result.add(
+              targetParentFolder
+            );
+          }
+
+          return result;
+        }
+      );
+
+      setShowCreateFolderModal(
+        false
+      );
+
+      setTargetParentFolder(
+        ""
+      );
+
+      setNewFolderName(
+        ""
+      );
+
+      setFolderError(
+        ""
+      );
+  };
+
+  const handleRenameFolder =
+    () => {
+      if (
+        !renamingFolder
+      ) {
+        return;
+      }
+
+      const newName =
+        renamingFolder
+          .newName
+          .trim()
+          .replace(
+            /^\/+|\/+$/g,
+            ""
+          );
+
+      if (!newName) {
+        setFolderError(
+          "資料夾名稱不能為空"
+        );
+        return;
+      }
+
+      if (
+        newName.includes(
+          "/"
+        )
+      ) {
+        setFolderError(
+          "資料夾名稱不能包含「/」"
+        );
+        return;
+      }
+
+      const oldPath =
+        normalizeFolderPath(
+          renamingFolder.oldPath
+        );
+
+      const parent =
+        oldPath.includes(
+          "/"
+        )
+          ? oldPath.substring(
+              0,
+              oldPath.lastIndexOf(
+                "/"
+              )
+            )
+          : "";
+
+      const newPath =
+        normalizeFolderPath(
+          parent
+            ? `${parent}/${newName}`
+            : newName
+        );
+
+      if (
+        newPath ===
+        oldPath
+      ) {
+        setRenamingFolder(
+          null
+        );
+
+        setFolderError(
+          ""
+        );
+
+        return;
+      }
+
+      if (
+        folderExists(
+          newPath,
+          oldPath
+        )
+      ) {
+        setFolderError(
+          "同一層已存在同名資料夾"
+        );
+        return;
+      }
+
+      const next =
+        customFolders.map(
+          (path) => {
+            if (
+              path ===
+              oldPath
+            ) {
+              return newPath;
+            }
+
+            if (
+              path.startsWith(
+                `${oldPath}/`
+              )
+            ) {
+              return (
+                newPath +
+                path.slice(
+                  oldPath.length
+                )
+              );
+            }
+
+            return path;
+          }
+        );
+
+      setCustomFolders(
+        next
+      );
+
+      saveCustomFolders(
+        next
+      );
+
+      if (
+        onMoveNoteFolder
+      ) {
+        for (const note of notes) {
+          if (
+            note.folder ===
+            oldPath
+          ) {
+            onMoveNoteFolder(
+              note.id,
+              newPath
+            );
+          } else if (
+            note.folder?.startsWith(
+              `${oldPath}/`
+            )
+          ) {
+            onMoveNoteFolder(
+              note.id,
+              newPath +
+                note.folder.slice(
+                  oldPath.length
+                )
+            );
+          }
+        }
+      }
+
+      setExpandedFolders(
+        (previous) => {
+          const result =
+            new Set<string>();
+
+          for (const path of previous) {
+            if (
+              path ===
+              oldPath
+            ) {
+              result.add(
+                newPath
+              );
+            } else if (
+              path.startsWith(
+                `${oldPath}/`
+              )
+            ) {
+              result.add(
+                newPath +
+                  path.slice(
+                    oldPath.length
+                  )
+              );
+            } else {
+              result.add(
+                path
+              );
             }
           }
-        } else if (rootEl) {
-          setDragOverPath("");
-          dragOverPathRef.current = "";
-        } else {
-          setDragOverPath(null);
-          dragOverPathRef.current = null;
+
+          return result;
+        }
+      );
+
+      setRenamingFolder(
+        null
+      );
+
+      setFolderError(
+        ""
+      );
+  };
+
+  const handleConfirmDeleteFolder =
+    () => {
+      if (
+        !deletingFolder
+      ) {
+        return;
+      }
+
+      const target =
+        normalizeFolderPath(
+          deletingFolder.path
+        );
+
+      if (
+        onMoveNoteFolder
+      ) {
+        for (const note of notes) {
+          if (
+            note.folder ===
+              target ||
+            note.folder?.startsWith(
+              `${target}/`
+            )
+          ) {
+            onMoveNoteFolder(
+              note.id,
+              ""
+            );
+          }
+        }
+      }
+
+      const next =
+        customFolders.filter(
+          (path) =>
+            path !==
+              target &&
+            !path.startsWith(
+              `${target}/`
+            )
+        );
+
+      setCustomFolders(
+        next
+      );
+
+      saveCustomFolders(
+        next
+      );
+
+      setExpandedFolders(
+        (previous) => {
+          const result =
+            new Set(
+              previous
+            );
+
+          for (const path of result) {
+            if (
+              path ===
+                target ||
+              path.startsWith(
+                `${target}/`
+              )
+            ) {
+              result.delete(
+                path
+              );
+            }
+          }
+
+          return result;
+        }
+      );
+
+      setDeletingFolder(
+        null
+      );
+  };
+
+  const isInvalidDropTarget =
+    (
+      targetPath: string,
+      item?: DragItemData | null
+    ) => {
+      const current =
+        item ||
+        dragItemRef.current ||
+        activeDragItem;
+
+      if (!current) {
+        return false;
+      }
+
+      if (
+        current.type ===
+        "note"
+      ) {
+        return false;
+      }
+
+      const source =
+        normalizeFolderPath(
+          current.path || ""
+        );
+
+      const target =
+        normalizeFolderPath(
+          targetPath
+        );
+
+      if (!source) {
+        return false;
+      }
+
+      if (
+        source ===
+        target
+      ) {
+        return true;
+      }
+
+      if (
+        target.startsWith(
+          `${source}/`
+        )
+      ) {
+        return true;
+      }
+
+      const currentParent =
+        source.includes(
+          "/"
+        )
+          ? source.substring(
+              0,
+              source.lastIndexOf(
+                "/"
+              )
+            )
+          : "";
+
+      return (
+        currentParent ===
+        target
+      );
+    };
+
+  const commitDrop =
+    (
+      targetPath: string,
+      payload?: DragItemData | null
+    ) => {
+      const item =
+        payload ||
+        dragItemRef.current ||
+        activeDragItem;
+
+      if (!item) {
+        return;
+      }
+
+      const target =
+        normalizeFolderPath(
+          targetPath
+        );
+
+      if (
+        isInvalidDropTarget(
+          target,
+          item
+        )
+      ) {
+        return;
+      }
+
+      if (
+        item.type ===
+          "note" &&
+        item.id
+      ) {
+        onMoveNoteFolder?.(
+          item.id,
+          target
+        );
+
+        if (target) {
+          setExpandedFolders(
+            (previous) =>
+              new Set(
+                previous
+              ).add(
+                target
+              )
+          );
+        }
+
+        return;
+      }
+
+      if (
+        item.type ===
+          "folder" &&
+        item.path
+      ) {
+        const source =
+          normalizeFolderPath(
+            item.path
+          );
+
+        const folderName =
+          source
+            .split(
+              "/"
+            )
+            .pop() || "";
+
+        const newPath =
+          normalizeFolderPath(
+            target
+              ? `${target}/${folderName}`
+              : folderName
+          );
+
+        if (
+          folderExists(
+            newPath,
+            source
+          )
+        ) {
+          setNameError(
+            "移動失敗：目標位置已存在同名資料夾"
+          );
+          return;
+        }
+
+        setNameError(
+          ""
+        );
+
+        /*
+         * 先更新 FileTree 自己的 customFolders，
+         * 即使是空資料夾也能立即反映移動結果。
+         */
+        const next =
+          customFolders.map(
+            (path) => {
+              if (
+                path ===
+                source
+              ) {
+                return newPath;
+              }
+
+              if (
+                path.startsWith(
+                  `${source}/`
+                )
+              ) {
+                return (
+                  newPath +
+                  path.slice(
+                    source.length
+                  )
+                );
+              }
+
+              return path;
+            }
+          );
+
+        setCustomFolders(
+          next
+        );
+
+        saveCustomFolders(
+          next
+        );
+
+        if (
+          onMoveFolder
+        ) {
+          onMoveFolder(
+            source,
+            target
+          );
+        } else if (
+          onMoveNoteFolder
+        ) {
+          for (const note of notes) {
+            if (
+              note.folder ===
+              source
+            ) {
+              onMoveNoteFolder(
+                note.id,
+                newPath
+              );
+            } else if (
+              note.folder?.startsWith(
+                `${source}/`
+              )
+            ) {
+              onMoveNoteFolder(
+                note.id,
+                newPath +
+                  note.folder.slice(
+                    source.length
+                  )
+              );
+            }
+          }
+        }
+
+        if (target) {
+          setExpandedFolders(
+            (previous) =>
+              new Set(
+                previous
+              ).add(
+                target
+              )
+          );
         }
       }
     };
 
-    const handlePointerUp = () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
+  const startPointerDrag =
+    (
+      event: React.PointerEvent,
+      item: DragItemData
+    ) => {
+      const target =
+        event.target as HTMLElement;
 
-      if (hoverExpandTimerRef.current) {
-        clearTimeout(hoverExpandTimerRef.current);
-        hoverExpandTimerRef.current = null;
+      if (
+        target.closest(
+          "button"
+        ) ||
+        target.closest(
+          "input"
+        )
+      ) {
+        return;
       }
 
-      if (dragItemRef.current && dragOverPathRef.current !== null) {
-        commitDrop(dragOverPathRef.current, dragItemRef.current);
+      pointerStartRef.current =
+        {
+          x: event.clientX,
+          y: event.clientY,
+          item,
+        };
+
+      dragItemRef.current =
+        item;
+
+      const onMove =
+        (
+          moveEvent: PointerEvent
+        ) => {
+          const start =
+            pointerStartRef.current;
+
+          if (!start) {
+            return;
+          }
+
+          const distance =
+            Math.hypot(
+              moveEvent.clientX -
+                start.x,
+              moveEvent.clientY -
+                start.y
+            );
+
+          if (
+            distance >
+              4 &&
+            !isDragging
+          ) {
+            setIsDragging(
+              true
+            );
+
+            setActiveDragItem(
+              start.item
+            );
+          }
+
+          setDragPos({
+            x: moveEvent.clientX,
+            y: moveEvent.clientY,
+          });
+
+          const element =
+            document.elementFromPoint(
+              moveEvent.clientX,
+              moveEvent.clientY
+            ) as HTMLElement | null;
+
+          const folderElement =
+            element?.closest<HTMLElement>(
+              "[data-folder-path]"
+            );
+
+          const rootElement =
+            element?.closest<HTMLElement>(
+              "[data-drop-root]"
+            );
+
+          if (
+            folderElement
+          ) {
+            const path =
+              folderElement.getAttribute(
+                "data-folder-path"
+              ) || "";
+
+            setDragOverPath(
+              path
+            );
+
+            dragOverPathRef.current =
+              path;
+
+            if (
+              path &&
+              !expandedFolders.has(
+                path
+              ) &&
+              !hoverExpandTimerRef.current
+            ) {
+              hoverExpandTimerRef.current =
+                setTimeout(
+                  () => {
+                    setExpandedFolders(
+                      (previous) =>
+                        new Set(
+                          previous
+                        ).add(
+                          path
+                        )
+                    );
+
+                    hoverExpandTimerRef.current =
+                      null;
+                  },
+                  420
+                );
+            }
+          } else if (
+            rootElement
+          ) {
+            setDragOverPath(
+              ""
+            );
+
+            dragOverPathRef.current =
+              "";
+          } else {
+            setDragOverPath(
+              null
+            );
+
+            dragOverPathRef.current =
+              null;
+          }
+        };
+
+      const onUp =
+        () => {
+          window.removeEventListener(
+            "pointermove",
+            onMove
+          );
+
+          window.removeEventListener(
+            "pointerup",
+            onUp
+          );
+
+          if (
+            hoverExpandTimerRef.current
+          ) {
+            clearTimeout(
+              hoverExpandTimerRef.current
+            );
+
+            hoverExpandTimerRef.current =
+              null;
+          }
+
+          if (
+            dragItemRef.current &&
+            dragOverPathRef.current !==
+              null
+          ) {
+            commitDrop(
+              dragOverPathRef.current,
+              dragItemRef.current
+            );
+          }
+
+          setIsDragging(
+            false
+          );
+
+          setActiveDragItem(
+            null
+          );
+
+          setDragOverPath(
+            null
+          );
+
+          dragOverPathRef.current =
+            null;
+
+          dragItemRef.current =
+            null;
+
+          pointerStartRef.current =
+            null;
+        };
+
+      window.addEventListener(
+        "pointermove",
+        onMove
+      );
+
+      window.addEventListener(
+        "pointerup",
+        onUp
+      );
+    };
+
+  const handleHtml5DragStart =
+    (
+      event: React.DragEvent,
+      item: DragItemData
+    ) => {
+      event.stopPropagation();
+
+      dragItemRef.current =
+        item;
+
+      setActiveDragItem(
+        item
+      );
+
+      setIsDragging(
+        true
+      );
+
+      event.dataTransfer.setData(
+        "application/json",
+        JSON.stringify(
+          item
+        )
+      );
+
+      event.dataTransfer.effectAllowed =
+        "move";
+    };
+
+  const handleHtml5DragOver =
+    (
+      event: React.DragEvent,
+      path: string
+    ) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (
+        isInvalidDropTarget(
+          path
+        )
+      ) {
+        event.dataTransfer.dropEffect =
+          "none";
+        return;
       }
 
-      setIsDragging(false);
-      setActiveDragItem(null);
-      setDragOverPath(null);
-      dragOverPathRef.current = null;
-      dragItemRef.current = null;
-      pointerStartRef.current = null;
+      event.dataTransfer.dropEffect =
+        "move";
+
+      setDragOverPath(
+        path
+      );
+
+      dragOverPathRef.current =
+        path;
     };
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-  };
+  const handleHtml5Drop =
+    (
+      event: React.DragEvent,
+      path: string
+    ) => {
+      event.preventDefault();
+      event.stopPropagation();
 
-  // 原生 HTML5 Drag 事件支援（增強雙軌保險）
-  const handleHtml5DragStart = (e: React.DragEvent, item: DragItemData) => {
-    e.stopPropagation();
-    dragItemRef.current = item;
-    setActiveDragItem(item);
-    setIsDragging(true);
-    e.dataTransfer.setData("application/json", JSON.stringify(item));
-    e.dataTransfer.setData("text/plain", JSON.stringify(item));
-    e.dataTransfer.effectAllowed = "move";
-  };
+      let payload:
+        | DragItemData
+        | null =
+        dragItemRef.current;
 
-  const handleHtml5DragOver = (e: React.DragEvent, path: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isInvalidDropTarget(path)) {
-      e.dataTransfer.dropEffect = "none";
-      return;
-    }
-    e.dataTransfer.dropEffect = "move";
-    setDragOverPath(path);
-    dragOverPathRef.current = path;
-  };
+      if (!payload) {
+        try {
+          const raw =
+            event.dataTransfer.getData(
+              "application/json"
+            );
 
-  const handleHtml5Drop = (e: React.DragEvent, path: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    commitDrop(path);
-    setIsDragging(false);
-    setActiveDragItem(null);
-    setDragOverPath(null);
-    dragOverPathRef.current = null;
-    dragItemRef.current = null;
-  };
-
-  // 搜尋與標籤過濾
-  const filteredNotes = useMemo(() => {
-    return notes.filter((n) => {
-      const matchSearch =
-        search.trim() === "" ||
-        n.title.toLowerCase().includes(search.toLowerCase()) ||
-        n.tags.some((t) => t.toLowerCase().includes(search.toLowerCase()));
-
-      const matchTag = !selectedTag || n.tags.includes(selectedTag);
-
-      return matchSearch && matchTag;
-    });
-  }, [notes, search, selectedTag]);
-
-  // 構建階層樹狀結構
-  const rootNode = useMemo(() => {
-    const root: FolderNode = {
-      path: "",
-      name: "根目錄",
-      subfolders: [],
-      notes: [],
-    };
-
-    const allFolderPaths = new Set<string>(customFolders);
-    filteredNotes.forEach((n) => {
-      if (n.folder) allFolderPaths.add(n.folder);
-    });
-
-    const nodeMap = new Map<string, FolderNode>();
-    nodeMap.set("", root);
-
-    const sortedPaths = Array.from(allFolderPaths).sort((a, b) => a.localeCompare(b));
-
-    for (const folderPath of sortedPaths) {
-      const segments = folderPath.split("/");
-      let currentPath = "";
-      let parentNode = root;
-
-      for (const segment of segments) {
-        currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-        let node = nodeMap.get(currentPath);
-
-        if (!node) {
-          node = {
-            path: currentPath,
-            name: segment,
-            subfolders: [],
-            notes: [],
-          };
-          nodeMap.set(currentPath, node);
-          parentNode.subfolders.push(node);
+          payload =
+            raw
+              ? JSON.parse(
+                  raw
+                )
+              : null;
+        } catch {
+          payload =
+            null;
         }
-        parentNode = node;
       }
-    }
 
-    filteredNotes.forEach((note) => {
-      const folderPath = note.folder || "";
-      const targetNode = nodeMap.get(folderPath) || root;
-      targetNode.notes.push(note);
-    });
+      commitDrop(
+        path,
+        payload
+      );
 
-    return root;
-  }, [filteredNotes, customFolders]);
+      setIsDragging(
+        false
+      );
 
-  const handleStartRenameNote = (note: NoteMetadata, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingNoteId(note.id);
-    setEditTitle(note.title);
-    setNameError("");
-  };
+      setActiveDragItem(
+        null
+      );
 
-  const handleSaveRenameNote = (id: string) => {
-    const trimmed = editTitle.trim();
-    if (!trimmed) {
-      setNameError("筆記名稱不能為空");
-      return;
-    }
-    const exists = notes.some(
-      (n) => n.id !== id && n.title.toLowerCase() === trimmed.toLowerCase()
-    );
-    if (exists) {
-      setNameError("已存在同名的筆記");
-      return;
-    }
-    onRenameNote(id, trimmed);
-    setEditingNoteId(null);
-  };
+      setDragOverPath(
+        null
+      );
 
-  const openCreateSubfolder = (parentPath: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setTargetParentFolder(parentPath);
-    setNewFolderName("");
-    setFolderError("");
-    setShowCreateFolderModal(true);
-  };
+      dragOverPathRef.current =
+        null;
 
-  // 遞迴渲染資料夾節點與內部筆記
-  const renderFolderNode = (folder: FolderNode, level: number = 0) => {
-    const isRoot = folder.path === "";
-    const isExpanded = isRoot || expandedFolders.has(folder.path);
-    const isTarget = dragOverPath === folder.path;
+      dragItemRef.current =
+        null;
+    };
 
-    return (
-      <div key={folder.path || "root"} className="flex flex-col">
-        {!isRoot && (
-          <div
-            data-folder-path={folder.path}
-            style={{ paddingLeft: `${Math.max(8, level * 14)}px` }}
-            draggable={!renamingFolder}
-            onDragStart={(e) =>
-              handleHtml5DragStart(e, {
-                type: "folder",
-                path: folder.path,
-                name: folder.name,
-              })
-            }
-            onDragOver={(e) => handleHtml5DragOver(e, folder.path)}
-            onDrop={(e) => handleHtml5Drop(e, folder.path)}
-            onPointerDown={(e) =>
-              startPointerDrag(e, {
-                type: "folder",
-                path: folder.path,
-                name: folder.name,
-              })
-            }
-            onClick={(e) => {
-              if (!isDragging) toggleFolder(folder.path, e);
-            }}
-            className={`group flex items-center justify-between py-1.5 pr-2 rounded-xl text-xs transition cursor-grab active:cursor-grabbing mb-0.5 border ${
-              isTarget
-                ? "bg-blue-900/80 border-blue-400 ring-2 ring-blue-400/60 text-white font-semibold shadow-lg shadow-blue-950/60"
-                : "border-transparent text-slate-300 hover:bg-slate-800/80 hover:text-white"
-            }`}
-            title={`資料夾：${folder.path}（按住可拖曳移動，或釋放筆記至此）`}
-          >
-            <div className="flex items-center space-x-1.5 overflow-hidden pr-1 pointer-events-none">
-              <span className="text-[10px] text-slate-400 group-hover:text-cyan-400 transition-transform">
-                {isExpanded ? "▼" : "▶"}
-              </span>
-              <span className="text-sm">📁</span>
-              <span className="truncate font-medium text-slate-200 group-hover:text-cyan-300">
-                {folder.name}
-              </span>
-              <span className="text-[10px] text-slate-500">
-                ({folder.notes.length + folder.subfolders.length})
-              </span>
-            </div>
+  const filteredNotes =
+    useMemo(() => {
+      const query =
+        search
+          .trim()
+          .toLowerCase();
 
-            {/* 資料夾操作按鈕列 */}
+      return notes.filter(
+        (note) => {
+          const matchSearch =
+            !query ||
+            note.title
+              .toLowerCase()
+              .includes(
+                query
+              ) ||
+            note.tags.some(
+              (tag) =>
+                tag
+                  .toLowerCase()
+                  .includes(
+                    query
+                  )
+            );
+
+          const matchTag =
+            !selectedTag ||
+            note.tags.includes(
+              selectedTag
+            );
+
+          return (
+            matchSearch &&
+            matchTag
+          );
+        }
+      );
+    }, [
+      notes,
+      search,
+      selectedTag,
+    ]);
+
+  const rootNode =
+    useMemo(() => {
+      const root:
+        FolderNode =
+        {
+          path: "",
+          name: "根目錄",
+          subfolders: [],
+          notes: [],
+        };
+
+      const paths =
+        new Set<string>(
+          customFolders
+        );
+
+      for (const note of filteredNotes) {
+        if (
+          note.folder
+        ) {
+          paths.add(
+            note.folder
+          );
+        }
+      }
+
+      const nodeMap =
+        new Map<
+          string,
+          FolderNode
+        >();
+
+      nodeMap.set(
+        "",
+        root
+      );
+
+      const sortedPaths =
+        Array.from(
+          paths
+        ).sort(
+          (a, b) =>
+            a.localeCompare(
+              b
+            )
+        );
+
+      for (const path of sortedPaths) {
+        const segments =
+          path
+            .split(
+              "/"
+            )
+            .filter(
+              Boolean
+            );
+
+        let currentPath =
+          "";
+
+        let parent =
+          root;
+
+        for (const segment of segments) {
+          currentPath =
+            currentPath
+              ? `${currentPath}/${segment}`
+              : segment;
+
+          let node =
+            nodeMap.get(
+              currentPath
+            );
+
+          if (!node) {
+            node = {
+              path:
+                currentPath,
+              name: segment,
+              subfolders:
+                [],
+              notes: [],
+            };
+
+            nodeMap.set(
+              currentPath,
+              node
+            );
+
+            parent.subfolders.push(
+              node
+            );
+          }
+
+          parent =
+            node;
+        }
+      }
+
+      for (const note of filteredNotes) {
+        const target =
+          nodeMap.get(
+            note.folder || ""
+          ) || root;
+
+        target.notes.push(
+          note
+        );
+      }
+
+      return root;
+    }, [
+      filteredNotes,
+      customFolders,
+    ]);
+
+  const handleStartRenameNote =
+    (
+      note: NoteMetadata,
+      event: React.MouseEvent
+    ) => {
+      event.stopPropagation();
+
+      setEditingNoteId(
+        note.id
+      );
+
+      setEditTitle(
+        note.title
+      );
+
+      setNameError(
+        ""
+      );
+    };
+
+  const handleSaveRenameNote =
+    (
+      noteId: string
+    ) => {
+      const title =
+        editTitle.trim();
+
+      if (!title) {
+        setNameError(
+          "筆記名稱不能為空"
+        );
+        return;
+      }
+
+      const duplicate =
+        notes.some(
+          (note) =>
+            note.id !==
+              noteId &&
+            note.title
+              .trim()
+              .toLowerCase() ===
+              title.toLowerCase()
+        );
+
+      if (
+        duplicate
+      ) {
+        setNameError(
+          "已存在同名筆記"
+        );
+        return;
+      }
+
+      onRenameNote(
+        noteId,
+        title
+      );
+
+      setEditingNoteId(
+        null
+      );
+
+      setNameError(
+        ""
+      );
+    };
+
+  const openCreateSubfolder =
+    (
+      parentPath: string,
+      event: React.MouseEvent
+    ) => {
+      event.stopPropagation();
+
+      setTargetParentFolder(
+        parentPath
+      );
+
+      setNewFolderName(
+        ""
+      );
+
+      setFolderError(
+        ""
+      );
+
+      setShowCreateFolderModal(
+        true
+      );
+    };
+
+  const renderFolderNode =
+    (
+      folder: FolderNode,
+      level: number
+    ): React.ReactNode => {
+      const isRoot =
+        folder.path === "";
+
+      const isExpanded =
+        isRoot ||
+        expandedFolders.has(
+          folder.path
+        );
+
+      const isTarget =
+        dragOverPath ===
+        folder.path;
+
+      return (
+        <div
+          key={
+            folder.path ||
+            "root"
+          }
+        >
+          {!isRoot && (
             <div
-              className="opacity-0 group-hover:opacity-100 flex items-center space-x-1 transition shrink-0"
-              onClick={(e) => e.stopPropagation()}
+              data-folder-path={
+                folder.path
+              }
+              draggable
+              style={{
+                paddingLeft:
+                  `${Math.max(
+                    6,
+                    level *
+                      14
+                  )}px`,
+              }}
+              onDragStart={(
+                event
+              ) =>
+                handleHtml5DragStart(
+                  event,
+                  {
+                    type: "folder",
+                    path:
+                      folder.path,
+                    name:
+                      folder.name,
+                  }
+                )
+              }
+              onDragOver={(
+                event
+              ) =>
+                handleHtml5DragOver(
+                  event,
+                  folder.path
+                )
+              }
+              onDrop={(
+                event
+              ) =>
+                handleHtml5Drop(
+                  event,
+                  folder.path
+                )
+              }
+              onPointerDown={(
+                event
+              ) =>
+                startPointerDrag(
+                  event,
+                  {
+                    type: "folder",
+                    path:
+                      folder.path,
+                    name:
+                      folder.name,
+                  }
+                )
+              }
+              onClick={(
+                event
+              ) => {
+                if (
+                  !isDragging
+                ) {
+                  toggleFolder(
+                    folder.path,
+                    event
+                  );
+                }
+              }}
+              className={`group mb-0.5 flex cursor-grab items-center justify-between border py-1.5 pr-2 text-xs transition active:cursor-grabbing ${
+                isTarget
+                  ? "border-cyan-500/50 bg-cyan-950/30 text-white"
+                  : "border-transparent text-slate-300 hover:bg-white/[0.03]"
+              }`}
+              title={`資料夾：${folder.path}（按住可拖曳移動，或釋放筆記至此）`}
             >
-              <button
-                type="button"
-                onClick={() => onCreateNote(undefined, folder.path)}
-                title={`在「${folder.name}」中建立筆記`}
-                className="w-5 h-5 flex items-center justify-center rounded-md text-slate-400 hover:text-white hover:bg-blue-700/60 transition"
-              >
-                +
-              </button>
+              <div className="pointer-events-none flex min-w-0 items-center gap-1.5">
+                <span className="text-[9px] text-slate-500">
+                  {isExpanded
+                    ? "▼"
+                    : "▶"}
+                </span>
 
-              <button
-                type="button"
-                onClick={(e) => openCreateSubfolder(folder.path, e)}
-                title={`在「${folder.name}」中新增子資料夾`}
-                className="w-5 h-5 flex items-center justify-center rounded-md text-slate-400 hover:text-amber-300 hover:bg-slate-700 transition text-[11px]"
-              >
-                📁+
-              </button>
+                <span className="truncate font-serif text-slate-300">
+                  {folder.name}
+                </span>
 
-              <button
-                type="button"
-                onClick={() =>
-                  setRenamingFolder({ oldPath: folder.path, newName: folder.name })
+                <span className="text-[9px] text-slate-600">
+                  {folder.notes.length +
+                    folder.subfolders.length}
+                </span>
+              </div>
+
+              <div
+                className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100"
+                onClick={(
+                  event
+                ) =>
+                  event.stopPropagation()
                 }
-                title="重新命名資料夾"
-                className="w-5 h-5 flex items-center justify-center rounded-md text-slate-400 hover:text-indigo-300 hover:bg-slate-700 transition text-[11px]"
               >
-                ✏️
-              </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onCreateNote(
+                      undefined,
+                      folder.path
+                    )
+                  }
+                  title={`在「${folder.name}」中建立筆記`}
+                  className="px-1 text-slate-500 hover:text-slate-200"
+                >
+                  +
+                </button>
 
-              <button
-                type="button"
-                onClick={() =>
-                  setDeletingFolder({
-                    path: folder.path,
-                    count: folder.notes.length,
-                  })
-                }
-                title="刪除資料夾"
-                className="w-5 h-5 flex items-center justify-center rounded-md text-slate-400 hover:text-red-400 hover:bg-slate-700 transition text-[11px]"
-              >
-                🗑️
-              </button>
-            </div>
-          </div>
-        )}
+                <button
+                  type="button"
+                  onClick={(
+                    event
+                  ) =>
+                    openCreateSubfolder(
+                      folder.path,
+                      event
+                    )
+                  }
+                  title={`在「${folder.name}」中新增子資料夾`}
+                  className="px-1 text-slate-500 hover:text-cyan-300"
+                >
+                  子
+                </button>
 
-        {/* 展開時渲染子項目 */}
-        {isExpanded && (
-          <div className="flex flex-col">
-            {folder.subfolders.map((sub) => renderFolderNode(sub, level + 1))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenamingFolder({
+                      oldPath:
+                        folder.path,
+                      newName:
+                        folder.name,
+                    });
 
-            {folder.notes.map((note) => {
-              const isEditing = editingNoteId === note.id;
-              const isActive = activeNoteId === note.id;
-              const isNoteTarget = dragOverPath === folder.path;
-
-              return (
-                <div
-                  key={note.id}
-                  data-folder-path={folder.path}
-                  style={{
-                    paddingLeft: `${Math.max(
-                      14,
-                      (isRoot ? level : level + 1) * 14 + 10
-                    )}px`,
+                    setFolderError(
+                      ""
+                    );
                   }}
-                  draggable={!isEditing}
-                  onDragStart={(e) =>
-                    handleHtml5DragStart(e, {
-                      type: "note",
-                      id: note.id,
-                      title: note.title,
-                      path: folder.path,
+                  title="重新命名資料夾"
+                  className="px-1 text-slate-500 hover:text-slate-200"
+                >
+                  改
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDeletingFolder({
+                      path:
+                        folder.path,
+                      count:
+                        folder.notes.length,
                     })
                   }
-                  onDragOver={(e) => handleHtml5DragOver(e, folder.path)}
-                  onDrop={(e) => handleHtml5Drop(e, folder.path)}
-                  onPointerDown={(e) => {
-                    if (!isEditing) {
-                      startPointerDrag(e, {
-                        type: "note",
-                        id: note.id,
-                        title: note.title,
-                        path: folder.path,
-                      });
-                    }
-                  }}
-                  onClick={() => {
-                    if (!isDragging && !isEditing) onSelectNote(note.id);
-                  }}
-                  className={`group relative flex items-center justify-between py-1.5 pr-2 rounded-xl text-xs transition cursor-grab active:cursor-grabbing mb-0.5 border ${
-                    isActive
-                      ? "bg-cyan-950/35 text-cyan-200 font-medium border-l-2 border-cyan-500 border-t-transparent border-r-transparent border-b-transparent"
-                      : isNoteTarget && isDragging
-                      ? "bg-cyan-950/60 border-cyan-400/80 text-cyan-200"
-                      : "border-transparent text-slate-400 hover:bg-white/4 hover:text-slate-200"
-                  }`}
-                  title={`${note.title}（按住拖曳可歸入任意資料夾）`}
+                  title="刪除資料夾"
+                  className="px-1 text-slate-500 hover:text-red-300"
                 >
-                  <div className="flex items-center space-x-1.5 overflow-hidden pr-2 pointer-events-none">
-                    <span className="text-[12px] opacity-70">📄</span>
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                        onBlur={() => handleSaveRenameNote(note.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSaveRenameNote(note.id);
-                          if (e.key === "Escape") setEditingNoteId(null);
-                        }}
-                        autoFocus
-                        onClick={(e) => e.stopPropagation()}
-                        className="bg-slate-900 border border-blue-500 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none w-36 pointer-events-auto"
-                      />
-                    ) : (
-                      <span className="truncate">{note.title}</span>
-                    )}
-                  </div>
+                  刪
+                </button>
+              </div>
+            </div>
+          )}
 
-                  {/* 筆記操作按鈕 */}
-                  <div
-                    className="opacity-0 group-hover:opacity-100 flex items-center space-x-1 transition shrink-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      type="button"
-                      onClick={(e) => handleStartRenameNote(note, e)}
-                      title="重新命名"
-                      className="p-1 hover:text-cyan-300 transition"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeletingNote({ id: note.id, title: note.title });
+          {isExpanded && (
+            <div>
+              {folder.subfolders.map(
+                (child) =>
+                  renderFolderNode(
+                    child,
+                    level + 1
+                  )
+              )}
+
+              {folder.notes.map(
+                (note) => {
+                  const isEditing =
+                    editingNoteId ===
+                    note.id;
+
+                  const isActive =
+                    activeNoteId ===
+                    note.id;
+
+                  return (
+                    <div
+                      key={
+                        note.id
+                      }
+                      data-folder-path={
+                        folder.path
+                      }
+                      draggable={
+                        !isEditing
+                      }
+                      style={{
+                        paddingLeft:
+                          `${Math.max(
+                            14,
+                            (isRoot
+                              ? level
+                              : level +
+                                1) *
+                              14 +
+                              10
+                          )}px`,
                       }}
-                      title="刪除"
-                      className="p-1 hover:text-red-400 transition"
+                      onDragStart={(
+                        event
+                      ) =>
+                        handleHtml5DragStart(
+                          event,
+                          {
+                            type: "note",
+                            id:
+                              note.id,
+                            title:
+                              note.title,
+                            path:
+                              folder.path,
+                          }
+                        )
+                      }
+                      onDragOver={(
+                        event
+                      ) =>
+                        handleHtml5DragOver(
+                          event,
+                          folder.path
+                        )
+                      }
+                      onDrop={(
+                        event
+                      ) =>
+                        handleHtml5Drop(
+                          event,
+                          folder.path
+                        )
+                      }
+                      onPointerDown={(
+                        event
+                      ) => {
+                        if (
+                          !isEditing
+                        ) {
+                          startPointerDrag(
+                            event,
+                            {
+                              type: "note",
+                              id:
+                                note.id,
+                              title:
+                                note.title,
+                              path:
+                                folder.path,
+                            }
+                          );
+                        }
+                      }}
+                      onClick={() => {
+                        if (
+                          !isDragging &&
+                          !isEditing
+                        ) {
+                          onSelectNote(
+                            note.id
+                          );
+                        }
+                      }}
+                      className={`group relative mb-0.5 flex cursor-grab items-center justify-between border py-1.5 pr-2 text-xs transition active:cursor-grabbing ${
+                        isActive
+                          ? "border-l-2 border-l-cyan-500 border-t-transparent border-r-transparent border-b-transparent bg-cyan-950/20 text-cyan-100"
+                          : "border-transparent text-slate-400 hover:bg-white/[0.03] hover:text-slate-200"
+                      }`}
+                      title={`${note.title}（按住拖曳可歸入任意資料夾）`}
                     >
-                      🗑️
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  };
+                      <div className="min-w-0 flex-1 pr-2">
+                        {isEditing ? (
+                          <input
+                            value={
+                              editTitle
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              setEditTitle(
+                                event
+                                  .target
+                                  .value
+                              )
+                            }
+                            onBlur={() =>
+                              handleSaveRenameNote(
+                                note.id
+                              )
+                            }
+                            onKeyDown={(
+                              event
+                            ) => {
+                              if (
+                                event.key ===
+                                "Enter"
+                              ) {
+                                handleSaveRenameNote(
+                                  note.id
+                                );
+                              }
 
-  return (
-    <aside className="w-64 h-full bg-[#111317] border-r border-white/6 flex flex-col select-none">
-      {/* 頂部控制列 */}
-      <div className="p-3 border-b border-white/6 flex flex-col gap-2.5">
-        {/* 頂部操作按鈕列 (已移除左上角名字) */}
-        <div className="flex items-center justify-between px-1 pt-0.5">
-          <div
-            data-drop-root="true"
-            onDragOver={(e) => handleHtml5DragOver(e, "")}
-            onDrop={(e) => handleHtml5Drop(e, "")}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors cursor-pointer ${
-              dragOverPath === ""
-                ? "bg-cyan-950/60 text-cyan-200"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-            title="拖曳至此處可將筆記移至最外層"
-          >
-            <span className="font-medium text-xs tracking-wider uppercase text-slate-400">
-              檔案庫
-            </span>
-            {dragOverPath === "" && (
-              <span className="text-[10px] text-cyan-400 font-normal">釋放至此</span>
-            )}
-          </div>
+                              if (
+                                event.key ===
+                                "Escape"
+                              ) {
+                                setEditingNoteId(
+                                  null
+                                );
+                              }
+                            }}
+                            autoFocus
+                            onClick={(
+                              event
+                            ) =>
+                              event.stopPropagation()
+                            }
+                            className="w-full border-b border-cyan-600/50 bg-transparent px-1 py-0.5 text-xs text-white outline-none"
+                          />
+                        ) : (
+                          <span className="block truncate">
+                            {
+                              note.title
+                            }
+                          </span>
+                        )}
+                      </div>
 
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => {
-                setTargetParentFolder("");
-                setNewFolderName("");
-                setFolderError("");
-                setShowCreateFolderModal(true);
-              }}
-              title="新增資料夾"
-              className="p-1 hover:bg-white/6 rounded-md text-slate-400 hover:text-slate-200 transition-colors text-xs"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-              </svg>
-            </button>
+                      <div
+                        className="flex shrink-0 gap-1 opacity-0 transition group-hover:opacity-100"
+                        onClick={(
+                          event
+                        ) =>
+                          event.stopPropagation()
+                        }
+                      >
+                        <button
+                          type="button"
+                          title="重新命名"
+                          onClick={(
+                            event
+                          ) =>
+                            handleStartRenameNote(
+                              note,
+                              event
+                            )
+                          }
+                          className="px-1 text-slate-500 hover:text-cyan-300"
+                        >
+                          改
+                        </button>
 
-            <button
-              type="button"
-              onClick={() => onCreateNote()}
-              title="新增筆記"
-              className="p-1 hover:bg-white/6 rounded-md text-slate-400 hover:text-cyan-300 transition-colors text-xs"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
-          </div>
-        </div>
+                        <button
+                          type="button"
+                          title="刪除"
+                          onClick={(
+                            event
+                          ) => {
+                            event.stopPropagation();
 
-        {/* 搜尋列 */}
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="搜尋筆記或標籤..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-white/4 border border-white/8 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-600/60 transition-colors"
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch("")}
-              className="absolute right-2 top-1.5 text-xs text-slate-400 hover:text-white"
-            >
-              ✕
-            </button>
+                            setDeletingNote({
+                              id:
+                                note.id,
+                              title:
+                                note.title,
+                            });
+                          }}
+                          className="px-1 text-slate-500 hover:text-red-300"
+                        >
+                          刪
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+              )}
+            </div>
           )}
         </div>
+      );
+    };
 
-        {/* 標籤過濾提示 */}
-        {selectedTag && (
-          <div className="flex items-center justify-between bg-blue-950/70 border border-blue-800/50 rounded-lg px-2 py-1 text-[11px] text-blue-300">
-            <span className="truncate">標籤：#{selectedTag}</span>
-            <button
-              type="button"
-              onClick={onClearTagFilter}
-              className="hover:text-white ml-1 font-bold"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+  const modalPortal =
+    (
+      content: React.ReactNode
+    ) => {
+      if (
+        typeof document ===
+        "undefined"
+      ) {
+        return null;
+      }
 
-        
-      </div>
+      return createPortal(
+        content,
+        document.body
+      );
+    };
 
-      {/* 目錄樹列表 */}
-      <div
-        className="flex-1 overflow-y-auto p-2 space-y-0.5 custom-scrollbar"
-        data-drop-root="true"
-        onDragOver={(e) => {
-          if (e.target === e.currentTarget) handleHtml5DragOver(e, "");
-        }}
-        onDrop={(e) => {
-          if (e.target === e.currentTarget) handleHtml5Drop(e, "");
-        }}
-      >
-        {nameError && (
-          <div className="text-[11px] text-red-400 px-2 py-1 bg-red-950/50 rounded-lg mb-1">
-            {nameError}
-          </div>
-        )}
-
-        {filteredNotes.length === 0 && customFolders.length === 0 ? (
-          <div className="text-center text-xs text-slate-500 py-6">尚無筆記</div>
-        ) : (
-          renderFolderNode(rootNode, 0)
-        )}
-      </div>
-
-      
-
-      {/* 建立資料夾自訂彈窗 */}
-      {showCreateFolderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-5 w-full max-w-sm shadow-2xl text-slate-200">
-            <h3 className="text-sm font-semibold mb-1 text-white">
-              {targetParentFolder
-                ? `在「${targetParentFolder}」內建立子資料夾`
-                : "新增資料夾"}
-            </h3>
-            <p className="text-xs text-slate-400 mb-3">
-              {targetParentFolder
-                ? `階層路徑：${targetParentFolder}/[子資料夾名稱]`
-                : "建立於最外層根目錄"}
-            </p>
-
-            <input
-              type="text"
-              placeholder="輸入資料夾名稱..."
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreateFolder();
-                if (e.key === "Escape") setShowCreateFolderModal(false);
-              }}
-              autoFocus
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 mb-2"
-            />
-
-            {folderError && (
-              <div className="text-[11px] text-red-400 mb-3">{folderError}</div>
-            )}
-
-            <div className="flex items-center justify-end space-x-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowCreateFolderModal(false)}
-                className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateFolder}
-                className="px-4 py-1.5 rounded-xl text-xs font-medium bg-rose-700 hover:bg-rose-600 shadow-sm shadow-rose-950/50 text-white text-white transition shadow-lg shadow-blue-600/30"
-              >
-                建立
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 重新命名資料夾自訂彈窗 */}
-      {renamingFolder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-5 w-full max-w-sm shadow-2xl text-slate-200">
-            <h3 className="text-sm font-semibold mb-1 text-white">重新命名資料夾</h3>
-            <p className="text-xs text-slate-400 mb-3">原路徑：{renamingFolder.oldPath}</p>
-
-            <input
-              type="text"
-              value={renamingFolder.newName}
-              onChange={(e) =>
-                setRenamingFolder({ ...renamingFolder, newName: e.target.value })
+  return (
+    <>
+      <aside className="flex h-full w-64 select-none flex-col border-r border-white/5 bg-transparent">
+        <div className="flex flex-col gap-2.5 border-b border-white/5 p-3">
+          <div className="flex items-center justify-between px-1">
+            <div
+              data-drop-root="true"
+              onDragOver={(
+                event
+              ) =>
+                handleHtml5DragOver(
+                  event,
+                  ""
+                )
               }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleRenameFolder();
-                if (e.key === "Escape") setRenamingFolder(null);
-              }}
-              autoFocus
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 mb-3"
-            />
-
-            <div className="flex items-center justify-end space-x-2">
-              <button
-                type="button"
-                onClick={() => setRenamingFolder(null)}
-                className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleRenameFolder}
-                className="px-4 py-1.5 rounded-xl text-xs font-medium bg-rose-700 hover:bg-rose-600 shadow-sm shadow-rose-950/50 text-white text-white transition shadow-lg shadow-blue-600/30"
-              >
-                儲存
-              </button>
+              onDrop={(
+                event
+              ) =>
+                handleHtml5Drop(
+                  event,
+                  ""
+                )
+              }
+              className={`text-xs tracking-wider ${
+                dragOverPath ===
+                ""
+                  ? "text-cyan-200"
+                  : "text-slate-400"
+              }`}
+              title="拖曳至此可移至最外層"
+            >
+              檔案庫
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* 刪除資料夾確認彈窗 */}
-      {deletingFolder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-5 w-full max-w-sm shadow-2xl text-slate-200">
-            <h3 className="text-sm font-semibold mb-1 text-red-400">刪除資料夾</h3>
-            <p className="text-xs text-slate-300 mb-3">
-              確定要刪除「{deletingFolder.path}」嗎？
-              {deletingFolder.count > 0 && (
-                <span className="block mt-1 text-blue-300">
-                  內部包含 {deletingFolder.count} 篇筆記，將自動移回根目錄安全保存。
-                </span>
-              )}
-            </p>
-
-            <div className="flex items-center justify-end space-x-2">
-              <button
-                type="button"
-                onClick={() => setDeletingFolder(null)}
-                className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDeleteFolder}
-                className="px-4 py-1.5 rounded-xl text-xs font-medium bg-red-600 hover:bg-red-500 text-white transition shadow-lg shadow-red-600/30"
-              >
-                確定刪除
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 刪除筆記確認彈窗 */}
-      {deletingNote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-5 w-full max-w-sm shadow-2xl text-slate-200">
-            <h3 className="text-sm font-semibold mb-1 text-red-400">確認刪除筆記</h3>
-            <p className="text-xs text-slate-300 mb-4">
-              您確定要刪除「{deletingNote.title}」嗎？此動作將無法復原。
-            </p>
-
-            <div className="flex items-center justify-end space-x-2">
-              <button
-                type="button"
-                onClick={() => setDeletingNote(null)}
-                className="px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition"
-              >
-                取消
-              </button>
+            <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => {
-                  onDeleteNote(deletingNote.id);
-                  setDeletingNote(null);
+                  setTargetParentFolder(
+                    ""
+                  );
+
+                  setNewFolderName(
+                    ""
+                  );
+
+                  setFolderError(
+                    ""
+                  );
+
+                  setShowCreateFolderModal(
+                    true
+                  );
                 }}
-                className="px-4 py-1.5 rounded-xl text-xs font-medium bg-red-600 hover:bg-red-500 text-white transition shadow-lg shadow-red-600/30"
+                title="新增資料夾"
+                className="px-1.5 text-slate-500 hover:text-slate-200"
               >
-                確認刪除
+                ▱+
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  onCreateNote()
+                }
+                title="新增筆記"
+                className="px-1.5 text-slate-500 hover:text-cyan-300"
+              >
+                ＋
               </button>
             </div>
           </div>
+
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="搜尋筆記或標籤..."
+              value={
+                search
+              }
+              onChange={(
+                event
+              ) =>
+                setSearch(
+                  event
+                    .target
+                    .value
+                )
+              }
+              className="w-full border-b border-white/10 bg-black/10 px-2 py-1.5 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-cyan-700/60"
+            />
+
+            {search && (
+              <button
+                type="button"
+                onClick={() =>
+                  setSearch(
+                    ""
+                  )
+                }
+                className="absolute right-2 top-1.5 text-xs text-slate-500 hover:text-white"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {selectedTag && (
+            <div className="flex items-center justify-between border border-cyan-800/30 bg-cyan-950/15 px-2 py-1 text-[10px] text-cyan-300">
+              <span className="truncate">
+                #{selectedTag}
+              </span>
+
+              <button
+                type="button"
+                onClick={
+                  onClearTagFilter
+                }
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
-      )}
-    </aside>
+
+        <div
+          className="flex-1 overflow-y-auto p-2"
+          data-drop-root="true"
+          onDragOver={(
+            event
+          ) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              handleHtml5DragOver(
+                event,
+                ""
+              );
+            }
+          }}
+          onDrop={(
+            event
+          ) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              handleHtml5Drop(
+                event,
+                ""
+              );
+            }
+          }}
+        >
+          {nameError && (
+            <div className="mb-2 border border-red-500/20 bg-red-950/20 px-2 py-1 text-[10px] text-red-300">
+              {nameError}
+            </div>
+          )}
+
+          {filteredNotes.length ===
+            0 &&
+          customFolders.length ===
+            0 ? (
+            <div className="py-8 text-center text-xs text-slate-600">
+              尚無筆記
+            </div>
+          ) : (
+            renderFolderNode(
+              rootNode,
+              0
+            )
+          )}
+        </div>
+      </aside>
+
+      {isDragging &&
+        activeDragItem && (
+          <div
+            className="pointer-events-none fixed z-[13000] border border-cyan-600/30 bg-[#111415]/95 px-2 py-1 text-[10px] text-slate-200 shadow-xl"
+            style={{
+              left:
+                dragPos.x +
+                12,
+              top:
+                dragPos.y +
+                12,
+            }}
+          >
+            {activeDragItem.type ===
+            "folder"
+              ? `資料夾：${
+                  activeDragItem.name ||
+                  activeDragItem.path
+                }`
+              : `筆記：${
+                  activeDragItem.title ||
+                  ""
+                }`}
+          </div>
+        )}
+
+      {showCreateFolderModal &&
+        modalPortal(
+          <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm border border-white/10 bg-[#111416]/98 p-5 text-slate-200 shadow-2xl">
+              <h3 className="font-serif text-sm text-white">
+                {targetParentFolder
+                  ? `在「${targetParentFolder}」建立子資料夾`
+                  : "新增資料夾"}
+              </h3>
+
+              <input
+                type="text"
+                value={
+                  newFolderName
+                }
+                onChange={(
+                  event
+                ) =>
+                  setNewFolderName(
+                    event
+                      .target
+                      .value
+                  )
+                }
+                onKeyDown={(
+                  event
+                ) => {
+                  if (
+                    event.key ===
+                    "Enter"
+                  ) {
+                    handleCreateFolder();
+                  }
+
+                  if (
+                    event.key ===
+                    "Escape"
+                  ) {
+                    setShowCreateFolderModal(
+                      false
+                    );
+                  }
+                }}
+                autoFocus
+                placeholder="資料夾名稱"
+                className="mt-4 w-full border-b border-white/15 bg-transparent px-1 py-2 text-xs text-white outline-none focus:border-cyan-700"
+              />
+
+              {folderError && (
+                <div className="mt-2 text-[10px] text-red-300">
+                  {
+                    folderError
+                  }
+                </div>
+              )}
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowCreateFolderModal(
+                      false
+                    )
+                  }
+                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                >
+                  取消
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
+                    handleCreateFolder
+                  }
+                  className="border border-cyan-700/40 px-4 py-1.5 text-xs text-cyan-200 hover:bg-cyan-950/30"
+                >
+                  建立
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {renamingFolder &&
+        modalPortal(
+          <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm border border-white/10 bg-[#111416]/98 p-5 text-slate-200 shadow-2xl">
+              <h3 className="font-serif text-sm text-white">
+                重新命名資料夾
+              </h3>
+
+              <p className="mt-1 text-[10px] text-slate-500">
+                {
+                  renamingFolder.oldPath
+                }
+              </p>
+
+              <input
+                type="text"
+                value={
+                  renamingFolder.newName
+                }
+                onChange={(
+                  event
+                ) =>
+                  setRenamingFolder({
+                    ...renamingFolder,
+                    newName:
+                      event
+                        .target
+                        .value,
+                  })
+                }
+                onKeyDown={(
+                  event
+                ) => {
+                  if (
+                    event.key ===
+                    "Enter"
+                  ) {
+                    handleRenameFolder();
+                  }
+
+                  if (
+                    event.key ===
+                    "Escape"
+                  ) {
+                    setRenamingFolder(
+                      null
+                    );
+                  }
+                }}
+                autoFocus
+                className="mt-4 w-full border-b border-white/15 bg-transparent px-1 py-2 text-xs text-white outline-none focus:border-cyan-700"
+              />
+
+              {folderError && (
+                <div className="mt-2 text-[10px] text-red-300">
+                  {
+                    folderError
+                  }
+                </div>
+              )}
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setRenamingFolder(
+                      null
+                    )
+                  }
+                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                >
+                  取消
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
+                    handleRenameFolder
+                  }
+                  className="border border-cyan-700/40 px-4 py-1.5 text-xs text-cyan-200 hover:bg-cyan-950/30"
+                >
+                  儲存
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {deletingFolder &&
+        modalPortal(
+          <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm border border-white/10 bg-[#111416]/98 p-5 text-slate-200 shadow-2xl">
+              <h3 className="font-serif text-sm text-red-300">
+                刪除資料夾
+              </h3>
+
+              <p className="mt-3 text-xs leading-relaxed text-slate-300">
+                確定刪除「
+                {
+                  deletingFolder.path
+                }
+                」嗎？
+              </p>
+
+              <p className="mt-2 text-[10px] text-slate-500">
+                資料夾內的筆記不會刪除，會移回根目錄。
+              </p>
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDeletingFolder(
+                      null
+                    )
+                  }
+                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                >
+                  取消
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
+                    handleConfirmDeleteFolder
+                  }
+                  className="border border-red-600/40 px-4 py-1.5 text-xs text-red-300 hover:bg-red-950/30"
+                >
+                  確定刪除
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {deletingNote &&
+        modalPortal(
+          <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm border border-white/10 bg-[#111416]/98 p-5 text-slate-200 shadow-2xl">
+              <h3 className="font-serif text-sm text-red-300">
+                確認刪除筆記
+              </h3>
+
+              <p className="mt-3 text-xs leading-relaxed text-slate-300">
+                確定要刪除「
+                {
+                  deletingNote.title
+                }
+                」嗎？此動作無法復原。
+              </p>
+
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDeletingNote(
+                      null
+                    )
+                  }
+                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                >
+                  取消
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteNote(
+                      deletingNote.id
+                    );
+
+                    setDeletingNote(
+                      null
+                    );
+                  }}
+                  className="border border-red-600/40 px-4 py-1.5 text-xs text-red-300 hover:bg-red-950/30"
+                >
+                  確認刪除
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+    </>
   );
 }
