@@ -3,6 +3,7 @@ import { MediaAttachment, Note, NoteMetadata } from "./types";
 
 const DB_NAME = "WebObsidianDB";
 const DB_VERSION = 1;
+const CUSTOM_FOLDERS_STORAGE_KEY = "obsidian_custom_folders";
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -44,19 +45,16 @@ export function openDB(): Promise<IDBDatabase> {
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
 
-      // 1. 筆記內文表（儲存完整文字）
       if (!db.objectStoreNames.contains("notes")) {
         db.createObjectStore("notes", { keyPath: "id" });
       }
 
-      // 2. 元資料表（輕量索引，供清單、目錄樹與關聯圖譜快速查詢）
       if (!db.objectStoreNames.contains("metadata")) {
         const metaStore = db.createObjectStore("metadata", { keyPath: "id" });
         metaStore.createIndex("title", "title", { unique: false });
         metaStore.createIndex("updatedAt", "updatedAt", { unique: false });
       }
 
-      // 3. 多媒體附件表（儲存圖片、影片二進位 Blob）
       if (!db.objectStoreNames.contains("media")) {
         const mediaStore = db.createObjectStore("media", { keyPath: "id" });
         mediaStore.createIndex("filename", "filename", { unique: false });
@@ -65,6 +63,10 @@ export function openDB(): Promise<IDBDatabase> {
 
     request.onsuccess = (event) => {
       dbInstance = (event.target as IDBOpenDBRequest).result;
+      dbInstance.onversionchange = () => {
+        dbInstance?.close();
+        dbInstance = null;
+      };
       resolve(dbInstance);
     };
 
@@ -74,20 +76,19 @@ export function openDB(): Promise<IDBDatabase> {
   });
 }
 
-/**
- * 取得所有筆記之輕量元資料列表（按需延遲載入的核心）
- */
 export async function getAllNoteMetadata(): Promise<NoteMetadata[]> {
   const db = await openDB();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction("metadata", "readonly");
-    const store = tx.objectStore("metadata");
-    const req = store.getAll();
+    const req = tx.objectStore("metadata").getAll();
 
     req.onsuccess = () => {
       const list: NoteMetadata[] = req.result || [];
-      // 依更新時間倒序排序
-      list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      list.sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
       resolve(list);
     };
 
@@ -95,76 +96,64 @@ export async function getAllNoteMetadata(): Promise<NoteMetadata[]> {
   });
 }
 
-/**
- * 按需載入特定筆記之完整內容
- */
 export async function getNoteContent(id: string): Promise<Note | null> {
   const db = await openDB();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction("notes", "readonly");
-    const store = tx.objectStore("notes");
-    const req = store.get(id);
+    const req = tx.objectStore("notes").get(id);
 
     req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => reject(req.error);
   });
 }
 
-/**
- * 儲存單篇筆記（同時更新 notes 與 metadata 表）
- */
 export async function saveNoteToDB(note: Note): Promise<void> {
   const db = await openDB();
   const metadata = extractNoteMetadata(note);
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(["notes", "metadata"], "readwrite");
-    const notesStore = tx.objectStore("notes");
-    const metaStore = tx.objectStore("metadata");
 
-    notesStore.put(note);
-    metaStore.put(metadata);
+    tx.objectStore("notes").put(note);
+    tx.objectStore("metadata").put(metadata);
 
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
 
-/**
- * 刪除指定筆記
- */
 export async function deleteNoteFromDB(id: string): Promise<void> {
   const db = await openDB();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction(["notes", "metadata"], "readwrite");
+
     tx.objectStore("notes").delete(id);
     tx.objectStore("metadata").delete(id);
 
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
 
-/**
- * 取得全部完整筆記（供完整 JSON 備份匯出）
- */
 export async function getAllNotesFromDB(): Promise<Note[]> {
   const db = await openDB();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction("notes", "readonly");
-    const store = tx.objectStore("notes");
-    const req = store.getAll();
+    const req = tx.objectStore("notes").getAll();
 
     req.onsuccess = () => resolve(req.result || []);
     req.onerror = () => reject(req.error);
   });
 }
 
-/**
- * 批次儲存筆記（供匯入還原或遷移）
- */
 export async function batchSaveNotesToDB(notes: Note[]): Promise<void> {
   const db = await openDB();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction(["notes", "metadata"], "readwrite");
     const notesStore = tx.objectStore("notes");
@@ -180,87 +169,175 @@ export async function batchSaveNotesToDB(notes: Note[]): Promise<void> {
 
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
 
-/**
- * 二進位媒體附件存取 API
- */
-export async function saveMediaAttachment(attachment: MediaAttachment): Promise<void> {
+/* ============================================================
+   Media
+   ============================================================ */
+
+export async function saveMediaAttachment(
+  attachment: MediaAttachment
+): Promise<void> {
   const db = await openDB();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction("media", "readwrite");
     tx.objectStore("media").put(attachment);
+
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
 
-export async function getMediaAttachment(id: string): Promise<MediaAttachment | null> {
+export async function getMediaAttachment(
+  id: string
+): Promise<MediaAttachment | null> {
   const db = await openDB();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction("media", "readonly");
     const req = tx.objectStore("media").get(id);
+
     req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => reject(req.error);
   });
 }
 
+/**
+ * 舊版 ![[filename.ext]] 相容：
+ * 先以 ID 查詢，找不到時再以 filename index 查詢。
+ */
+export async function getMediaAttachmentByReference(
+  ref: string
+): Promise<MediaAttachment | null> {
+  const byId = await getMediaAttachment(ref);
+  if (byId) return byId;
+
+  const db = await openDB();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readonly");
+    const store = tx.objectStore("media");
+
+    if (!store.indexNames.contains("filename")) {
+      resolve(null);
+      return;
+    }
+
+    const req = store.index("filename").get(ref);
+
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
 
 export async function getAllMediaAttachments(): Promise<MediaAttachment[]> {
   const db = await openDB();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction("media", "readonly");
     const req = tx.objectStore("media").getAll();
+
     req.onsuccess = () => resolve(req.result || []);
     req.onerror = () => reject(req.error);
   });
 }
 
-export async function batchSaveMediaAttachments(attachments: MediaAttachment[]): Promise<void> {
+export async function batchSaveMediaAttachments(
+  attachments: MediaAttachment[]
+): Promise<void> {
   if (attachments.length === 0) return;
+
   const db = await openDB();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction("media", "readwrite");
     const store = tx.objectStore("media");
-    attachments.forEach((item) => store.put(item));
+
+    for (const item of attachments) {
+      store.put(item);
+    }
+
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+/**
+ * 完整還原時使用：
+ * 先清掉舊媒體，再寫入備份內媒體，避免 orphan media 殘留。
+ */
+export async function replaceAllMediaAttachments(
+  attachments: MediaAttachment[]
+): Promise<void> {
+  const db = await openDB();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readwrite");
+    const store = tx.objectStore("media");
+
+    store.clear();
+
+    for (const item of attachments) {
+      store.put(item);
+    }
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
 
 export async function deleteMediaAttachment(id: string): Promise<void> {
   const db = await openDB();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction("media", "readwrite");
     tx.objectStore("media").delete(id);
+
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
 
+/* ============================================================
+   Backward-compatible API
+   ============================================================ */
 
 export async function importVaultBackupToDB(notes: Note[]): Promise<void> {
   return batchSaveNotesToDB(notes);
 }
 
-const CUSTOM_FOLDERS_STORAGE_KEY = 'obsidian_custom_folders';
+/* ============================================================
+   Custom folders
+   ============================================================ */
 
 export function getCustomFolders(): string[] {
-  if (typeof window === 'undefined') return [];
+  if (typeof window === "undefined") return [];
+
   try {
     const raw = localStorage.getItem(CUSTOM_FOLDERS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
   } catch {
     return [];
   }
 }
 
 export function saveCustomFolders(folders: string[]): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
+
   try {
-    localStorage.setItem(CUSTOM_FOLDERS_STORAGE_KEY, JSON.stringify(folders));
+    localStorage.setItem(
+      CUSTOM_FOLDERS_STORAGE_KEY,
+      JSON.stringify(Array.from(new Set(folders)))
+    );
   } catch (e) {
-    console.error('儲存資料夾列表失敗:', e);
+    console.error("儲存資料夾列表失敗:", e);
   }
 }
