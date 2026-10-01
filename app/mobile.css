@@ -1,0 +1,1261 @@
+/* ============================================================
+   Mobile UI v2
+   Imported AFTER globals.css.
+   Desktop layout is intentionally untouched.
+   ============================================================ */
+
+.mobile-bottom-bar,
+.mobile-drawer-overlay,
+.mobile-sidebar-header {
+  display: none;
+}
+
+
+/* ============================================================
+   PHONE / TABLET PORTRAIT
+   ============================================================ */
+
+@media (max-width: 768px) {
+  :root {
+    --mobile-bottom-height: 68px;
+    --mobile-side-padding: 14px;
+  }
+
+  html,
+  body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+
+    overflow: hidden;
+
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+    background: #08090a;
+  }
+
+  button,
+  a,
+  input,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button {
+    touch-action: manipulation;
+  }
+
+
+  /* ==========================================================
+     ROOT
+     ========================================================== */
+
+  .markdown-vault-root {
+    position: relative !important;
+
+    width: 100vw !important;
+    width: 100dvw !important;
+
+    height: 100vh !important;
+    height: 100dvh !important;
+
+    min-height: 0 !important;
+    max-height: 100dvh !important;
+
+    overflow: hidden !important;
+  }
+
+
+  /* ==========================================================
+     MAIN CONTENT
+     ========================================================== */
+
+  .markdown-vault-root > .app-main {
+    position: relative !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+
+    height: 100% !important;
+    min-height: 0 !important;
+
+    flex: 1 1 auto !important;
+
+    overflow: hidden !important;
+
+    padding-bottom:
+      calc(
+        var(--mobile-bottom-height) +
+        env(safe-area-inset-bottom)
+      ) !important;
+  }
+
+
+  /* ==========================================================
+     LEFT FILE DRAWER
+     ========================================================== */
+
+  .markdown-vault-root > .app-sidebar {
+    position: fixed !important;
+
+    z-index: 10020 !important;
+
+    top: 0 !important;
+    left: 0 !important;
+
+    bottom:
+      calc(
+        var(--mobile-bottom-height) +
+        env(safe-area-inset-bottom)
+      ) !important;
+
+    display: flex !important;
+
+    width: min(88vw, 360px) !important;
+    height: auto !important;
+    max-height: none !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    transform:
+      translate3d(-105%, 0, 0) !important;
+
+    transition:
+      transform 230ms
+      cubic-bezier(
+        0.22,
+        1,
+        0.36,
+        1
+      ) !important;
+
+    background: #0d1011 !important;
+
+    border-right:
+      1px solid
+      rgba(238, 233, 222, 0.09) !important;
+
+    box-shadow:
+      22px 0 70px
+      rgba(0, 0, 0, 0.62) !important;
+
+    overflow: hidden !important;
+
+    isolation: isolate !important;
+  }
+
+  .markdown-vault-root
+  > .app-sidebar.mobile-sidebar-open {
+    transform:
+      translate3d(0, 0, 0) !important;
+  }
+
+  /*
+   * 手機左側山景維持，但再淡一點，
+   * 避免壓住檔名。
+   */
+  .markdown-vault-root
+  > .app-sidebar::before {
+    opacity: 0.24 !important;
+
+    background-position:
+      center bottom !important;
+  }
+
+  .markdown-vault-root
+  > .app-sidebar
+  > aside {
+    position: relative !important;
+
+    display: flex !important;
+    flex: 1 1 auto !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+
+    height: 100% !important;
+    min-height: 0 !important;
+
+    overflow: hidden !important;
+
+    background:
+      linear-gradient(
+        180deg,
+        rgba(8, 10, 11, 0.18),
+        rgba(8, 10, 11, 0.48)
+      ) !important;
+  }
+
+  /*
+   * FileTree header 留出右上關閉鈕位置。
+   */
+  .markdown-vault-root
+  > .app-sidebar
+  > aside
+  > div:first-child {
+    flex-shrink: 0 !important;
+
+    padding-top: 12px !important;
+    padding-right: 62px !important;
+  }
+
+  .markdown-vault-root
+  > .app-sidebar
+  > aside
+  > div:nth-child(2) {
+    min-height: 0 !important;
+
+    flex: 1 1 auto !important;
+
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+
+    padding-bottom: 18px !important;
+  }
+
+
+  /* ==========================================================
+     FILETREE MOBILE CLOSE
+     ========================================================== */
+
+  .mobile-sidebar-header {
+    display: flex !important;
+
+    position: absolute !important;
+
+    z-index: 40 !important;
+
+    top:
+      calc(
+        10px +
+        env(safe-area-inset-top)
+      ) !important;
+
+    right: 10px !important;
+
+    pointer-events: none;
+  }
+
+  .mobile-sidebar-header button {
+    pointer-events: auto;
+
+    min-width: 48px !important;
+    min-height: 36px !important;
+
+    padding: 6px 10px !important;
+
+    border:
+      1px solid
+      rgba(238, 233, 222, 0.10) !important;
+
+    border-radius: 2px !important;
+
+    background:
+      rgba(7, 9, 10, 0.58) !important;
+
+    color: #aab0ab !important;
+
+    font-size: 11px !important;
+    letter-spacing: 0.03em !important;
+  }
+
+
+  /* ==========================================================
+     FILETREE TOUCH TARGETS
+     ========================================================== */
+
+  .markdown-vault-root
+  > .app-sidebar
+  > aside
+  > div:first-child
+  button {
+    min-width: 38px !important;
+    min-height: 38px !important;
+
+    padding: 7px !important;
+
+    font-size: 15px !important;
+  }
+
+  .markdown-vault-root
+  > .app-sidebar
+  [title^="資料夾："],
+  .markdown-vault-root
+  > .app-sidebar
+  [title*="按住拖曳可歸入"] {
+    min-height: 42px !important;
+  }
+
+  /*
+   * Desktop 使用 hover 才顯示「改 / 刪」。
+   * 手機沒有 hover，所以直接顯示。
+   */
+  .markdown-vault-root
+  > .app-sidebar
+  .group
+  > div:last-child {
+    display: flex !important;
+
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+
+  .markdown-vault-root
+  > .app-sidebar
+  .group
+  > div:last-child
+  button {
+    min-width: 34px !important;
+    min-height: 34px !important;
+
+    padding: 6px !important;
+
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+
+
+  /* ==========================================================
+     DRAWER OVERLAY
+     ========================================================== */
+
+  .mobile-drawer-overlay {
+    display: block !important;
+
+    position: fixed !important;
+
+    z-index: 10010 !important;
+
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+
+    bottom:
+      calc(
+        var(--mobile-bottom-height) +
+        env(safe-area-inset-bottom)
+      ) !important;
+
+    width: 100dvw !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    border: 0 !important;
+
+    background:
+      rgba(0, 0, 0, 0.56) !important;
+
+    backdrop-filter:
+      blur(2px) !important;
+
+    -webkit-backdrop-filter:
+      blur(2px) !important;
+  }
+
+
+  /* ==========================================================
+     RIGHT PANEL -> BOTTOM SHEET
+     ========================================================== */
+
+  .markdown-vault-root
+  > .app-right-panel {
+    position: fixed !important;
+
+    z-index: 10030 !important;
+
+    left: 0 !important;
+    right: 0 !important;
+
+    top: auto !important;
+
+    bottom:
+      calc(
+        var(--mobile-bottom-height) +
+        env(safe-area-inset-bottom)
+      ) !important;
+
+    display: flex !important;
+
+    width: 100vw !important;
+    width: 100dvw !important;
+
+    height: min(70dvh, 620px) !important;
+    max-height:
+      calc(
+        100dvh -
+        var(--mobile-bottom-height) -
+        18px
+      ) !important;
+
+    min-height: 0 !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    border: 0 !important;
+
+    border-top:
+      1px solid
+      rgba(238, 233, 222, 0.11) !important;
+
+    border-radius:
+      18px 18px 0 0 !important;
+
+    background: #101314 !important;
+
+    box-shadow:
+      0 -22px 76px
+      rgba(0, 0, 0, 0.68) !important;
+
+    transform:
+      translate3d(
+        0,
+        calc(100% + 18px),
+        0
+      ) !important;
+
+    transition:
+      transform 250ms
+      cubic-bezier(
+        0.22,
+        1,
+        0.36,
+        1
+      ) !important;
+
+    overflow: hidden !important;
+
+    isolation: isolate !important;
+  }
+
+  .markdown-vault-root
+  > .app-right-panel.mobile-right-panel-open {
+    transform:
+      translate3d(0, 0, 0) !important;
+  }
+
+  .markdown-vault-root
+  > .app-right-panel::before {
+    opacity: 0.18 !important;
+  }
+
+  .markdown-vault-root
+  > .app-right-panel
+  > div:first-child {
+    position: relative !important;
+
+    flex-shrink: 0 !important;
+
+    min-height: 54px !important;
+
+    padding:
+      17px
+      16px
+      12px !important;
+
+    background:
+      rgba(14, 17, 18, 0.86) !important;
+  }
+
+  .markdown-vault-root
+  > .app-right-panel
+  > div:first-child::before {
+    content: "";
+
+    position: absolute;
+
+    top: 7px;
+    left: 50%;
+
+    width: 42px;
+    height: 4px;
+
+    transform:
+      translateX(-50%);
+
+    border-radius: 999px;
+
+    background:
+      rgba(238, 233, 222, 0.18);
+  }
+
+  .markdown-vault-root
+  > .app-right-panel
+  > div:nth-child(2) {
+    min-height: 0 !important;
+
+    flex: 1 1 auto !important;
+
+    overflow-y: auto !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+
+    padding-bottom: 16px !important;
+  }
+
+  /*
+   * Desktop 關閉右欄後的小箭頭，
+   * 手機改由 Bottom Bar 控制，不需要。
+   */
+  .markdown-vault-root
+  > button.absolute.right-0 {
+    display: none !important;
+  }
+
+
+  /* ==========================================================
+     BOTTOM NAVIGATION
+     ========================================================== */
+
+  .mobile-bottom-bar {
+    display: grid !important;
+
+    position: fixed !important;
+
+    z-index: 11000 !important;
+
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+
+    grid-template-columns:
+      repeat(4, minmax(0, 1fr)) !important;
+
+    width: 100vw !important;
+    width: 100dvw !important;
+
+    height:
+      calc(
+        var(--mobile-bottom-height) +
+        env(safe-area-inset-bottom)
+      ) !important;
+
+    padding:
+      0
+      4px
+      env(safe-area-inset-bottom) !important;
+
+    border-top:
+      1px solid
+      rgba(238, 233, 222, 0.08) !important;
+
+    background:
+      rgba(13, 16, 17, 0.96) !important;
+
+    box-shadow:
+      0 -14px 40px
+      rgba(0, 0, 0, 0.26) !important;
+
+    backdrop-filter:
+      blur(16px) saturate(0.9) !important;
+
+    -webkit-backdrop-filter:
+      blur(16px) saturate(0.9) !important;
+  }
+
+  .mobile-bottom-button {
+    position: relative !important;
+
+    display: flex !important;
+
+    min-width: 0 !important;
+    min-height: 0 !important;
+
+    margin: 0 !important;
+    padding: 6px 2px 5px !important;
+
+    border: 0 !important;
+    border-radius: 0 !important;
+
+    background: transparent !important;
+
+    color: #727975 !important;
+
+    align-items: center !important;
+    justify-content: center !important;
+
+    flex-direction: column !important;
+
+    gap: 2px !important;
+
+    font-size: 10px !important;
+    line-height: 1.15 !important;
+
+    user-select: none !important;
+  }
+
+  .mobile-bottom-button:active {
+    background:
+      rgba(238, 233, 222, 0.035) !important;
+  }
+
+  .mobile-bottom-icon {
+    display: flex !important;
+
+    width: 31px !important;
+    height: 31px !important;
+
+    align-items: center !important;
+    justify-content: center !important;
+
+    color: currentColor !important;
+  }
+
+  .mobile-bottom-svg {
+    width: 23px !important;
+    height: 23px !important;
+  }
+
+  .mobile-bottom-active {
+    color: #a7beb8 !important;
+  }
+
+  .mobile-bottom-active::before {
+    content: "";
+
+    position: absolute;
+
+    top: 2px;
+    left: 50%;
+
+    width: 26px;
+    height: 2px;
+
+    transform:
+      translateX(-50%);
+
+    background: #789991;
+  }
+
+  .mobile-create-button {
+    color: #b3c8c2 !important;
+  }
+
+  .mobile-create-icon {
+    width: 34px !important;
+    height: 34px !important;
+
+    border:
+      1px solid
+      rgba(120, 153, 145, 0.30);
+
+    background:
+      rgba(120, 153, 145, 0.07);
+  }
+
+
+  /* ==========================================================
+     EDITOR TOP BAR
+     ========================================================== */
+
+  /*
+   * MarkdownEditor 的第一個直接子 div 是 Header。
+   * 手機改成上下兩排，避免筆記名與功能鍵互撞。
+   */
+  .app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div:first-of-type {
+    display: flex !important;
+
+    flex-direction: column !important;
+    align-items: stretch !important;
+
+    gap: 8px !important;
+
+    padding:
+      calc(
+        10px +
+        env(safe-area-inset-top)
+      )
+      var(--mobile-side-padding)
+      8px !important;
+
+    background:
+      rgba(8, 10, 11, 0.78) !important;
+  }
+
+  .app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div:first-of-type
+  > div:first-child {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div:first-of-type
+  > div:first-child
+  h2 {
+    max-width: 100% !important;
+
+    font-size: 15px !important;
+    line-height: 1.35 !important;
+  }
+
+  /*
+   * Header 第二排可橫向滑動。
+   */
+  .app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div:first-of-type
+  > div:last-child {
+    display: flex !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+
+    gap: 4px !important;
+
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+
+    scrollbar-width: none;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+  .app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div:first-of-type
+  > div:last-child::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div:first-of-type
+  button {
+    min-height: 36px !important;
+
+    flex-shrink: 0 !important;
+
+    padding:
+      7px
+      9px !important;
+  }
+
+
+  /* ==========================================================
+     EDITOR TOOLBAR
+     ========================================================== */
+
+  .app-main
+  div[class*="bg-black/10"] {
+    min-height: 42px !important;
+
+    gap: 2px !important;
+
+    padding:
+      3px
+      8px !important;
+
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+
+    scrollbar-width: none;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+  .app-main
+  div[class*="bg-black/10"]::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-main
+  div[class*="bg-black/10"]
+  button {
+    min-width: 38px !important;
+    min-height: 36px !important;
+
+    flex-shrink: 0 !important;
+
+    padding:
+      6px
+      8px !important;
+  }
+
+
+  /* ==========================================================
+     EDITOR WORKSPACE
+     ========================================================== */
+
+  /*
+   * 雙欄在手機改成上下雙區：
+   * Editor 50% 高度
+   * Preview 50% 高度
+   */
+  .app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div.relative.flex.min-h-0.flex-1 {
+    flex-direction: column !important;
+  }
+
+  .app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div.relative.flex.min-h-0.flex-1
+  > div.w-1\/2 {
+    width: 100% !important;
+    height: 50% !important;
+
+    flex: 1 1 50% !important;
+  }
+
+  .app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div.relative.flex.min-h-0.flex-1
+  > div.border-r {
+    border-right: 0 !important;
+
+    border-bottom:
+      1px solid
+      rgba(238, 233, 222, 0.06) !important;
+  }
+
+  .app-main textarea {
+    padding:
+      16px
+      14px !important;
+
+    font-size: 16px !important;
+    line-height: 1.75 !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+  .paper-texture {
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+  .obsidian-preview-container {
+    width: 100% !important;
+    max-width: none !important;
+
+    padding:
+      24px
+      17px
+      56px !important;
+
+    font-size: 15px !important;
+    line-height: 1.86 !important;
+  }
+
+  .obsidian-preview-container h1 {
+    margin-top: 0.4rem !important;
+
+    font-size: 1.65rem !important;
+    line-height: 1.38 !important;
+  }
+
+  .obsidian-preview-container h2 {
+    margin-top: 1.85rem !important;
+
+    font-size: 1.28rem !important;
+  }
+
+  .obsidian-preview-container h3 {
+    font-size: 1.08rem !important;
+  }
+
+  .obsidian-preview-container pre {
+    max-width: 100% !important;
+
+    overflow-x: auto !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+  .obsidian-preview-container table {
+    display: block !important;
+
+    width: 100% !important;
+    max-width: 100% !important;
+
+    overflow-x: auto !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+  .obsidian-media-container {
+    max-width: 100% !important;
+  }
+
+  .obsidian-media-container img,
+  .obsidian-media-container video {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  /*
+   * Desktop 媒體操作是 hover 顯示。
+   * 手機沒有 hover，所以固定顯示「下載 / 刪除」。
+   */
+  .obsidian-media-container
+  [class*="group-hover/media:opacity-100"] {
+    opacity: 1 !important;
+  }
+
+
+  /* ==========================================================
+     GRAPH
+     ========================================================== */
+
+  .graph-view-root {
+    min-height: 0 !important;
+  }
+
+  .graph-view-header {
+    display: flex !important;
+
+    flex-direction: column !important;
+    align-items: stretch !important;
+
+    gap: 8px !important;
+
+    padding:
+      calc(
+        9px +
+        env(safe-area-inset-top)
+      )
+      12px
+      9px !important;
+
+    background:
+      rgba(13, 16, 17, 0.92) !important;
+  }
+
+  .graph-title-row {
+    display: flex !important;
+
+    align-items: center !important;
+    justify-content: space-between !important;
+
+    gap: 10px !important;
+  }
+
+  .graph-controls {
+    display: flex !important;
+
+    width: 100% !important;
+
+    align-items: center !important;
+
+    gap: 10px !important;
+
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+
+    scrollbar-width: none;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+  .graph-controls::-webkit-scrollbar {
+    display: none;
+  }
+
+  .graph-controls button {
+    min-height: 36px !important;
+
+    flex-shrink: 0 !important;
+  }
+
+  .graph-search {
+    width: 118px !important;
+    min-width: 118px !important;
+
+    min-height: 34px !important;
+
+    flex-shrink: 0 !important;
+
+    font-size: 16px !important;
+  }
+
+  .graph-canvas {
+    touch-action: none !important;
+
+    user-select: none !important;
+
+    -webkit-user-select: none !important;
+  }
+
+  .graph-hint-desktop {
+    display: none !important;
+  }
+
+  .graph-hint-mobile {
+    display: block !important;
+
+    right: 12px !important;
+
+    bottom: 12px !important;
+
+    font-size: 9px !important;
+
+    color: #666c67 !important;
+  }
+
+  .graph-ink-seal {
+    left: 12px !important;
+    bottom: 12px !important;
+
+    width: 29px !important;
+    height: 29px !important;
+  }
+
+
+  /* ==========================================================
+     GRAPH PAGE WRAPPER
+     ========================================================== */
+
+  .app-main
+  > div.relative.flex.h-full.flex-1.flex-col
+  > div.z-20 {
+    min-height: 42px !important;
+
+    padding:
+      calc(
+        7px +
+        env(safe-area-inset-top)
+      )
+      12px
+      7px !important;
+  }
+
+  .app-main
+  > div.relative.flex.h-full.flex-1.flex-col
+  > div.z-20
+  button {
+    min-height: 34px !important;
+  }
+
+
+  /* ==========================================================
+     TOAST
+     ========================================================== */
+
+  .markdown-vault-root
+  .fixed.bottom-5.right-5 {
+    left: 12px !important;
+    right: 12px !important;
+
+    bottom:
+      calc(
+        var(--mobile-bottom-height) +
+        10px +
+        env(safe-area-inset-bottom)
+      ) !important;
+
+    width: auto !important;
+    max-width: none !important;
+
+    padding:
+      10px
+      12px !important;
+  }
+
+
+  /* ==========================================================
+     MODALS
+     ========================================================== */
+
+  /*
+   * Backup Modal 與 FileTree Portal Modal
+   * 手機統一變成底部 Sheet。
+   */
+  body
+  > .fixed.inset-0,
+  .markdown-vault-root
+  > .fixed.inset-0 {
+    padding:
+      12px !important;
+
+    align-items:
+      flex-end !important;
+  }
+
+  body
+  > .fixed.inset-0
+  > div,
+  .markdown-vault-root
+  > .fixed.inset-0
+  > div {
+    width: 100% !important;
+    max-width: none !important;
+
+    max-height:
+      calc(
+        88dvh -
+        env(safe-area-inset-bottom)
+      ) !important;
+
+    overflow-y: auto !important;
+
+    border-radius:
+      16px 16px 4px 4px !important;
+
+    padding-bottom:
+      calc(
+        18px +
+        env(safe-area-inset-bottom)
+      ) !important;
+  }
+
+
+  /* ==========================================================
+     iOS / Android INPUT
+     ========================================================== */
+
+  .app-main input,
+  .app-main textarea,
+  .app-sidebar input,
+  .app-right-panel input {
+    font-size: 16px !important;
+  }
+}
+
+
+/* ============================================================
+   SMALL PHONE
+   ============================================================ */
+
+@media (max-width: 480px) {
+  :root {
+    --mobile-side-padding: 12px;
+  }
+
+  .markdown-vault-root
+  > .app-sidebar {
+    width: 92vw !important;
+  }
+
+  .markdown-vault-root
+  > .app-right-panel {
+    height: min(74dvh, 600px) !important;
+  }
+
+  .obsidian-preview-container {
+    padding:
+      22px
+      14px
+      52px !important;
+  }
+
+  .obsidian-preview-container h1 {
+    font-size: 1.5rem !important;
+  }
+}
+
+
+/* ============================================================
+   LANDSCAPE PHONE
+   ============================================================ */
+
+@media
+  (max-width: 900px)
+  and (orientation: landscape) {
+
+  :root {
+    --mobile-bottom-height: 54px;
+  }
+
+  .markdown-vault-root
+  > .app-sidebar {
+    width: min(60vw, 360px) !important;
+  }
+
+  .markdown-vault-root
+  > .app-right-panel {
+    height: min(76dvh, 470px) !important;
+  }
+
+  .mobile-bottom-button {
+    flex-direction: row !important;
+
+    gap: 5px !important;
+
+    font-size: 9px !important;
+  }
+
+  .mobile-bottom-icon {
+    width: 27px !important;
+    height: 27px !important;
+  }
+
+  .mobile-bottom-svg {
+    width: 20px !important;
+    height: 20px !important;
+  }
+
+  .graph-view-header {
+    flex-direction: row !important;
+    align-items: center !important;
+  }
+
+  .graph-title-row {
+    flex-shrink: 0 !important;
+  }
+}
+
+
+/* ============================================================
+   TABLET
+   ============================================================ */
+
+@media
+  (min-width: 769px)
+  and (max-width: 1100px) {
+
+  /*
+   * 平板維持 Desktop 架構，
+   * 但縮窄左右欄。
+   */
+  .markdown-vault-root
+  > .app-sidebar {
+    width: 220px !important;
+  }
+
+  .markdown-vault-root
+  > .app-right-panel {
+    width: 240px !important;
+  }
+
+  .obsidian-preview-container {
+    padding-left: 28px !important;
+    padding-right: 28px !important;
+  }
+}
+
+
+/* ============================================================
+   REDUCED MOTION
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-vault-root
+  > .app-sidebar,
+  .markdown-vault-root
+  > .app-right-panel,
+  .mobile-bottom-button {
+    transition: none !important;
+  }
+}
