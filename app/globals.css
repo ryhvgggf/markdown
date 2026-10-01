@@ -696,3 +696,583 @@ aside.w-64 > div:last-child {
 .fixed.inset-0 > div {
   backdrop-filter: blur(8px);
 }
+
+
+/* ============================================================
+   第二層：真正的「山、水、墨暈、留白」
+   這裡開始使用 SVG 素材，而不是只靠 CSS 漸層。
+   ============================================================ */
+
+/*
+ * 主工作區變成「墨夜長卷」。
+ * landscape.svg 只在邊緣出現山與水，中間刻意保留大面積留白。
+ */
+main {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+main::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: auto -8% -4% -5%;
+  height: 66%;
+  pointer-events: none;
+
+  background-image: url("/ink/landscape.svg");
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-size: cover;
+
+  opacity: .34;
+  filter: contrast(.9) saturate(.65);
+  mix-blend-mode: screen;
+
+  transform: translate3d(0, 0, 0);
+}
+
+/* 墨暈層會非常緩慢地漂動 */
+main::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: -18% -12% -14% -16%;
+  pointer-events: none;
+
+  background-image: url("/ink/wash.svg");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 115% 115%;
+
+  opacity: .24;
+  mix-blend-mode: screen;
+
+  animation: ink-mist-drift 24s ease-in-out infinite alternate;
+}
+
+main > * {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * MarkdownEditor 根節點原本是實心 bg-slate-950，
+ * 改成半透明，才能看見後方山水。
+ */
+main > div.flex.h-full.flex-col.bg-slate-950 {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(9,10,11,.78),
+      rgba(9,10,11,.68)
+    ) !important;
+
+  backdrop-filter: blur(.4px);
+}
+
+/*
+ * 編輯區不是一片死黑，保留山水但確保文字清楚。
+ */
+main textarea {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(8,10,11,.72),
+      rgba(8,10,11,.62)
+    ) !important;
+
+  color: #d8d4ca !important;
+  text-shadow: 0 1px 0 rgba(0,0,0,.25);
+}
+
+/* 雙欄中線像淡墨縫，不要標準 UI border */
+main .border-r.border-slate-800 {
+  border-right-color: rgba(224,220,210,.055) !important;
+}
+
+/*
+ * Preview 本身像半透明黑宣紙。
+ * 山水透出，但不直接壓在正文上。
+ */
+.paper-texture {
+  overflow: hidden;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(13,15,16,.82),
+      rgba(11,13,14,.76)
+    ),
+    url("/ink/grain.svg") !important;
+
+  background-size:
+    auto,
+    240px 240px !important;
+
+  background-blend-mode:
+    normal,
+    soft-light !important;
+}
+
+/* Preview 山水層 */
+.paper-texture::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+
+  left: -7%;
+  right: -7%;
+  bottom: -2%;
+  height: 48%;
+
+  background-image: url("/ink/landscape.svg");
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-size: 115% auto;
+
+  opacity: .24;
+  filter: grayscale(.2) contrast(.86);
+  mix-blend-mode: screen;
+}
+
+.paper-texture > * {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * 長篇閱讀使用更多留白。
+ */
+.obsidian-preview-container {
+  max-width: 820px !important;
+  padding-top: 3rem !important;
+  padding-left: clamp(1.3rem, 5vw, 4rem) !important;
+  padding-right: clamp(1.3rem, 5vw, 4rem) !important;
+  padding-bottom: 12rem !important;
+}
+
+/*
+ * 大標題不要 Card，像書卷題字。
+ */
+.obsidian-preview-container h1 {
+  max-width: 92%;
+  text-wrap: balance;
+}
+
+.obsidian-preview-container h1::before {
+  content: "";
+  position: absolute;
+  right: -10px;
+  top: -12px;
+
+  width: 36px;
+  height: 36px;
+
+  background: url("/ink/wash.svg") center / 110px 84px no-repeat;
+  opacity: .20;
+  border-radius: 50%;
+
+  pointer-events: none;
+}
+
+/*
+ * H2 左筆更加不規則。
+ */
+.obsidian-preview-container h2::before {
+  width: 4px !important;
+  border-radius: 40% 60% 48% 56%;
+  filter: blur(.15px);
+}
+
+/*
+ * Editor Header：像卷首題籤，不像 Dashboard。
+ */
+main > div > div:first-of-type {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(14,16,17,.94),
+      rgba(11,13,14,.88)
+    ) !important;
+
+  border-bottom-color: rgba(224,220,210,.055) !important;
+  box-shadow: none !important;
+}
+
+/*
+ * 頂部標題使用書卷字體。
+ */
+main h2 {
+  font-family: var(--font-serif) !important;
+  letter-spacing: .045em !important;
+}
+
+/*
+ * 模式切換全部去掉科技型底色，
+ * 只留下「淡墨底線」。
+ */
+main button[class*="border-[#0e7490]"] {
+  background: transparent !important;
+  border-color: #708f89 !important;
+  color: #e4e0d7 !important;
+}
+
+main button[class*="bg-white/[0.06]"] {
+  background: transparent !important;
+}
+
+/*
+ * Markdown 快速工具列：
+ * 像文房工具，不是 SaaS button bar。
+ */
+main div[class*="bg-black/10"] {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(255,255,255,.012),
+      rgba(255,255,255,.004),
+      transparent
+    ) !important;
+
+  border-bottom-color: rgba(224,220,210,.04) !important;
+}
+
+main div[class*="bg-black/10"] button {
+  min-width: 26px;
+  color: #8d918c !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+main div[class*="bg-black/10"] button:hover {
+  color: #d6d2c8 !important;
+  background:
+    radial-gradient(
+      ellipse at center,
+      rgba(112,143,137,.09),
+      transparent 72%
+    ) !important;
+}
+
+/*
+ * 左側資料夾欄：加入遠山剪影，仍保留操作清晰度。
+ */
+aside.w-64 {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+body > div.flex.h-screen.w-screen > aside.w-64::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+
+  left: -58%;
+  right: -55%;
+  bottom: -2%;
+  height: 42%;
+
+  background-image: url("/ink/landscape.svg");
+  background-position: left bottom;
+  background-size: auto 100%;
+  background-repeat: no-repeat;
+
+  opacity: .13;
+  mix-blend-mode: screen;
+}
+
+body > div.flex.h-screen.w-screen > aside.w-64::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+
+  inset: 18% -70% 22% -55%;
+
+  background-image: url("/ink/wash.svg");
+  background-size: cover;
+  background-position: center;
+
+  opacity: .11;
+  mix-blend-mode: screen;
+}
+
+body > div.flex.h-screen.w-screen > aside.w-64 > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* 左欄標題「檔案庫」 */
+aside.w-64 [title="拖曳至此處可將筆記移至最外層"] {
+  letter-spacing: .08em;
+}
+
+/*
+ * Active note 像一筆墨從左側刷過。
+ */
+aside [title*="按住拖曳可歸入"][class~="border-l-2"] {
+  position: relative;
+  box-shadow: none !important;
+}
+
+aside [title*="按住拖曳可歸入"][class~="border-l-2"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 13%;
+  bottom: 13%;
+  width: 3px;
+
+  background:
+    linear-gradient(
+      180deg,
+      transparent,
+      rgba(154,177,172,.95) 13%,
+      rgba(112,143,137,.62) 70%,
+      transparent
+    );
+
+  transform: rotate(.7deg);
+  filter: blur(.15px);
+}
+
+/*
+ * 左欄搜尋做成一條簡單墨線。
+ */
+aside input[placeholder="搜尋筆記或標籤..."] {
+  height: 30px;
+  color: #c6c3ba !important;
+}
+
+/*
+ * 右側關聯欄放一點霧，不放山，避免過滿。
+ */
+aside.w-72 {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+aside.w-72::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+
+  inset: 44% -60% -18% -55%;
+
+  background-image: url("/ink/wash.svg");
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+
+  opacity: .12;
+  mix-blend-mode: screen;
+}
+
+aside.w-72 > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* 右欄標題 */
+aside.w-72 > div:first-child {
+  font-family: var(--font-serif);
+  letter-spacing: .08em;
+  color: #bdbab1 !important;
+}
+
+/*
+ * Backlink rows 從 Card 變成卷邊文字列。
+ */
+.ink-link-row {
+  border-radius: 0 !important;
+}
+
+.ink-link-row:hover {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(112,143,137,.08),
+      rgba(112,143,137,.025) 58%,
+      transparent
+    ) !important;
+}
+
+/*
+ * Tags 更像方形鈐印。
+ */
+.obsidian-tag-seal {
+  min-height: 23px;
+  letter-spacing: .025em;
+}
+
+.obsidian-tag-seal-active {
+  box-shadow:
+    inset 0 0 0 1px rgba(195,108,94,.09) !important;
+}
+
+/*
+ * Modal：加墨暈，而不是純深色卡片。
+ */
+.fixed.inset-0 > div {
+  background-image:
+    url("/ink/wash.svg"),
+    linear-gradient(
+      180deg,
+      rgba(19,21,22,.97),
+      rgba(13,15,16,.97)
+    ) !important;
+
+  background-size:
+    145% auto,
+    auto !important;
+
+  background-position:
+    center -60px,
+    center !important;
+
+  background-repeat:
+    no-repeat,
+    no-repeat !important;
+
+  border-color: rgba(224,220,210,.08) !important;
+  box-shadow:
+    0 32px 80px rgba(0,0,0,.48) !important;
+}
+
+/*
+ * Toast：像題籤，不像系統警示。
+ */
+.fixed.bottom-5.right-5 {
+  border-radius: 2px !important;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(22,24,24,.96),
+      rgba(15,17,17,.96)
+    ) !important;
+
+  border-color: rgba(112,143,137,.22) !important;
+}
+
+/*
+ * Loading 不要亮色 spinner。
+ */
+main .animate-spin {
+  color: #81938e !important;
+}
+
+/*
+ * Drag overlay 改成宣紙/墨霧感。
+ */
+main [class*="border-dashed"][class*="border-cyan"] {
+  background:
+    rgba(8,10,11,.84)
+    url("/ink/wash.svg")
+    center / cover
+    no-repeat !important;
+
+  border-color: rgba(112,143,137,.48) !important;
+  border-radius: 2px !important;
+}
+
+/*
+ * 媒體卡片 / 圖片不使用厚重 SaaS 卡片。
+ */
+.obsidian-media-container {
+  position: relative;
+}
+
+.obsidian-media-container::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  inset: -1px;
+
+  border:
+    1px solid
+    rgba(224,220,210,.025);
+
+  transform: rotate(.08deg);
+}
+
+/*
+ * 水墨動畫
+ */
+@keyframes ink-mist-drift {
+  0% {
+    transform:
+      translate3d(-1.5%, -1%, 0)
+      scale(1.02);
+    opacity: .18;
+  }
+
+  50% {
+    transform:
+      translate3d(1%, .5%, 0)
+      scale(1.045);
+    opacity: .25;
+  }
+
+  100% {
+    transform:
+      translate3d(2%, -1.3%, 0)
+      scale(1.025);
+    opacity: .20;
+  }
+}
+
+/*
+ * 尊重系統減少動態設定。
+ */
+@media (prefers-reduced-motion: reduce) {
+  main::after {
+    animation: none;
+  }
+}
+
+/*
+ * 小螢幕：降低山水存在感，確保可讀。
+ */
+@media (max-width: 1100px) {
+  main::before {
+    opacity: .22;
+    height: 48%;
+  }
+
+  main::after {
+    opacity: .14;
+  }
+
+  .paper-texture::after {
+    opacity: .16;
+  }
+}
+
+
+/* RootLayout 明確改用水墨根節點，避免原本 bg-slate utility 壓過主題 */
+.ink-root {
+  background:
+    radial-gradient(ellipse at 46% -18%, rgba(255,255,255,.035), transparent 48%),
+    radial-gradient(ellipse at 100% 100%, rgba(112,143,137,.025), transparent 42%),
+    #090a0b !important;
+
+  color: var(--paper-main);
+}
+
+body > div.flex.h-screen.w-screen {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(10,11,12,.96),
+      rgba(8,9,10,.98)
+    ) !important;
+
+  color: var(--paper-main) !important;
+}
