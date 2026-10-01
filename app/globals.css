@@ -1207,3 +1207,625 @@ body > div.flex.h-screen.w-screen
   border-color:
     rgba(120, 153, 145, 0.24) !important;
 }
+
+/* ============================================================
+   MOBILE RESPONSIVE APP
+   ============================================================ */
+
+.mobile-bottom-bar {
+  display: none;
+}
+
+.mobile-drawer-overlay {
+  display: none;
+}
+
+
+/* ============================================================
+   Mobile / Tablet
+   ============================================================ */
+
+@media (max-width: 768px) {
+  html,
+  body {
+    width: 100%;
+    height: 100%;
+
+    margin: 0;
+    padding: 0;
+
+    overflow: hidden;
+
+    overscroll-behavior: none;
+  }
+
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /*
+   * Prevent iOS Safari input zoom.
+   */
+
+  input,
+  textarea,
+  select,
+  button {
+    font-size: 16px;
+  }
+
+  /*
+   * Root application
+   */
+
+  .markdown-vault-root {
+    position: relative !important;
+
+    width: 100vw !important;
+    width: 100dvw !important;
+
+    height: 100vh !important;
+    height: 100dvh !important;
+
+    min-height: 100dvh !important;
+
+    overflow: hidden !important;
+  }
+
+
+  /* ==========================================================
+     MAIN EDITOR
+     ========================================================== */
+
+  .app-main {
+    width: 100% !important;
+
+    height: 100% !important;
+
+    min-width: 0 !important;
+    min-height: 0 !important;
+
+    padding-bottom:
+      calc(
+        68px +
+        env(safe-area-inset-bottom)
+      ) !important;
+  }
+
+
+  /* ==========================================================
+     LEFT SIDEBAR
+     ========================================================== */
+
+  .app-sidebar {
+    position: fixed !important;
+
+    z-index: 10000 !important;
+
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+
+    width: min(88vw, 360px) !important;
+
+    height: 100dvh !important;
+
+    max-width: 360px !important;
+
+    transform:
+      translateX(-105%) !important;
+
+    transition:
+      transform 220ms ease,
+      box-shadow 220ms ease !important;
+
+    background:
+      rgba(13, 15, 18, 0.98) !important;
+
+    border-right:
+      1px solid
+      rgba(255, 255, 255, 0.08) !important;
+
+    box-shadow:
+      20px 0 70px
+      rgba(0, 0, 0, 0.55) !important;
+
+    padding-bottom:
+      env(safe-area-inset-bottom) !important;
+
+    overflow: hidden !important;
+  }
+
+  .app-sidebar.mobile-sidebar-open {
+    transform:
+      translateX(0) !important;
+
+    box-shadow:
+      20px 0 90px
+      rgba(0, 0, 0, 0.78) !important;
+  }
+
+
+  /* ==========================================================
+     OVERLAY
+     ========================================================== */
+
+  .mobile-drawer-overlay {
+    display: block;
+
+    position: fixed;
+
+    z-index: 9999;
+
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    padding: 0;
+    margin: 0;
+
+    border: 0;
+
+    background:
+      rgba(0, 0, 0, 0.58);
+
+    backdrop-filter:
+      blur(2px);
+
+    -webkit-backdrop-filter:
+      blur(2px);
+
+    cursor: pointer;
+
+    -webkit-tap-highlight-color:
+      transparent;
+  }
+
+
+  /* ==========================================================
+     RIGHT PANEL
+     ========================================================== */
+
+  .app-right-panel {
+    position: fixed !important;
+
+    z-index: 10001 !important;
+
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+
+    top: auto !important;
+
+    width: 100% !important;
+
+    height:
+      min(76dvh, 620px) !important;
+
+    max-height:
+      76dvh !important;
+
+    transform:
+      translateY(105%) !important;
+
+    transition:
+      transform 220ms ease !important;
+
+    border-top:
+      1px solid
+      rgba(255, 255, 255, 0.1) !important;
+
+    border-left: 0 !important;
+
+    border-radius:
+      18px 18px 0 0 !important;
+
+    background:
+      rgba(18, 20, 24, 0.99) !important;
+
+    box-shadow:
+      0 -20px 80px
+      rgba(0, 0, 0, 0.72) !important;
+
+    overflow: hidden !important;
+
+    padding-bottom:
+      env(safe-area-inset-bottom) !important;
+  }
+
+  .app-right-panel.mobile-right-panel-open {
+    transform:
+      translateY(0) !important;
+  }
+
+
+  /* ==========================================================
+     BOTTOM NAVIGATION
+     ========================================================== */
+
+  .mobile-bottom-bar {
+    display: flex !important;
+
+    position: fixed;
+
+    z-index: 11000;
+
+    left: 0;
+    right: 0;
+    bottom: 0;
+
+    width: 100%;
+
+    height:
+      calc(
+        68px +
+        env(safe-area-inset-bottom)
+      );
+
+    padding:
+      0 6px
+      env(safe-area-inset-bottom)
+      0;
+
+    border-top:
+      1px solid
+      rgba(255, 255, 255, 0.08);
+
+    background:
+      rgba(16, 18, 20, 0.97);
+
+    backdrop-filter:
+      blur(20px);
+
+    -webkit-backdrop-filter:
+      blur(20px);
+
+    box-shadow:
+      0 -10px 40px
+      rgba(0, 0, 0, 0.35);
+
+    align-items: center;
+    justify-content: space-around;
+  }
+
+  .mobile-bottom-button {
+    position: relative;
+
+    display: flex;
+
+    flex: 1;
+
+    min-width: 0;
+
+    height: 60px;
+
+    margin: 0;
+
+    padding: 4px 2px;
+
+    border: 0;
+
+    outline: none;
+
+    background:
+      transparent;
+
+    color:
+      #777d83;
+
+    align-items: center;
+    justify-content: center;
+
+    flex-direction: column;
+
+    gap: 3px;
+
+    font-size: 10px;
+
+    line-height: 1;
+
+    touch-action: manipulation;
+
+    -webkit-tap-highlight-color:
+      transparent;
+
+    transition:
+      color 150ms ease,
+      background 150ms ease;
+  }
+
+  .mobile-bottom-button:active {
+    background:
+      rgba(255, 255, 255, 0.05);
+
+    color:
+      #eee9de;
+  }
+
+  .mobile-bottom-icon {
+    display: flex;
+
+    width: 30px;
+    height: 30px;
+
+    align-items: center;
+    justify-content: center;
+
+    font-size: 20px;
+
+    line-height: 1;
+  }
+
+  .mobile-bottom-active {
+    color:
+      #a8c3bb !important;
+  }
+
+  .mobile-bottom-active::before {
+    content: "";
+
+    position: absolute;
+
+    top: 2px;
+    left: 50%;
+
+    width: 26px;
+    height: 2px;
+
+    transform:
+      translateX(-50%);
+
+    border-radius:
+      999px;
+
+    background:
+      #789991;
+  }
+
+  .mobile-create-button {
+    color:
+      #a8c3bb;
+  }
+
+  .mobile-create-button
+  .mobile-bottom-icon {
+    width: 32px;
+    height: 32px;
+
+    border:
+      1px solid
+      rgba(120, 153, 145, 0.42);
+
+    border-radius:
+      999px;
+
+    background:
+      rgba(120, 153, 145, 0.08);
+  }
+
+
+  /* ==========================================================
+     EDITOR
+     ========================================================== */
+
+  .app-main input,
+  .app-main textarea {
+    font-size: 16px !important;
+  }
+
+  /*
+   * Make editor scroll correctly above bottom nav.
+   */
+
+  .app-main {
+    overflow: hidden !important;
+  }
+
+  .app-main > * {
+    min-height: 0;
+  }
+
+
+  /* ==========================================================
+     GRAPH
+     ========================================================== */
+
+  .app-main svg {
+    max-width: 100%;
+  }
+
+
+  /* ==========================================================
+     BACKLINK / TAG PANEL
+     ========================================================== */
+
+  .app-right-panel .ink-link-row {
+    min-height: 46px;
+  }
+
+  .app-right-panel button {
+    min-height: 42px;
+  }
+
+
+  /* ==========================================================
+     FILE TREE
+     ========================================================== */
+
+  .app-sidebar button {
+    min-height: 42px;
+  }
+
+  .app-sidebar input {
+    font-size: 16px !important;
+  }
+
+
+  /* ==========================================================
+     TOAST
+     ========================================================== */
+
+  .fixed.bottom-5.right-5 {
+    left: 12px !important;
+    right: 12px !important;
+
+    bottom:
+      calc(
+        76px +
+        env(safe-area-inset-bottom)
+      ) !important;
+
+    width: auto !important;
+
+    max-width: none !important;
+
+    justify-content: center !important;
+
+    text-align: center !important;
+  }
+
+
+  /* ==========================================================
+     BACKUP MODAL
+     ========================================================== */
+
+  .markdown-vault-root
+  .fixed.inset-0 {
+    padding: 12px !important;
+
+    align-items:
+      flex-end !important;
+  }
+
+  .markdown-vault-root
+  .fixed.inset-0
+  > div {
+    width: 100% !important;
+
+    max-width: none !important;
+
+    max-height: 88dvh !important;
+
+    overflow-y: auto !important;
+
+    border-radius:
+      18px 18px 0 0 !important;
+
+    padding: 20px !important;
+
+    padding-bottom:
+      calc(
+        20px +
+        env(safe-area-inset-bottom)
+      ) !important;
+  }
+
+
+  /* ==========================================================
+     SCROLLBARS
+     ========================================================== */
+
+  .app-sidebar,
+  .app-right-panel,
+  .app-main {
+    scrollbar-width: thin;
+
+    scrollbar-color:
+      rgba(255, 255, 255, 0.14)
+      transparent;
+  }
+
+
+  /* ==========================================================
+     TOUCH
+     ========================================================== */
+
+  button,
+  a {
+    -webkit-tap-highlight-color:
+      transparent;
+  }
+}
+
+
+/* ============================================================
+   Small Phones
+   ============================================================ */
+
+@media (max-width: 480px) {
+  .app-sidebar {
+    width:
+      92vw !important;
+  }
+
+  .app-right-panel {
+    height:
+      82dvh !important;
+
+    max-height:
+      82dvh !important;
+  }
+
+  .mobile-bottom-button {
+    font-size: 9px;
+  }
+
+  .mobile-bottom-icon {
+    font-size: 18px;
+  }
+}
+
+
+/* ============================================================
+   Landscape Phones
+   ============================================================ */
+
+@media (
+  max-width: 900px
+) and (
+  orientation: landscape
+) {
+  .app-sidebar {
+    width:
+      min(55vw, 360px) !important;
+  }
+
+  .app-right-panel {
+    height:
+      88dvh !important;
+
+    max-height:
+      88dvh !important;
+  }
+
+  .mobile-bottom-bar {
+    height:
+      54px !important;
+  }
+
+  .mobile-bottom-button {
+    height:
+      50px !important;
+  }
+
+  .app-main {
+    padding-bottom:
+      54px !important;
+  }
+}
+
+
+/* ============================================================
+   Reduced Motion
+   ============================================================ */
+
+@media (
+  prefers-reduced-motion: reduce
+) {
+  .app-sidebar,
+  .app-right-panel,
+  .mobile-bottom-button {
+    transition: none !important;
+  }
+}
