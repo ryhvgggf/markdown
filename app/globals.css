@@ -1017,28 +1017,15 @@ body > div.flex.h-screen.w-screen > aside.w-72 > div:first-child {
    Responsive
    ============================================================ */
 
-@media (max-width: 1100px) {
-  body > div.flex.h-screen.w-screen > main {
-    background-size:
-      cover,
-      1050px auto !important;
+/* ============================================================
+   最終視覺覆寫
+   中央竹林 / 右側梅花
+   ============================================================ */
 
-    background-position:
-      center,
-      78% center !important;
-  }
 
-  body > div.flex.h-screen.w-screen > aside.w-72 {
-    background-size:
-      cover,
-      auto 92% !important;
-  }
-}
-
-body > div.flex.h-screen.w-screen > main {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
+/* ============================================================
+   CENTER — 竹林背景
+   ============================================================ */
 
 body > div.flex.h-screen.w-screen > main {
   position: relative;
@@ -1059,21 +1046,107 @@ body > div.flex.h-screen.w-screen > main {
     no-repeat,
     no-repeat !important;
 
-  /* 關鍵：竹林貼著底部 */
+  /*
+   * 第一個 center：遮罩
+   * 第二個 center bottom：竹林貼底
+   */
   background-position:
     center,
     center bottom !important;
 
   /*
-   * 不用 cover 放大。
-   * 寬度配合中央區域，高度按比例計算。
+   * 避免 cover 把竹子過度放大
    */
   background-size:
     cover,
     100% auto !important;
 }
-/* 右側：梅花樹加大，從右下往上延伸 */
+
+
+/* ============================================================
+   MarkdownEditor 整體
+   ============================================================ */
+
+body > div.flex.h-screen.w-screen
+  > main
+  > div.flex.h-full.flex-col {
+  background:
+    rgba(7, 9, 10, 0.10) !important;
+}
+
+
+/* ============================================================
+   左側 Markdown 編輯區
+   不模糊竹林
+   ============================================================ */
+
+main textarea {
+  background:
+    rgba(5, 7, 8, 0.43) !important;
+
+  color:
+    #d8d4ca !important;
+
+  backdrop-filter:
+    none !important;
+
+  -webkit-backdrop-filter:
+    none !important;
+}
+
+
+/* ============================================================
+   右側 Markdown Preview
+   不模糊竹林
+   ============================================================ */
+
+.paper-texture {
+  position: relative;
+
+  background:
+    rgba(6, 8, 9, 0.40) !important;
+
+  backdrop-filter:
+    none !important;
+
+  -webkit-backdrop-filter:
+    none !important;
+}
+
+
+/*
+ * 不再額外疊紙張效果，
+ * 避免竹林再次變霧。
+ */
+.paper-texture::before,
+.paper-texture::after {
+  display:
+    none !important;
+}
+
+
+/* ============================================================
+   中央左右分隔線
+   ============================================================ */
+
+main .border-r.border-slate-800 {
+  border-right-color:
+    rgba(238, 233, 222, 0.045) !important;
+}
+
+
+/* ============================================================
+   RIGHT — 梅花樹
+   ============================================================ */
+
 body > div.flex.h-screen.w-screen > aside.w-72 {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+
+  border-left-color:
+    rgba(238, 233, 222, 0.075) !important;
+
   background-image:
     linear-gradient(
       180deg,
@@ -1086,6 +1159,9 @@ body > div.flex.h-screen.w-screen > aside.w-72 {
     no-repeat,
     no-repeat !important;
 
+  /*
+   * 梅花由右下往上延伸
+   */
   background-position:
     center,
     96% bottom !important;
@@ -1093,22 +1169,148 @@ body > div.flex.h-screen.w-screen > aside.w-72 {
   background-size:
     cover,
     auto 122% !important;
+
+  backdrop-filter:
+    none !important;
+
+  -webkit-backdrop-filter:
+    none !important;
 }
 
-/* 右欄內容保持可讀 */
-body > div.flex.h-screen.w-screen > aside.w-72 > * {
+
+/*
+ * 右欄文字永遠在背景圖片上方
+ */
+body > div.flex.h-screen.w-screen
+  > aside.w-72
+  > * {
   position: relative;
   z-index: 1;
 }
 
+
+/* ============================================================
+   LEFT — 左側山水
+   ============================================================ */
+
+body > div.flex.h-screen.w-screen > aside.w-64 {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+
+  border-right-color:
+    rgba(238, 233, 222, 0.075) !important;
+
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(8, 10, 11, 0.74) 0%,
+      rgba(8, 10, 11, 0.60) 56%,
+      rgba(7, 9, 10, 0.46) 100%
+    ),
+    url("/ink/left-mountain.png") !important;
+
+  background-repeat:
+    no-repeat,
+    no-repeat !important;
+
+  background-position:
+    center,
+    center bottom !important;
+
+  background-size:
+    cover,
+    cover !important;
+
+  backdrop-filter:
+    none !important;
+
+  -webkit-backdrop-filter:
+    none !important;
+}
+
+
+/* FileTree 本體透明 */
+body > div.flex.h-screen.w-screen
+  > aside.w-64
+  > aside.w-64 {
+  background:
+    transparent !important;
+
+  border-right:
+    0 !important;
+}
+
+
+/* ============================================================
+   Header / Toolbar
+   ============================================================ */
+
+body > div.flex.h-screen.w-screen
+  > main
+  > div
+  > div:first-of-type {
+  background:
+    rgba(9, 11, 12, 0.78) !important;
+
+  border-bottom-color:
+    rgba(238, 233, 222, 0.045) !important;
+
+  backdrop-filter:
+    none !important;
+
+  -webkit-backdrop-filter:
+    none !important;
+}
+
+
+/*
+ * Markdown 工具列
+ */
+main div[class*="bg-black/10"] {
+  background:
+    rgba(8, 10, 11, 0.52) !important;
+
+  border-bottom-color:
+    rgba(238, 233, 222, 0.045) !important;
+
+  backdrop-filter:
+    none !important;
+
+  -webkit-backdrop-filter:
+    none !important;
+}
+
+
+/* ============================================================
+   手機 / 小螢幕
+   ============================================================ */
+
 @media (max-width: 1100px) {
+
+  /*
+   * 竹林稍微縮小，
+   * 避免小畫面被竹子塞滿。
+   */
   body > div.flex.h-screen.w-screen > main {
+    background-position:
+      center,
+      center bottom !important;
+
     background-size:
       cover,
-      auto 100% !important;
+      96% auto !important;
   }
 
+
+  /*
+   * 右側梅花稍微縮小。
+   */
   body > div.flex.h-screen.w-screen > aside.w-72 {
+    background-position:
+      center,
+      96% bottom !important;
+
     background-size:
       cover,
       auto 108% !important;
