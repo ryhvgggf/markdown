@@ -1,282 +1,102 @@
-import {
-  deleteMediaAttachment,
-  getMediaAttachment,
-  saveMediaAttachment,
-} from "./db";
+import { deleteMediaAttachment, getMediaAttachment, saveMediaAttachment } from "./db";
+import { MediaAttachment } from "./types";
 
-import {
-  MediaAttachment,
-} from "./types";
+const activeUrlMap = new Map<string, string>();
 
-/**
- * 目前已建立的 Blob Object URL。
- *
- * key   = media ID
- * value = blob:xxxxxx URL
- */
-const activeUrlMap =
-  new Map<string, string>();
+export const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"];
+export const SUPPORTED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/ogg", "video/quicktime"];
 
-/**
- * 支援的圖片格式。
- */
-export const SUPPORTED_IMAGE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "image/svg+xml",
-];
+export function isMediaSupported(file: File): boolean {
+  return true; // 支援所有任意格式檔案
+}
 
-/**
- * 支援的影片格式。
- */
-export const SUPPORTED_VIDEO_TYPES = [
-  "video/mp4",
-  "video/webm",
-  "video/ogg",
-  "video/quicktime",
-];
+export function isImageType(mimeTypeOrExt: string): boolean {
+  const lower = mimeTypeOrExt.toLowerCase();
+  return lower.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|svg|avif|ico|bmp)$/i.test(lower);
+}
 
-/**
- * 判斷是否為支援的圖片 / 影片。
- */
-export function isMediaSupported(
-  file: File
-): boolean {
-  return (
-    SUPPORTED_IMAGE_TYPES.includes(
-      file.type
-    ) ||
-    SUPPORTED_VIDEO_TYPES.includes(
-      file.type
-    )
-  );
+export function isVideoType(mimeTypeOrExt: string): boolean {
+  const lower = mimeTypeOrExt.toLowerCase();
+  return lower.startsWith("video/") || /\.(mp4|webm|ogg|mov|mkv|avi|m4v)$/i.test(lower);
+}
+
+export function isAudioType(mimeTypeOrExt: string): boolean {
+  const lower = mimeTypeOrExt.toLowerCase();
+  return lower.startsWith("audio/") || /\.(mp3|wav|ogg|m4a|flac|aac|wma)$/i.test(lower);
 }
 
 /**
- * 判斷 MIME Type 是否為影片。
+ * 將使用者拖曳、選取或貼上的任意 File 物件儲存至 IndexedDB
  */
-export function isVideoType(
-  mimeType: string
-): boolean {
-  return SUPPORTED_VIDEO_TYPES.includes(
-    mimeType
-  );
-}
-
-/**
- * 將使用者上傳的圖片 / 影片
- * 儲存進 IndexedDB。
- */
-export async function saveUploadedMedia(
-  file: File
-): Promise<{
+export async function saveUploadedMedia(file: File): Promise<{
   id: string;
   filename: string;
   mimeType: string;
   isVideo: boolean;
+  isImage: boolean;
+  isAudio: boolean;
+  size: number;
 }> {
-  /**
-   * 檢查格式。
-   */
-  if (!isMediaSupported(file)) {
-    throw new Error(
-      `不支援的檔案格式 (${file.type || "未知格式"})`
-    );
-  }
+  const id = `media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const isVideo = isVideoType(file.type || file.name);
+  const isImage = isImageType(file.type || file.name);
+  const isAudio = isAudioType(file.type || file.name);
 
-  /**
-   * 每一個媒體產生唯一 ID。
-   */
-  const id =
-    `media-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
-
-  const isVideo =
-    isVideoType(file.type);
-
-  /**
-   * 建立 IndexedDB 媒體物件。
-   */
   const attachment: MediaAttachment = {
     id,
     filename: file.name,
-    mimeType: file.type,
+    mimeType: file.type || "application/octet-stream",
     blob: file,
     size: file.size,
-    createdAt:
-      new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   };
 
-  /**
-   * 寫入 IndexedDB。
-   */
-  await saveMediaAttachment(
-    attachment
-  );
+  await saveMediaAttachment(attachment);
 
   return {
     id,
     filename: file.name,
-    mimeType: file.type,
+    mimeType: attachment.mimeType,
     isVideo,
+    isImage,
+    isAudio,
+    size: file.size,
   };
 }
 
 /**
- * 依 media ID 取得 Blob URL。
- *
- * 例如：
- *
- * media-123abc
- * ↓
- * IndexedDB Blob
- * ↓
- * blob:https://...
+ * 取得指定媒體的 Object URL，並記錄於快取池以便後續釋放
  */
-export async function resolveMediaUrl(
-  id: string
-): Promise<string | null> {
-  /**
-   * 已建立過 URL 就直接沿用。
-   */
-  const existingUrl =
-    activeUrlMap.get(id);
-
-  if (existingUrl) {
-    return existingUrl;
+export async function resolveMediaUrl(id: string): Promise<string | null> {
+  if (activeUrlMap.has(id)) {
+    return activeUrlMap.get(id)!;
   }
 
-  /**
-   * 從 IndexedDB 取得媒體。
-   */
-  const record =
-    await getMediaAttachment(id);
+  const record = await getMediaAttachment(id);
+  if (!record || !record.blob) return null;
 
-  if (
-    !record ||
-    !record.blob
-  ) {
-    return null;
-  }
-
-  /**
-   * Blob → 瀏覽器可顯示 URL。
-   */
-  const url =
-    URL.createObjectURL(
-      record.blob
-    );
-
-  activeUrlMap.set(
-    id,
-    url
-  );
-
+  const url = URL.createObjectURL(record.blob);
+  activeUrlMap.set(id, url);
   return url;
 }
 
 /**
- * 刪除圖片 / 影片。
- *
- * 會：
- *
- * 1. 從 IndexedDB 刪除真正 Blob
- * 2. 釋放 Object URL
- * 3. 從 activeUrlMap 移除
+ * 取得媒體附件完整記錄 (包含檔名與大小)
  */
-export async function deleteSavedMedia(
-  id: string
-): Promise<void> {
-  if (!id) {
-    return;
-  }
-
-  /**
-   * 先刪除 IndexedDB 裡的資料。
-   */
-  await deleteMediaAttachment(id);
-
-  /**
-   * 如果目前有 Blob URL，
-   * 同時釋放。
-   */
-  const activeUrl =
-    activeUrlMap.get(id);
-
-  if (activeUrl) {
-    try {
-      URL.revokeObjectURL(
-        activeUrl
-      );
-    } catch (error) {
-      console.warn(
-        "釋放媒體 URL 失敗:",
-        error
-      );
-    }
-
-    activeUrlMap.delete(id);
-  }
+export async function getMediaDetails(id: string): Promise<MediaAttachment | null> {
+  return getMediaAttachment(id);
 }
 
 /**
- * 釋放單一媒體的 Blob URL。
- *
- * 注意：
- * 只釋放 URL，
- * 不會刪掉 IndexedDB 裡的檔案。
- */
-export function revokeMediaUrl(
-  id: string
-): void {
-  const url =
-    activeUrlMap.get(id);
-
-  if (!url) {
-    return;
-  }
-
-  try {
-    URL.revokeObjectURL(url);
-  } catch (error) {
-    console.warn(
-      "釋放媒體 URL 失敗:",
-      error
-    );
-  }
-
-  activeUrlMap.delete(id);
-}
-
-/**
- * 釋放目前所有 Blob URL。
- *
- * 通常在 Component 卸載時執行，
- * 避免瀏覽器記憶體洩漏。
- *
- * 不會刪除 IndexedDB 裡的圖片 / 影片。
+ * 釋放所有已開啟之 Object URL，徹底防止記憶體洩漏
  */
 export function revokeAllActiveMediaUrls(): void {
-  for (
-    const [
-      id,
-      url,
-    ] of activeUrlMap.entries()
-  ) {
+  for (const [id, url] of activeUrlMap.entries()) {
     try {
-      URL.revokeObjectURL(
-        url
-      );
-    } catch (error) {
-      console.warn(
-        `釋放媒體 URL 失敗：${id}`,
-        error
-      );
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // 忽略錯誤
     }
   }
-
   activeUrlMap.clear();
 }
