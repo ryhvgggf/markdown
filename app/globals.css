@@ -1017,51 +1017,6 @@ body > div.flex.h-screen.w-screen > aside.w-72 > div:first-child {
    Responsive
    ============================================================ */
 
-/* ============================================================
-   最終視覺覆寫
-   中央竹林 / 右側梅花
-   ============================================================ */
-
-
-/* ============================================================
-   CENTER — 竹林背景
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen > main {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-
-  background-color: #080a0b !important;
-
-  background-image:
-    linear-gradient(
-      180deg,
-      rgba(6, 8, 9, 0.50),
-      rgba(6, 8, 9, 0.36)
-    ),
-    url("/ink/center-bamboo-forest.png") !important;
-
-  background-repeat:
-    no-repeat,
-    no-repeat !important;
-
-  /*
-   * 第一個 center：遮罩
-   * 第二個 center bottom：竹林貼底
-   */
-  background-position:
-    center,
-    center bottom !important;
-
-  /*
-   * 避免 cover 把竹子過度放大
-   */
-  background-size:
-    cover,
-    100% auto !important;
-}
-
 
 /* ============================================================
    MarkdownEditor 整體
@@ -1073,57 +1028,6 @@ body > div.flex.h-screen.w-screen
   background:
     rgba(7, 9, 10, 0.10) !important;
 }
-
-
-/* ============================================================
-   左側 Markdown 編輯區
-   不模糊竹林
-   ============================================================ */
-
-main textarea {
-  background:
-    rgba(5, 7, 8, 0.43) !important;
-
-  color:
-    #d8d4ca !important;
-
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-
-/* ============================================================
-   右側 Markdown Preview
-   不模糊竹林
-   ============================================================ */
-
-.paper-texture {
-  position: relative;
-
-  background:
-    rgba(6, 8, 9, 0.40) !important;
-
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-
-/*
- * 不再額外疊紙張效果，
- * 避免竹林再次變霧。
- */
-.paper-texture::before,
-.paper-texture::after {
-  display:
-    none !important;
-}
-
 
 /* ============================================================
    中央左右分隔線
