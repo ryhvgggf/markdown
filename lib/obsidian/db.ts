@@ -206,6 +206,29 @@ export async function getMediaAttachment(id: string): Promise<MediaAttachment | 
   });
 }
 
+
+export async function getAllMediaAttachments(): Promise<MediaAttachment[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readonly");
+    const req = tx.objectStore("media").getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function batchSaveMediaAttachments(attachments: MediaAttachment[]): Promise<void> {
+  if (attachments.length === 0) return;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readwrite");
+    const store = tx.objectStore("media");
+    attachments.forEach((item) => store.put(item));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function deleteMediaAttachment(id: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
