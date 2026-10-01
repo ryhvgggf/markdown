@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Web Obsidian Vault",
+  title: "Markdown 知識庫",
   description: "Personal Second Brain & Bi-directional Knowledge Base",
 };
 
