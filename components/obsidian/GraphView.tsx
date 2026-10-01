@@ -106,14 +106,18 @@ export function GraphView({
         if (existing) {
           return { ...n, x: existing.x, y: existing.y };
         }
+        // 若只有一個節點或為當前焦點筆記，直接錨定在幾何正中心 (0, 0)
+        if (data.nodes.length === 1 || (graphMode === "local" && n.id === activeNoteId)) {
+          return { ...n, x: 0, y: 0, vx: 0, vy: 0 };
+        }
         const angle = (i / Math.max(1, data.nodes.length)) * Math.PI * 2;
-        const dist = graphMode === "local" ? 140 : 180 + Math.random() * 80;
+        const dist = graphMode === "local" ? 120 : 140 + (i % 3) * 30;
         return {
           ...n,
           x: Math.cos(angle) * dist,
           y: Math.sin(angle) * dist,
-          vx: (Math.random() - 0.5) * 4,
-          vy: (Math.random() - 0.5) * 4,
+          vx: 0,
+          vy: 0,
         };
       });
       return { nodes: newNodes, links: data.links };
@@ -227,8 +231,9 @@ export function GraphView({
           continue;
         }
 
-        node.vx -= node.x * centerGravity * simRef.current.alpha;
-        node.vy -= node.y * centerGravity * simRef.current.alpha;
+        // 增強向心力，確保節點緊密朝向正中間
+        node.vx -= node.x * (centerGravity * 1.5) * simRef.current.alpha;
+        node.vy -= node.y * (centerGravity * 1.5) * simRef.current.alpha;
 
         const currentSpeed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
         if (currentSpeed > maxSpeed) {
@@ -243,6 +248,22 @@ export function GraphView({
         node.y += node.vy;
 
         maxVelocity = Math.max(maxVelocity, currentSpeed);
+      }
+
+      // 4. 質心強制置中校準：確保節點群的幾何平均中心永遠精準鎖定在畫布正中間 (0, 0)
+      if (nodes.length > 0 && !dragRef.current.draggedNodeId) {
+        let sumX = 0;
+        let sumY = 0;
+        for (const n of nodes) {
+          sumX += n.x;
+          sumY += n.y;
+        }
+        const avgX = sumX / nodes.length;
+        const avgY = sumY / nodes.length;
+        for (const n of nodes) {
+          n.x -= avgX * 0.12;
+          n.y -= avgY * 0.12;
+        }
       }
 
       simRef.current.alpha *= 0.988;
@@ -298,8 +319,8 @@ export function GraphView({
         height / 2,
         Math.max(width, height)
       );
-      bgGrad.addColorStop(0, "#0c0d1c");
-      bgGrad.addColorStop(1, "#05060b");
+      bgGrad.addColorStop(0, "#131822");
+      bgGrad.addColorStop(1, "#080a0f");
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
@@ -335,15 +356,12 @@ export function GraphView({
         ctx.lineTo(t.x, t.y);
 
         if (isRelated) {
-          ctx.strokeStyle = "rgba(192, 132, 252, 0.9)";
-          ctx.lineWidth = 2.2;
-          ctx.shadowColor = "#a855f7";
-          ctx.shadowBlur = 8;
-        } else {
-          ctx.strokeStyle = activeOrHoverId
-            ? "rgba(71, 85, 105, 0.2)"
-            : "rgba(100, 116, 139, 0.35)";
+          ctx.strokeStyle = "rgba(14, 116, 144, 0.65)";
           ctx.lineWidth = 1.2;
+          ctx.shadowBlur = 0;
+        } else {
+          ctx.strokeStyle = activeOrHoverId ? "rgba(255, 255, 255, 0.04)" : "rgba(255, 255, 255, 0.07)";
+          ctx.lineWidth = 0.85;
           ctx.shadowBlur = 0;
         }
         ctx.stroke();
@@ -369,19 +387,18 @@ export function GraphView({
         if (isActive) {
           ctx.beginPath();
           ctx.arc(node.x, node.y, radius + 8, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(168, 85, 247, 0.28)";
+          ctx.fillStyle = "rgba(159, 18, 57, 0.15)";
           ctx.fill();
-
           ctx.beginPath();
-          ctx.arc(node.x, node.y, radius + 4, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(192, 132, 252, 0.4)";
+          ctx.arc(node.x, node.y, radius + 3, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(159, 18, 57, 0.25)";
           ctx.fill();
         }
 
         if (isHovered) {
           ctx.beginPath();
           ctx.arc(node.x, node.y, radius + 6, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(56, 189, 248, 0.35)";
+          ctx.fillStyle = "rgba(14, 116, 144, 0.2)";
           ctx.fill();
         }
 
@@ -390,24 +407,24 @@ export function GraphView({
         ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
 
         if (node.type === "unresolved") {
-          ctx.fillStyle = "#f59e0b";
-          ctx.strokeStyle = "#fbbf24";
-          ctx.lineWidth = 1.5;
+          ctx.fillStyle = "#92400e";
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+          ctx.lineWidth = 1;
           ctx.stroke();
         } else if (isActive) {
-          ctx.fillStyle = "#c084fc";
-          ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = 2.2;
+          ctx.fillStyle = "#9f1239"; /* 硃砂印點 */
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+          ctx.lineWidth = 1.5;
           ctx.stroke();
         } else if (isHovered) {
-          ctx.fillStyle = "#38bdf8";
-          ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = 2;
+          ctx.fillStyle = "#0e7490"; /* 黛青墨滴 */
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+          ctx.lineWidth = 1.2;
           ctx.stroke();
         } else {
-          ctx.fillStyle = "#818cf8";
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-          ctx.lineWidth = 1;
+          ctx.fillStyle = "#383f4d"; /* 淡煙墨點 */
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+          ctx.lineWidth = 0.8;
           ctx.stroke();
         }
         ctx.fill();
@@ -420,26 +437,21 @@ export function GraphView({
         }
 
         const fontSize = isActive ? 12 : 11;
-        ctx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`;
+        ctx.font = `500 ${fontSize}px "Noto Serif TC", serif, system-ui`;
         const textMetrics = ctx.measureText(displayLabel);
         const pillWidth = textMetrics.width + 14;
         const pillHeight = fontSize + 8;
         const pillX = node.x - pillWidth / 2;
         const pillY = node.y + radius + 7;
 
-        drawRoundedRect(ctx, pillX, pillY, pillWidth, pillHeight, 6);
-        ctx.fillStyle = isActive
-          ? "rgba(88, 28, 135, 0.85)"
+        drawRoundedRect(ctx, pillX, pillY, pillWidth, pillHeight, 2);
+        ctx.fillStyle = isActive ? "rgba(159, 18, 57, 0.85)"
           : isHovered
           ? "rgba(15, 23, 42, 0.92)"
           : "rgba(15, 23, 42, 0.75)";
         ctx.fill();
 
-        ctx.strokeStyle = isActive
-          ? "rgba(192, 132, 252, 0.6)"
-          : isHovered
-          ? "rgba(56, 189, 248, 0.6)"
-          : "rgba(51, 65, 85, 0.5)";
+        ctx.strokeStyle = isActive ? "rgba(159, 18, 57, 0.5)" : isHovered ? "rgba(14, 116, 144, 0.5)" : "rgba(255, 255, 255, 0.08)";
         ctx.lineWidth = 1;
         ctx.stroke();
 
@@ -640,33 +652,33 @@ export function GraphView({
 
   return (
     <div
-      className={`flex flex-col bg-slate-950 text-slate-100 overflow-hidden relative select-none rounded-3xl ${
+      className={`flex flex-col bg-[#0d0f13] text-slate-200 overflow-hidden relative select-none rounded-xl ${
         isFullscreen ? "fixed inset-0 z-50 rounded-none" : "h-full w-full"
       }`}
     >
       {/* 頂部圓潤晶透控制列 */}
-      <div className="flex flex-wrap items-center justify-between border-b border-purple-900/30 bg-slate-900/80 px-5 py-3 gap-3 z-10 backdrop-blur-xl">
+      <div className="flex flex-wrap items-center justify-between border-b border-white/6 bg-[#121418]/90 px-4 py-2.5 gap-2.5 z-10 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-purple-500 animate-pulse"></span>
-            <span className="text-xs font-bold uppercase tracking-wider text-purple-300">
+            <span className="h-2.5 w-2.5 rounded-full bg-cyan-500"></span>
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
               {graphMode === "global" ? "全域圖譜 (Global Graph)" : "局部圖譜 (Local Graph)"}
             </span>
           </div>
 
-          <span className="rounded-full bg-purple-950/60 border border-purple-800/40 px-3 py-0.5 text-[11px] text-purple-200 font-mono">
+          <span className="rounded-full bg-white/4 border border-white/8 px-2.5 py-0.5 text-[11px] text-slate-400 font-mono">
             {graphData.nodes.length} 節點 · {graphData.links.length} 關聯
           </span>
         </div>
 
         {/* 模式膠囊按鈕與過濾搜尋 */}
         <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="flex rounded-full bg-slate-950/80 p-1 border border-slate-800/80 shadow-inner">
+          <div className="flex rounded-lg bg-white/4 p-0.5 border border-white/8">
             <button
               onClick={() => setGraphMode("global")}
               className={`rounded-full px-3 py-1 text-xs font-medium transition cursor-pointer ${
                 graphMode === "global"
-                  ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-900/40"
+                  ? "bg-cyan-950/60 text-cyan-200 font-medium"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
@@ -678,7 +690,7 @@ export function GraphView({
               title={!activeNoteId ? "請先在左側選取筆記" : "僅展示當前筆記的關聯網絡"}
               className={`rounded-full px-3 py-1 text-xs font-medium transition cursor-pointer ${
                 graphMode === "local"
-                  ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-900/40"
+                  ? "bg-cyan-950/60 text-cyan-200 font-medium"
                   : "text-slate-400 hover:text-slate-200 disabled:opacity-40"
               }`}
             >
@@ -694,12 +706,12 @@ export function GraphView({
               wakeUp(0.2);
             }}
             placeholder="搜尋節點..."
-            className="rounded-full bg-slate-950/90 border border-slate-800 px-3 py-1 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-purple-500 w-28 sm:w-36 transition"
+            className="rounded-lg bg-white/4 border border-white/8 px-2.5 py-1 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-cyan-600/60 w-28 sm:w-36 transition-colors"
           />
 
           <button
             onClick={handleJiggle}
-            className="rounded-full bg-slate-800/90 hover:bg-slate-700 px-3 py-1 text-xs text-purple-300 border border-slate-700/80 transition cursor-pointer flex items-center gap-1 shadow-sm"
+            className="rounded-full bg-slate-800/90 hover:bg-slate-700 px-3 py-1 text-xs text-slate-300 border border-slate-700/80 transition cursor-pointer flex items-center gap-1 shadow-sm"
             title="搖晃星系物理能量"
           >
             <span>✨</span>
@@ -708,7 +720,7 @@ export function GraphView({
 
           <button
             onClick={resetView}
-            className="rounded-full bg-slate-800/90 hover:bg-slate-700 px-3 py-1 text-xs text-slate-300 border border-slate-700/80 transition cursor-pointer shadow-sm"
+            className="rounded-lg bg-white/4 hover:bg-white/8 px-2.5 py-1 text-xs text-slate-300 border border-white/8 transition-colors"
             title="重設縮放與位置"
           >
             重設視角
@@ -716,7 +728,7 @@ export function GraphView({
 
           <button
             onClick={() => setIsFullscreen(!isFullscreen)}
-            className="rounded-full bg-slate-800/90 hover:bg-slate-700 p-1.5 text-xs text-slate-300 border border-slate-700/80 transition cursor-pointer"
+            className="rounded-lg bg-white/4 hover:bg-white/8 p-1.5 text-xs text-slate-300 border border-white/8 transition cursor-pointer"
             title={isFullscreen ? "離開全螢幕" : "全螢幕圖譜"}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -746,7 +758,7 @@ export function GraphView({
       {isCapped && graphMode === "global" && (
         <div className="bg-amber-950/60 border-b border-amber-800/60 px-5 py-2 text-xs text-amber-200 flex items-center justify-between z-10 backdrop-blur-md">
           <span>
-            ⚡ 知識庫規模較大（筆記共 {notes.length} 篇）。已依 Obsidian 建議自動限制渲染前 {maxNodesLimit} 個節點以確保 60FPS 流暢度。
+            ⚡ 知識庫規模較大（筆記共 {notes.length} 篇）。已自動最佳化限制渲染前 {maxNodesLimit} 個節點以確保 60FPS 流暢度。
           </span>
           <button
             onClick={() => setGraphMode("local")}
@@ -776,7 +788,7 @@ export function GraphView({
 
         {/* 右下角優雅懸浮提示 */}
         <div className="absolute bottom-4 right-5 pointer-events-none rounded-full bg-slate-900/70 backdrop-blur-md px-3.5 py-1 text-[11px] text-slate-400 border border-slate-800/80 shadow-lg flex items-center gap-2">
-          <span className="h-1.5 w-1.5 rounded-full bg-purple-400"></span>
+          <span className="h-1.5 w-1.5 rounded-full bg-blue-400"></span>
           <span>點選節點或標籤直接跳轉 · 拖曳節點彈性牽引 · 滾輪縮放</span>
         </div>
       </div>
