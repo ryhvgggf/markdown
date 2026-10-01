@@ -1,58 +1,14 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-
-import {
-  buildGraphData,
-  buildLocalGraphData,
-} from "@/lib/obsidian/links";
-
-import {
-  GraphData,
-  GraphNode,
-  Note,
-  NoteMetadata,
-} from "@/lib/obsidian/types";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { buildGraphData, buildLocalGraphData } from "@/lib/obsidian/links";
+import { GraphData, GraphNode, Note, NoteMetadata } from "@/lib/obsidian/types";
 
 interface GraphViewProps {
-  notes:
-    Array<
-      Note | NoteMetadata
-    >;
-
-  activeNoteId:
-    string | null;
-
-  onSelectNote: (
-    noteId: string
-  ) => void;
-
+  notes: Array<Note | NoteMetadata>;
+  activeNoteId: string | null;
+  onSelectNote: (noteId: string) => void;
   onClose?: () => void;
-}
-
-interface DragState {
-  mode:
-    | "none"
-    | "canvas"
-    | "node";
-
-  nodeId:
-    | string
-    | null;
-
-  lastX: number;
-  lastY: number;
-
-  downX: number;
-  downY: number;
-
-  moved: boolean;
 }
 
 export function GraphView({
@@ -61,1421 +17,970 @@ export function GraphView({
   onSelectNote,
   onClose,
 }: GraphViewProps) {
-  const canvasRef =
-    useRef<HTMLCanvasElement>(
-      null
-    );
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
 
-  const wrapperRef =
-    useRef<HTMLDivElement>(
-      null
-    );
+  const [graphMode, setGraphMode] = useState<"global" | "local">(
+    activeNoteId ? "local" : "global"
+  );
+  const [maxNodesLimit] = useState<number>(300);
+  const [filterQuery, setFilterQuery] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
-  const transformRef =
-    useRef({
-      scale: 1,
-      x: 0,
-      y: 0,
-    });
+  const transformRef = useRef({
+    scale: 1,
+    x: 0,
+    y: 0,
+  });
 
-  const dragRef =
-    useRef<DragState>({
-      mode: "none",
-      nodeId: null,
+  const simRef = useRef({
+    alpha: 1.0,
+    isSleeping: false,
+    animFrameId: 0,
+    isRunning: true,
+  });
 
-      lastX: 0,
-      lastY: 0,
+  const dragRef = useRef<{
+    isDraggingCanvas: boolean;
+    draggedNodeId: string | null;
+    startX: number;
+    startY: number;
+    downClientX: number;
+    downClientY: number;
+    hasMoved: boolean;
+  }>({
+    isDraggingCanvas: false,
+    draggedNodeId: null,
+    startX: 0,
+    startY: 0,
+    downClientX: 0,
+    downClientY: 0,
+    hasMoved: false,
+  });
 
-      downX: 0,
-      downY: 0,
+  const [graphData, setGraphData] = useState<GraphData>(() => {
+    if (activeNoteId) {
+      return buildLocalGraphData(activeNoteId, notes);
+    }
 
-      moved: false,
-    });
+    const result = buildGraphData(notes, maxNodesLimit);
 
-  const [graphMode, setGraphMode] =
-    useState<
-      "global" | "local"
-    >(
-      activeNoteId
-        ? "local"
-        : "global"
-    );
-
-  const [filterQuery, setFilterQuery] =
-    useState("");
-
-  const [
-    hoveredNodeId,
-    setHoveredNodeId,
-  ] =
-    useState<
-      string | null
-    >(null);
-
-  const [
-    isFullscreen,
-    setIsFullscreen,
-  ] =
-    useState(false);
-
-  const [
-    maxNodesLimit,
-  ] =
-    useState(300);
-
-  const [
-    layoutVersion,
-    setLayoutVersion,
-  ] =
-    useState(0);
-
-  /**
-   * ============================
-   * 建立 Graph Data
-   * ============================
-   */
-  const graphResult =
-    useMemo(() => {
-      if (
-        graphMode ===
-          "local" &&
-        activeNoteId
-      ) {
-        const local =
-          buildLocalGraphData(
-            activeNoteId,
-            notes
-          );
-
-        return {
-          data: local,
-          isCapped: false,
-        };
-      }
-
-      const raw =
-        buildGraphData(
-          notes,
-          maxNodesLimit
-        ) as GraphData & {
-          isCapped?: boolean;
-        };
-
-      return {
-        data: {
-          nodes:
-            raw.nodes,
-          links:
-            raw.links,
-        } as GraphData,
-
-        isCapped:
-          Boolean(
-            raw.isCapped
-          ),
-      };
-    }, [
-      notes,
-      graphMode,
-      activeNoteId,
-      maxNodesLimit,
-    ]);
-
-  const [
-    graphData,
-    setGraphData,
-  ] =
-    useState<GraphData>(
-      graphResult.data
-    );
-
-  /**
-   * ============================
-   * 水墨散點排列
-   * ============================
-   */
-  const arrangeNodes =
-    useCallback(
-      (
-        data: GraphData
-      ): GraphData => {
-        const count =
-          data.nodes.length;
-
-        const nodes =
-          data.nodes.map(
-            (
-              node,
-              index
-            ) => {
-              /**
-               * Active Node 放中央。
-               */
-              if (
-                node.id ===
-                  activeNoteId &&
-                graphMode ===
-                  "local"
-              ) {
-                return {
-                  ...node,
-                  x: 0,
-                  y: 0,
-                  vx: 0,
-                  vy: 0,
-                };
-              }
-
-              /**
-               * 使用黃金角，
-               * 讓點像墨滴自然散開。
-               */
-              const goldenAngle =
-                Math.PI *
-                (
-                  3 -
-                  Math.sqrt(
-                    5
-                  )
-                );
-
-              const adjustedIndex =
-                graphMode ===
-                  "local" &&
-                activeNoteId
-                  ? index + 1
-                  : index;
-
-              const angle =
-                adjustedIndex *
-                goldenAngle;
-
-              const ring =
-                Math.sqrt(
-                  adjustedIndex +
-                    1
-                );
-
-              const distance =
-                graphMode ===
-                "local"
-                  ? 92 *
-                    ring
-                  : 58 *
-                    ring;
-
-              return {
-                ...node,
-
-                x:
-                  Math.cos(
-                    angle
-                  ) *
-                  distance,
-
-                y:
-                  Math.sin(
-                    angle
-                  ) *
-                  distance,
-
-                vx: 0,
-                vy: 0,
-              };
-            }
-          );
-
-        return {
-          nodes,
-          links:
-            data.links,
-        };
-      },
-      [
-        activeNoteId,
-        graphMode,
-      ]
-    );
-
-  /**
-   * Graph Data 改變。
-   */
-  useEffect(() => {
-    setGraphData(
-      arrangeNodes(
-        graphResult.data
-      )
-    );
-
-    transformRef.current = {
-      scale: 1,
-      x: 0,
-      y: 0,
+    return {
+      nodes: result.nodes,
+      links: result.links,
     };
+  });
 
-    setLayoutVersion(
-      (version) =>
-        version + 1
-    );
-  }, [
-    graphResult.data,
-    arrangeNodes,
-  ]);
+  const [isCapped, setIsCapped] = useState(
+    graphMode === "global" && notes.length > maxNodesLimit
+  );
 
-  /**
-   * ============================
-   * 世界座標轉換
-   * ============================
-   */
-  const screenToWorld =
-    useCallback(
-      (
-        clientX: number,
-        clientY: number
-      ) => {
-        const canvas =
-          canvasRef.current;
+  const wakeUp = useCallback((boostAlpha: number = 0.35) => {
+    simRef.current.alpha = Math.max(simRef.current.alpha, boostAlpha);
+    simRef.current.isSleeping = false;
+  }, []);
 
-        if (!canvas) {
+  useEffect(() => {
+    let data: GraphData;
+    let capped = false;
+
+    if (graphMode === "local" && activeNoteId) {
+      data = buildLocalGraphData(activeNoteId, notes);
+    } else {
+      const result = buildGraphData(notes, maxNodesLimit);
+      data = {
+        nodes: result.nodes,
+        links: result.links,
+      };
+      capped = Boolean(result.isCapped);
+    }
+
+    setIsCapped(capped);
+
+    setGraphData((previous) => {
+      const previousPosition = new Map(
+        previous.nodes.map((node) => [
+          node.id,
+          {
+            x: node.x,
+            y: node.y,
+          },
+        ])
+      );
+
+      const newNodes = data.nodes.map((node, index) => {
+        const existing = previousPosition.get(node.id);
+
+        if (existing) {
           return {
-            x: 0,
-            y: 0,
+            ...node,
+            x: existing.x,
+            y: existing.y,
           };
         }
 
-        const rect =
-          canvas.getBoundingClientRect();
-
-        return {
-          x:
-            (
-              clientX -
-              rect.left -
-              rect.width /
-                2 -
-              transformRef
-                .current.x
-            ) /
-            transformRef
-              .current.scale,
-
-          y:
-            (
-              clientY -
-              rect.top -
-              rect.height /
-                2 -
-              transformRef
-                .current.y
-            ) /
-            transformRef
-              .current.scale,
-        };
-      },
-      []
-    );
-
-  /**
-   * ============================
-   * 找滑鼠底下 Node
-   * ============================
-   */
-  const findNodeAt =
-    useCallback(
-      (
-        clientX: number,
-        clientY: number
-      ):
-        | GraphNode
-        | null => {
-        const {
-          x,
-          y,
-        } =
-          screenToWorld(
-            clientX,
-            clientY
-          );
-
-        for (
-          let index =
-            graphData.nodes
-              .length -
-            1;
-          index >= 0;
-          index--
+        if (
+          data.nodes.length === 1 ||
+          (graphMode === "local" && node.id === activeNoteId)
         ) {
-          const node =
-            graphData.nodes[
-              index
-            ];
-
-          const radius =
-            Math.max(
-              14,
-              node.radius +
-                7
-            );
-
-          if (
-            Math.hypot(
-              node.x - x,
-              node.y - y
-            ) <= radius
-          ) {
-            return node;
-          }
+          return {
+            ...node,
+            x: 0,
+            y: 0,
+            vx: 0,
+            vy: 0,
+          };
         }
 
-        return null;
-      },
-      [
-        graphData.nodes,
-        screenToWorld,
-      ]
-    );
+        const angle =
+          (index / Math.max(1, data.nodes.length)) * Math.PI * 2;
 
-  /**
-   * ============================
-   * Canvas 繪圖
-   * ============================
-   */
-  const draw =
-    useCallback(() => {
-      const canvas =
-        canvasRef.current;
+        const distance =
+          graphMode === "local"
+            ? 120
+            : 140 + (index % 3) * 30;
 
-      const wrapper =
-        wrapperRef.current;
+        return {
+          ...node,
+          x: Math.cos(angle) * distance,
+          y: Math.sin(angle) * distance,
+          vx: 0,
+          vy: 0,
+        };
+      });
 
-      if (
-        !canvas ||
-        !wrapper
-      ) {
+      return {
+        nodes: newNodes,
+        links: data.links,
+      };
+    });
+
+    wakeUp(0.95);
+  }, [notes, graphMode, activeNoteId, maxNodesLimit, wakeUp]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wrapper = canvasWrapperRef.current;
+
+    if (!canvas || !wrapper) {
+      return;
+    }
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) {
+      return;
+    }
+
+    simRef.current.isRunning = true;
+
+    function resizeCanvas() {
+      if (!canvas || !canvasWrapperRef.current) {
         return;
       }
 
-      const ctx =
-        canvas.getContext(
-          "2d"
-        );
+      const rect = canvasWrapperRef.current.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
 
-      if (!ctx) {
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+
+      wakeUp(0.12);
+    }
+
+    resizeCanvas();
+
+    const resizeObserver = new ResizeObserver(() => {
+      resizeCanvas();
+    });
+
+    resizeObserver.observe(wrapper);
+
+    function stepPhysics() {
+      if (simRef.current.alpha < 0.001) {
+        simRef.current.isSleeping = true;
         return;
       }
 
-      const rect =
-        wrapper.getBoundingClientRect();
+      const nodes = graphData.nodes;
+      const links = graphData.links;
+      const nodeIndexMap = new Map(nodes.map((node, index) => [node.id, index]));
 
-      const dpr =
-        window.devicePixelRatio ||
-        1;
+      const repulsion = graphMode === "local" ? 2800 : 1600;
+      const springLength = graphMode === "local" ? 190 : 130;
+      const springStrength = 0.045;
+      const centerGravity = 0.015;
+      const maxSpeed = 16;
 
-      const width =
-        rect.width;
+      for (let i = 0; i < nodes.length; i++) {
+        const n1 = nodes[i];
 
-      const height =
-        rect.height;
+        for (let j = i + 1; j < nodes.length; j++) {
+          const n2 = nodes[j];
 
-      const targetWidth =
-        Math.floor(
-          width *
-            dpr
-        );
+          const dx = n2.x - n1.x;
+          const dy = n2.y - n1.y;
+          const distSq = dx * dx + dy * dy || 1;
 
-      const targetHeight =
-        Math.floor(
-          height *
-            dpr
-        );
+          if (distSq < 176400) {
+            const dist = Math.sqrt(distSq);
+            const force =
+              (repulsion / (distSq + 200)) * simRef.current.alpha;
 
-      if (
-        canvas.width !==
-          targetWidth ||
-        canvas.height !==
-          targetHeight
-      ) {
-        canvas.width =
-          targetWidth;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
 
-        canvas.height =
-          targetHeight;
+            if (dragRef.current.draggedNodeId !== n1.id) {
+              n1.vx -= fx;
+              n1.vy -= fy;
+            }
 
-        canvas.style.width =
-          `${width}px`;
-
-        canvas.style.height =
-          `${height}px`;
+            if (dragRef.current.draggedNodeId !== n2.id) {
+              n2.vx += fx;
+              n2.vy += fy;
+            }
+          }
+        }
       }
 
-      ctx.resetTransform();
+      for (const link of links) {
+        const sourceIndex = nodeIndexMap.get(link.source);
+        const targetIndex = nodeIndexMap.get(link.target);
 
-      ctx.clearRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
+        if (sourceIndex === undefined || targetIndex === undefined) {
+          continue;
+        }
 
-      ctx.scale(
-        dpr,
-        dpr
-      );
+        const source = nodes[sourceIndex];
+        const target = nodes[targetIndex];
 
-      /**
-       * ========================
-       * 墨紙背景
-       * ========================
-       */
-      const bg =
-        ctx.createRadialGradient(
-          width *
-            0.45,
-          height *
-            0.38,
-          20,
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
-          width *
-            0.5,
-          height *
-            0.5,
-          Math.max(
-            width,
-            height
-          )
-        );
+        const displacement = dist - springLength;
+        const force =
+          displacement * springStrength * simRef.current.alpha;
 
-      bg.addColorStop(
-        0,
-        "#111416"
-      );
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
 
-      bg.addColorStop(
-        0.52,
-        "#0d0f11"
-      );
+        if (dragRef.current.draggedNodeId !== source.id) {
+          source.vx += fx;
+          source.vy += fy;
+        }
 
-      bg.addColorStop(
-        1,
-        "#090a0c"
-      );
+        if (dragRef.current.draggedNodeId !== target.id) {
+          target.vx -= fx;
+          target.vy -= fy;
+        }
+      }
 
-      ctx.fillStyle =
-        bg;
+      let maxVelocity = 0;
 
-      ctx.fillRect(
-        0,
-        0,
-        width,
-        height
-      );
+      for (const node of nodes) {
+        if (dragRef.current.draggedNodeId === node.id) {
+          node.vx = 0;
+          node.vy = 0;
+          continue;
+        }
 
-      /**
-       * ========================
-       * 紙張淡斑點
-       * ========================
-       */
+        node.vx -= node.x * (centerGravity * 1.5) * simRef.current.alpha;
+        node.vy -= node.y * (centerGravity * 1.5) * simRef.current.alpha;
+
+        const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+
+        if (speed > maxSpeed) {
+          node.vx = (node.vx / speed) * maxSpeed;
+          node.vy = (node.vy / speed) * maxSpeed;
+        }
+
+        node.vx *= 0.88;
+        node.vy *= 0.88;
+
+        node.x += node.vx;
+        node.y += node.vy;
+
+        maxVelocity = Math.max(maxVelocity, speed);
+      }
+
+      if (nodes.length > 0 && !dragRef.current.draggedNodeId) {
+        let sumX = 0;
+        let sumY = 0;
+
+        for (const node of nodes) {
+          sumX += node.x;
+          sumY += node.y;
+        }
+
+        const avgX = sumX / nodes.length;
+        const avgY = sumY / nodes.length;
+
+        for (const node of nodes) {
+          node.x -= avgX * 0.12;
+          node.y -= avgY * 0.12;
+        }
+      }
+
+      simRef.current.alpha *= 0.988;
+
+      if (simRef.current.alpha < 0.002 && maxVelocity < 0.05) {
+        simRef.current.isSleeping = true;
+      }
+    }
+
+    function getAmbientPosition(node: GraphNode, time: number) {
+      let hash = 0;
+
+      for (let i = 0; i < node.id.length; i++) {
+        hash = (hash * 31 + node.id.charCodeAt(i)) >>> 0;
+      }
+
+      const phase = (hash % 628) / 100;
+
+      return {
+        x: node.x + Math.sin(time * 0.00042 + phase) * 1.6,
+        y: node.y + Math.cos(time * 0.00036 + phase * 1.31) * 1.25,
+      };
+    }
+
+    function render(time: number) {
+      if (!ctx || !canvas) {
+        return;
+      }
+
+      if (!simRef.current.isSleeping) {
+        stepPhysics();
+      }
+
+      const dpr = window.devicePixelRatio || 1;
+      const width = canvas.width / dpr;
+      const height = canvas.height / dpr;
+
       ctx.save();
+      ctx.scale(dpr, dpr);
 
-      ctx.globalAlpha =
-        0.11;
+      const bg = ctx.createRadialGradient(
+        width * 0.48,
+        height * 0.42,
+        20,
+        width * 0.5,
+        height * 0.5,
+        Math.max(width, height)
+      );
 
-      for (
-        let i = 0;
-        i < 80;
-        i++
-      ) {
+      bg.addColorStop(0, "#111415");
+      bg.addColorStop(0.55, "#0d0f10");
+      bg.addColorStop(1, "#090a0b");
+
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.save();
+      ctx.globalAlpha = 0.11;
+
+      for (let i = 0; i < 70; i++) {
         const x =
-          (
-            Math.sin(
-              i *
-                72.17
-            ) *
-              0.5 +
-            0.5
-          ) *
-          width;
+          (Math.sin(i * 72.17) * 0.5 + 0.5) * width;
 
         const y =
-          (
-            Math.cos(
-              i *
-                39.73
-            ) *
-              0.5 +
-            0.5
-          ) *
-          height;
+          (Math.cos(i * 39.73) * 0.5 + 0.5) * height;
 
         ctx.beginPath();
-
         ctx.arc(
           x,
           y,
-          i %
-            5 ===
-            0
-            ? 1.1
-            : 0.55,
+          i % 6 === 0 ? 1.05 : 0.5,
           0,
-          Math.PI *
-            2
+          Math.PI * 2
         );
 
-        ctx.fillStyle =
-          "rgba(221,217,207,.12)";
-
+        ctx.fillStyle = "rgba(226,220,207,.11)";
         ctx.fill();
       }
 
       ctx.restore();
 
-      /**
-       * ========================
-       * 世界座標
-       * ========================
-       */
-      ctx.save();
-
       ctx.translate(
-        width /
-          2 +
-          transformRef
-            .current.x,
-
-        height /
-          2 +
-          transformRef
-            .current.y
+        width / 2 + transformRef.current.x,
+        height / 2 + transformRef.current.y
       );
 
       ctx.scale(
-        transformRef
-          .current.scale,
-
-        transformRef
-          .current.scale
+        transformRef.current.scale,
+        transformRef.current.scale
       );
 
-      const nodeMap =
-        new Map(
-          graphData.nodes.map(
-            (node) => [
-              node.id,
-              node,
-            ]
-          )
-        );
+      const nodes = graphData.nodes;
+      const links = graphData.links;
+      const nodeMap = new Map(nodes.map((node) => [node.id, node]));
 
-      const focusId =
-        hoveredNodeId ||
-        activeNoteId;
+      const activeOrHoverId = hoveredNodeId || activeNoteId;
+      const neighborIds = new Set<string>();
 
-      const neighborIds =
-        new Set<string>();
+      if (activeOrHoverId) {
+        neighborIds.add(activeOrHoverId);
 
-      if (focusId) {
-        neighborIds.add(
-          focusId
-        );
-
-        graphData.links.forEach(
-          (link) => {
-            if (
-              link.source ===
-              focusId
-            ) {
-              neighborIds.add(
-                link.target
-              );
-            }
-
-            if (
-              link.target ===
-              focusId
-            ) {
-              neighborIds.add(
-                link.source
-              );
-            }
+        for (const link of links) {
+          if (link.source === activeOrHoverId) {
+            neighborIds.add(link.target);
           }
-        );
+
+          if (link.target === activeOrHoverId) {
+            neighborIds.add(link.source);
+          }
+        }
       }
 
-      /**
-       * ========================
-       * 連線：細墨筆
-       * ========================
-       */
-      graphData.links.forEach(
-        (
-          link,
-          index
-        ) => {
-          const source =
-            nodeMap.get(
-              link.source
-            );
+      links.forEach((link, index) => {
+        const source = nodeMap.get(link.source);
+        const target = nodeMap.get(link.target);
 
-          const target =
-            nodeMap.get(
-              link.target
-            );
-
-          if (
-            !source ||
-            !target
-          ) {
-            return;
-          }
-
-          const related =
-            Boolean(
-              focusId &&
-              (
-                link.source ===
-                  focusId ||
-                link.target ===
-                  focusId
-              )
-            );
-
-          ctx.save();
-
-          ctx.beginPath();
-
-          ctx.moveTo(
-            source.x,
-            source.y
-          );
-
-          /**
-           * 輕微弧線，
-           * 比直線更像筆觸。
-           */
-          const mx =
-            (
-              source.x +
-              target.x
-            ) /
-            2;
-
-          const my =
-            (
-              source.y +
-              target.y
-            ) /
-            2;
-
-          const curve =
-            (
-              index %
-                2 ===
-              0
-                ? 1
-                : -1
-            ) *
-            5;
-
-          ctx.quadraticCurveTo(
-            mx +
-              curve,
-            my -
-              curve,
-            target.x,
-            target.y
-          );
-
-          ctx.strokeStyle =
-            related
-              ? "rgba(113,143,138,.58)"
-              : focusId
-              ? "rgba(220,216,207,.035)"
-              : "rgba(220,216,207,.085)";
-
-          ctx.lineWidth =
-            related
-              ? 1.05
-              : 0.7;
-
-          ctx.setLineDash(
-            related
-              ? [
-                  16,
-                  2,
-                  4,
-                  3,
-                ]
-              : [
-                  21,
-                  3,
-                  2,
-                  5,
-                ]
-          );
-
-          ctx.stroke();
-
-          ctx.restore();
+        if (!source || !target) {
+          return;
         }
-      );
 
-      /**
-       * ========================
-       * Node 墨點
-       * ========================
-       */
-      const query =
-        filterQuery
-          .trim()
-          .toLowerCase();
+        const sourcePos = getAmbientPosition(source, time);
+        const targetPos = getAmbientPosition(target, time);
 
-      graphData.nodes.forEach(
-        (node) => {
-          const isActive =
-            node.id ===
-            activeNoteId;
+        const related =
+          Boolean(
+            activeOrHoverId &&
+            (link.source === activeOrHoverId ||
+              link.target === activeOrHoverId)
+          );
 
-          const isHovered =
-            node.id ===
-            hoveredNodeId;
+        const middleX = (sourcePos.x + targetPos.x) / 2;
+        const middleY = (sourcePos.y + targetPos.y) / 2;
+        const bend = (index % 2 === 0 ? 1 : -1) * 4;
 
-          const isNeighbor =
-            !focusId ||
-            neighborIds.has(
-              node.id
-            );
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(sourcePos.x, sourcePos.y);
+        ctx.quadraticCurveTo(
+          middleX + bend,
+          middleY - bend,
+          targetPos.x,
+          targetPos.y
+        );
 
-          const isMatched =
-            !query ||
-            node.label
-              .toLowerCase()
-              .includes(
-                query
-              );
+        ctx.strokeStyle = related
+          ? "rgba(112,143,137,.58)"
+          : activeOrHoverId
+          ? "rgba(226,220,207,.035)"
+          : "rgba(226,220,207,.085)";
 
-          let alpha =
-            1;
+        ctx.lineWidth = related ? 1.05 : 0.72;
 
-          if (!isMatched) {
-            alpha =
-              0.12;
-          } else if (
-            !isNeighbor
-          ) {
-            alpha =
-              0.26;
-          }
+        ctx.setLineDash(
+          related
+            ? [17, 2, 4, 3]
+            : [22, 3, 2, 5]
+        );
 
-          ctx.save();
+        ctx.stroke();
+        ctx.restore();
+      });
 
-          ctx.globalAlpha =
-            alpha;
+      const query = filterQuery.toLowerCase().trim();
 
-          const radius =
-            Math.max(
-              4.5,
-              node.radius *
-                0.56
-            ) +
-            (
-              isHovered
-                ? 1.5
-                : 0
-            );
+      for (const node of nodes) {
+        const isActive = node.id === activeNoteId;
+        const isHovered = node.id === hoveredNodeId;
 
-          /**
-           * Active Node 墨暈
-           */
-          if (isActive) {
-            const wash =
-              ctx.createRadialGradient(
-                node.x,
-                node.y,
-                radius,
+        const isNeighbor = activeOrHoverId
+          ? neighborIds.has(node.id)
+          : true;
 
-                node.x,
-                node.y,
-                radius +
-                  16
-              );
+        const isMatched =
+          !query || node.label.toLowerCase().includes(query);
 
-            wash.addColorStop(
-              0,
-              "rgba(163,72,61,.28)"
-            );
+        const alpha = isMatched
+          ? isNeighbor
+            ? 1
+            : 0.25
+          : 0.13;
 
-            wash.addColorStop(
-              1,
-              "rgba(163,72,61,0)"
-            );
+        const pos = getAmbientPosition(node, time);
 
-            ctx.beginPath();
+        ctx.save();
+        ctx.globalAlpha = alpha;
 
-            ctx.arc(
-              node.x,
-              node.y,
-              radius +
-                16,
-              0,
-              Math.PI *
-                2
-            );
+        const radius =
+          Math.max(5, node.radius * 0.7) +
+          (isHovered ? 1.7 : 0);
 
-            ctx.fillStyle =
-              wash;
+        if (isActive) {
+          const pulse =
+            1 + Math.sin(time * 0.0022) * 0.08;
 
-            ctx.fill();
-          }
-
-          /**
-           * Hover 黛青暈
-           */
-          if (
-            isHovered &&
-            !isActive
-          ) {
-            const wash =
-              ctx.createRadialGradient(
-                node.x,
-                node.y,
-                radius,
-
-                node.x,
-                node.y,
-                radius +
-                  14
-              );
-
-            wash.addColorStop(
-              0,
-              "rgba(113,143,138,.24)"
-            );
-
-            wash.addColorStop(
-              1,
-              "rgba(113,143,138,0)"
-            );
-
-            ctx.beginPath();
-
-            ctx.arc(
-              node.x,
-              node.y,
-              radius +
-                14,
-              0,
-              Math.PI *
-                2
-            );
-
-            ctx.fillStyle =
-              wash;
-
-            ctx.fill();
-          }
-
-          /**
-           * 墨點本體
-           */
-          ctx.beginPath();
-
-          ctx.arc(
-            node.x,
-            node.y,
+          const wash = ctx.createRadialGradient(
+            pos.x,
+            pos.y,
             radius,
-            0,
-            Math.PI *
-              2
+            pos.x,
+            pos.y,
+            (radius + 15) * pulse
           );
 
-          if (
-            node.type ===
-            "unresolved"
-          ) {
-            ctx.fillStyle =
-              "#796454";
-          } else if (
-            isActive
-          ) {
-            ctx.fillStyle =
-              "#a3483d";
-          } else if (
-            isHovered
-          ) {
-            ctx.fillStyle =
-              "#718f8a";
-          } else {
-            ctx.fillStyle =
-              "#656964";
-          }
+          wash.addColorStop(0, "rgba(163,75,64,.26)");
+          wash.addColorStop(1, "rgba(163,75,64,0)");
 
-          ctx.fill();
-
-          /**
-           * 第二層不完整墨邊
-           */
           ctx.beginPath();
-
           ctx.arc(
-            node.x +
-              0.7,
-            node.y -
-              0.5,
-            radius +
-              1.5,
-            Math.PI *
-              0.15,
-            Math.PI *
-              1.55
+            pos.x,
+            pos.y,
+            (radius + 15) * pulse,
+            0,
+            Math.PI * 2
           );
-
-          ctx.strokeStyle =
-            isActive
-              ? "rgba(195,106,92,.55)"
-              : isHovered
-              ? "rgba(148,170,166,.5)"
-              : "rgba(220,216,207,.14)";
-
-          ctx.lineWidth =
-            0.8;
-
-          ctx.stroke();
-
-          /**
-           * ====================
-           * Node Label
-           * 無 Pill
-           * ====================
-           */
-          const shouldShow =
-            isActive ||
-            isHovered ||
-            graphData
-              .nodes
-              .length <=
-              24;
-
-          let label =
-            node.label;
-
-          if (
-            !shouldShow &&
-            label.length >
-              9
-          ) {
-            label =
-              label.slice(
-                0,
-                8
-              ) +
-              "…";
-          }
-
-          ctx.font =
-            `${
-              isActive
-                ? 600
-                : 500
-            } ${
-              isActive
-                ? 13
-                : 11
-            }px "Noto Serif TC","PMingLiU",serif`;
-
-          ctx.textAlign =
-            "center";
-
-          ctx.textBaseline =
-            "top";
-
-          ctx.fillStyle =
-            isActive
-              ? "#eeeae1"
-              : isHovered
-              ? "#ddd9d0"
-              : "#969993";
-
-          ctx.fillText(
-            label,
-            node.x,
-            node.y +
-              radius +
-              8
-          );
-
-          ctx.restore();
+          ctx.fillStyle = wash;
+          ctx.fill();
         }
-      );
+
+        if (isHovered && !isActive) {
+          const wash = ctx.createRadialGradient(
+            pos.x,
+            pos.y,
+            radius,
+            pos.x,
+            pos.y,
+            radius + 13
+          );
+
+          wash.addColorStop(0, "rgba(112,143,137,.24)");
+          wash.addColorStop(1, "rgba(112,143,137,0)");
+
+          ctx.beginPath();
+          ctx.arc(
+            pos.x,
+            pos.y,
+            radius + 13,
+            0,
+            Math.PI * 2
+          );
+          ctx.fillStyle = wash;
+          ctx.fill();
+        }
+
+        ctx.beginPath();
+        ctx.arc(
+          pos.x,
+          pos.y,
+          radius,
+          0,
+          Math.PI * 2
+        );
+
+        if (node.type === "unresolved") {
+          ctx.fillStyle = "#796454";
+        } else if (isActive) {
+          ctx.fillStyle = "#a34b40";
+        } else if (isHovered) {
+          ctx.fillStyle = "#708f89";
+        } else {
+          ctx.fillStyle = "#656963";
+        }
+
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(
+          pos.x + 0.7,
+          pos.y - 0.5,
+          radius + 1.5,
+          Math.PI * 0.15,
+          Math.PI * 1.55
+        );
+
+        ctx.strokeStyle = isActive
+          ? "rgba(195,108,94,.55)"
+          : isHovered
+          ? "rgba(154,177,172,.5)"
+          : "rgba(226,220,207,.14)";
+
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
+        const showFullText =
+          isHovered ||
+          isActive ||
+          graphData.nodes.length <= 18;
+
+        let label = node.label;
+
+        if (!showFullText && label.length > 10) {
+          label = label.slice(0, 9) + "…";
+        }
+
+        const fontSize = isActive ? 13 : 11;
+
+        ctx.font =
+          `${isActive ? 600 : 500} ${fontSize}px ` +
+          `"Noto Serif TC","PMingLiU","STSong",serif`;
+
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+
+        ctx.fillStyle = isActive
+          ? "#f0ece2"
+          : isHovered
+          ? "#ded9cf"
+          : "#959891";
+
+        ctx.fillText(
+          label,
+          pos.x,
+          pos.y + radius + 8
+        );
+
+        ctx.restore();
+      }
 
       ctx.restore();
-    }, [
-      graphData,
-      activeNoteId,
-      hoveredNodeId,
-      filterQuery,
-      layoutVersion,
-    ]);
 
-  /**
-   * Resize / redraw
-   */
-  useEffect(() => {
-    draw();
+      if (simRef.current.isRunning) {
+        simRef.current.animFrameId =
+          requestAnimationFrame(render);
+      }
+    }
 
-    const handleResize =
-      () => {
-        draw();
-      };
-
-    window.addEventListener(
-      "resize",
-      handleResize
-    );
+    simRef.current.animFrameId =
+      requestAnimationFrame(render);
 
     return () => {
-      window.removeEventListener(
-        "resize",
-        handleResize
-      );
+      simRef.current.isRunning = false;
+      cancelAnimationFrame(simRef.current.animFrameId);
+      resizeObserver.disconnect();
     };
-  }, [draw]);
+  }, [
+    graphData,
+    filterQuery,
+    activeNoteId,
+    graphMode,
+    hoveredNodeId,
+    wakeUp,
+  ]);
 
-  /**
-   * ============================
-   * Mouse
-   * ============================
-   */
+  const screenToWorld = useCallback(
+    (clientX: number, clientY: number) => {
+      const canvas = canvasRef.current;
+
+      if (!canvas) {
+        return {
+          x: 0,
+          y: 0,
+        };
+      }
+
+      const rect = canvas.getBoundingClientRect();
+
+      const mouseXInCanvas = clientX - rect.left;
+      const mouseYInCanvas = clientY - rect.top;
+
+      return {
+        x:
+          (mouseXInCanvas -
+            rect.width / 2 -
+            transformRef.current.x) /
+          transformRef.current.scale,
+
+        y:
+          (mouseYInCanvas -
+            rect.height / 2 -
+            transformRef.current.y) /
+          transformRef.current.scale,
+      };
+    },
+    []
+  );
+
+  const findNodeUnder = useCallback(
+    (
+      clientX: number,
+      clientY: number
+    ): GraphNode | null => {
+      const { x, y } =
+        screenToWorld(clientX, clientY);
+
+      for (const node of graphData.nodes) {
+        const dx = node.x - x;
+        const dy = node.y - y;
+        const distance = Math.hypot(dx, dy);
+
+        const hitRadius =
+          Math.max(17, node.radius + 9);
+
+        if (distance <= hitRadius) {
+          return node;
+        }
+
+        const full =
+          node.id === hoveredNodeId ||
+          node.id === activeNoteId ||
+          graphData.nodes.length <= 18;
+
+        let label = node.label;
+
+        if (!full && label.length > 10) {
+          label = label.slice(0, 9) + "…";
+        }
+
+        const charWidth =
+          /[\u4e00-\u9fa5]/.test(label)
+            ? 12
+            : 7.5;
+
+        const textWidth =
+          label.length * charWidth + 10;
+
+        const left =
+          node.x - textWidth / 2;
+
+        const right =
+          node.x + textWidth / 2;
+
+        const top =
+          node.y + Math.max(5, node.radius * 0.7) + 5;
+
+        const bottom =
+          top + 24;
+
+        if (
+          x >= left &&
+          x <= right &&
+          y >= top &&
+          y <= bottom
+        ) {
+          return node;
+        }
+      }
+
+      return null;
+    },
+    [
+      graphData.nodes,
+      screenToWorld,
+      hoveredNodeId,
+      activeNoteId,
+    ]
+  );
+
   const handleMouseDown = (
     e: React.MouseEvent<HTMLCanvasElement>
   ) => {
-    const node =
-      findNodeAt(
-        e.clientX,
-        e.clientY
-      );
+    wakeUp(0.5);
+
+    const node = findNodeUnder(
+      e.clientX,
+      e.clientY
+    );
 
     dragRef.current = {
-      mode: node
-        ? "node"
-        : "canvas",
-
-      nodeId:
-        node?.id ||
-        null,
-
-      lastX:
-        e.clientX,
-
-      lastY:
-        e.clientY,
-
-      downX:
-        e.clientX,
-
-      downY:
-        e.clientY,
-
-      moved: false,
+      isDraggingCanvas: !node,
+      draggedNodeId: node ? node.id : null,
+      startX: e.clientX,
+      startY: e.clientY,
+      downClientX: e.clientX,
+      downClientY: e.clientY,
+      hasMoved: false,
     };
   };
 
   const handleMouseMove = (
     e: React.MouseEvent<HTMLCanvasElement>
   ) => {
-    const drag =
-      dragRef.current;
+    const {
+      startX,
+      startY,
+      isDraggingCanvas,
+      draggedNodeId,
+      downClientX,
+      downClientY,
+    } = dragRef.current;
 
-    if (
-      drag.mode ===
-      "node" &&
-      drag.nodeId
-    ) {
-      const world =
-        screenToWorld(
-          e.clientX,
-          e.clientY
-        );
+    const totalDistance = Math.hypot(
+      e.clientX - downClientX,
+      e.clientY - downClientY
+    );
 
-      const node =
-        graphData.nodes.find(
-          (item) =>
-            item.id ===
-            drag.nodeId
-        );
-
-      if (node) {
-        node.x =
-          world.x;
-
-        node.y =
-          world.y;
-
-        drag.moved =
-          true;
-
-        setLayoutVersion(
-          (version) =>
-            version +
-            1
-        );
-      }
-
-      drag.lastX =
-        e.clientX;
-
-      drag.lastY =
-        e.clientY;
-
-      return;
+    if (totalDistance > 5) {
+      dragRef.current.hasMoved = true;
     }
 
-    if (
-      drag.mode ===
-      "canvas"
-    ) {
-      const dx =
-        e.clientX -
-        drag.lastX;
+    if (draggedNodeId) {
+      wakeUp(0.48);
 
-      const dy =
-        e.clientY -
-        drag.lastY;
-
-      if (
-        Math.hypot(
-          e.clientX -
-            drag.downX,
-
-          e.clientY -
-            drag.downY
-        ) >
-        4
-      ) {
-        drag.moved =
-          true;
-      }
-
-      transformRef.current.x +=
-        dx;
-
-      transformRef.current.y +=
-        dy;
-
-      drag.lastX =
-        e.clientX;
-
-      drag.lastY =
-        e.clientY;
-
-      setLayoutVersion(
-        (version) =>
-          version + 1
-      );
-
-      return;
-    }
-
-    const node =
-      findNodeAt(
+      const { x, y } = screenToWorld(
         e.clientX,
         e.clientY
       );
 
-    const nextId =
-      node?.id ||
-      null;
+      const node =
+        graphData.nodes.find(
+          (item) => item.id === draggedNodeId
+        );
 
-    if (
-      nextId !==
-      hoveredNodeId
-    ) {
+      if (node) {
+        node.x = x;
+        node.y = y;
+        node.vx =
+          (e.clientX - startX) * 0.4;
+        node.vy =
+          (e.clientY - startY) * 0.4;
+      }
+
+      dragRef.current.startX = e.clientX;
+      dragRef.current.startY = e.clientY;
+
+      return;
+    }
+
+    if (isDraggingCanvas) {
+      wakeUp(0.1);
+
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      transformRef.current.x += dx;
+      transformRef.current.y += dy;
+
+      dragRef.current.startX = e.clientX;
+      dragRef.current.startY = e.clientY;
+
+      return;
+    }
+
+    const node = findNodeUnder(
+      e.clientX,
+      e.clientY
+    );
+
+    if (node?.id !== hoveredNodeId) {
       setHoveredNodeId(
-        nextId
+        node ? node.id : null
       );
+      wakeUp(0.08);
     }
   };
 
   const handleMouseUp = (
     e: React.MouseEvent<HTMLCanvasElement>
   ) => {
-    const drag =
-      dragRef.current;
+    const {
+      hasMoved,
+      draggedNodeId,
+      downClientX,
+      downClientY,
+    } = dragRef.current;
 
-    if (
-      !drag.moved
-    ) {
-      const node =
-        findNodeAt(
-          e.clientX,
-          e.clientY
-        );
+    const totalDistance = Math.hypot(
+      e.clientX - downClientX,
+      e.clientY - downClientY
+    );
 
-      if (
-        node &&
-        node.type ===
-          "note"
-      ) {
-        onSelectNote(
-          node.id
-        );
-      }
-    }
-
-    dragRef.current = {
-      mode: "none",
-      nodeId: null,
-
-      lastX: 0,
-      lastY: 0,
-
-      downX: 0,
-      downY: 0,
-
-      moved: false,
-    };
-  };
-
-  const handleMouseLeave =
-    () => {
-      setHoveredNodeId(
-        null
+    if (!hasMoved || totalDistance <= 6) {
+      const node = findNodeUnder(
+        e.clientX,
+        e.clientY
       );
 
-      dragRef.current = {
-        ...dragRef.current,
-        mode: "none",
-        nodeId: null,
-      };
-    };
+      if (node && node.type === "note") {
+        onSelectNote(node.id);
+      }
+    } else if (draggedNodeId) {
+      wakeUp(0.35);
+    }
 
-  /**
-   * Zoom
-   */
+    dragRef.current.isDraggingCanvas = false;
+    dragRef.current.draggedNodeId = null;
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredNodeId(null);
+
+    dragRef.current.isDraggingCanvas = false;
+    dragRef.current.draggedNodeId = null;
+  };
+
   const handleWheel = (
     e: React.WheelEvent<HTMLCanvasElement>
   ) => {
     e.preventDefault();
 
-    const current =
-      transformRef
-        .current
-        .scale;
+    wakeUp(0.15);
 
-    const factor =
-      e.deltaY <
-      0
-        ? 1.1
-        : 0.9;
+    const zoomFactor =
+      e.deltaY < 0 ? 1.12 : 0.88;
 
     transformRef.current.scale =
-      Math.max(
-        0.28,
-        Math.min(
-          3,
-          current *
-            factor
+      Math.min(
+        3.5,
+        Math.max(
+          0.15,
+          transformRef.current.scale * zoomFactor
         )
       );
-
-    setLayoutVersion(
-      (version) =>
-        version + 1
-    );
   };
 
-  /**
-   * Reset View
-   */
-  const resetView =
-    () => {
-      transformRef.current = {
-        scale: 1,
-        x: 0,
-        y: 0,
-      };
+  const handleJiggle = () => {
+    for (const node of graphData.nodes) {
+      node.vx += (Math.random() - 0.5) * 8;
+      node.vy += (Math.random() - 0.5) * 8;
+    }
 
-      setLayoutVersion(
-        (version) =>
-          version + 1
-      );
+    wakeUp(1.0);
+  };
+
+  const resetView = () => {
+    transformRef.current = {
+      scale: 1,
+      x: 0,
+      y: 0,
     };
 
-  /**
-   * 重新排列
-   */
-  const rearrange =
-    () => {
-      setGraphData(
-        arrangeNodes(
-          graphData
-        )
-      );
-
-      transformRef.current = {
-        scale: 1,
-        x: 0,
-        y: 0,
-      };
-
-      setLayoutVersion(
-        (version) =>
-          version + 1
-      );
-    };
+    wakeUp(0.8);
+  };
 
   return (
     <div
-      className={`relative flex flex-col overflow-hidden bg-[#0a0c0e] text-[#d1cec6] ${
+      className={`relative flex flex-col overflow-hidden bg-[#090b0c] text-[#d1cdc4] select-none ${
         isFullscreen
           ? "fixed inset-0 z-50"
           : "h-full w-full"
       }`}
     >
-      {/* ========================
-          Header
-         ======================== */}
-      <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.055] bg-[#101214]/94 px-5 py-2.5 backdrop-blur-md">
+      <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.055] bg-[#101213]/94 px-5 py-2.5 backdrop-blur-md">
         <div className="flex items-center gap-4">
-          <span className="font-serif text-[13px] tracking-[0.08em] text-[#d7d3ca]">
-            {graphMode ===
-            "global"
+          <span className="font-serif text-[13px] tracking-[0.08em] text-[#d8d4ca]">
+            {graphMode === "global"
               ? "全域圖譜"
               : "局部圖譜"}
           </span>
 
-          <span className="font-mono text-[10px] text-[#666b67]">
-            {
-              graphData.nodes
-                .length
-            }
-            {" "}
-            節點
-            {" · "}
-            {
-              graphData.links
-                .length
-            }
-            {" "}
-            關聯
+          <span className="font-mono text-[10px] text-[#676b67]">
+            {graphData.nodes.length}
+            {" 節點 · "}
+            {graphData.links.length}
+            {" 關聯"}
           </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 text-xs">
-          {/* 模式 */}
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() =>
-                setGraphMode(
-                  "global"
-                )
-              }
+              onClick={() => {
+                setGraphMode("global");
+                wakeUp(0.9);
+              }}
               className={`border-b pb-1 ${
-                graphMode ===
-                "global"
-                  ? "border-[#718f8a] text-[#d8d5ce]"
-                  : "border-transparent text-[#737772] hover:text-[#aaa9a3]"
+                graphMode === "global"
+                  ? "border-[#708f89] text-[#dad6cc]"
+                  : "border-transparent text-[#767a75] hover:text-[#aaa8a0]"
               }`}
             >
               全域
@@ -1483,19 +988,15 @@ export function GraphView({
 
             <button
               type="button"
-              disabled={
-                !activeNoteId
-              }
-              onClick={() =>
-                setGraphMode(
-                  "local"
-                )
-              }
+              disabled={!activeNoteId}
+              onClick={() => {
+                setGraphMode("local");
+                wakeUp(0.9);
+              }}
               className={`border-b pb-1 ${
-                graphMode ===
-                "local"
-                  ? "border-[#718f8a] text-[#d8d5ce]"
-                  : "border-transparent text-[#737772] hover:text-[#aaa9a3]"
+                graphMode === "local"
+                  ? "border-[#708f89] text-[#dad6cc]"
+                  : "border-transparent text-[#767a75] hover:text-[#aaa8a0]"
               } disabled:opacity-30`}
             >
               局部
@@ -1504,46 +1005,36 @@ export function GraphView({
 
           <input
             type="text"
-            value={
-              filterQuery
-            }
-            onChange={(e) =>
-              setFilterQuery(
-                e.target.value
-              )
-            }
+            value={filterQuery}
+            onChange={(e) => {
+              setFilterQuery(e.target.value);
+              wakeUp(0.2);
+            }}
             placeholder="搜尋節點…"
-            className="w-32 border-0 border-b border-white/[0.09] bg-transparent px-1 py-1 text-[11px] text-[#c9c6be] placeholder:text-[#525753] focus:border-[#718f8a] focus:outline-none"
+            className="w-32 border-0 border-b border-white/[0.09] bg-transparent px-1 py-1 text-[11px] text-[#c8c5bd] placeholder:text-[#535753] focus:border-[#708f89] focus:outline-none"
           />
 
           <button
             type="button"
-            onClick={
-              rearrange
-            }
-            className="text-[11px] text-[#828680] hover:text-[#d6d3ca]"
+            onClick={handleJiggle}
+            className="text-[11px] text-[#838780] hover:text-[#d6d2c8]"
+            title="重新加入物理動能"
           >
-            重新排列
+            重新舒展
           </button>
 
           <button
             type="button"
-            onClick={
-              resetView
-            }
-            className="text-[11px] text-[#828680] hover:text-[#d6d3ca]"
+            onClick={resetView}
+            className="text-[11px] text-[#838780] hover:text-[#d6d2c8]"
           >
             重設視角
           </button>
 
           <button
             type="button"
-            onClick={() =>
-              setIsFullscreen(
-                !isFullscreen
-              )
-            }
-            className="text-[11px] text-[#828680] hover:text-[#d6d3ca]"
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            className="text-[11px] text-[#838780] hover:text-[#d6d2c8]"
           >
             {isFullscreen
               ? "離開全螢幕"
@@ -1553,10 +1044,8 @@ export function GraphView({
           {onClose && (
             <button
               type="button"
-              onClick={
-                onClose
-              }
-              className="ml-1 text-[#98564c] hover:text-[#c87868]"
+              onClick={onClose}
+              className="ml-1 text-[#98584e] hover:text-[#c47768]"
             >
               ✕
             </button>
@@ -1564,26 +1053,16 @@ export function GraphView({
         </div>
       </div>
 
-      {/* 大型知識庫提醒 */}
-      {graphResult.isCapped &&
-        graphMode ===
-          "global" && (
-          <div className="border-b border-[#796454]/20 bg-[#796454]/8 px-5 py-2 text-[10px] text-[#a89482]">
-            知識庫節點較多，已限制顯示前
-            {" "}
-            {maxNodesLimit}
-            {" "}
-            個節點以維持流暢度。
-          </div>
-        )}
+      {isCapped && graphMode === "global" && (
+        <div className="border-b border-[#796454]/20 bg-[#796454]/8 px-5 py-2 text-[10px] text-[#aa9683]">
+          知識庫節點較多，已限制顯示前{" "}
+          {maxNodesLimit}{" "}
+          個節點以維持流暢度。
+        </div>
+      )}
 
-      {/* ========================
-          Canvas
-         ======================== */}
       <div
-        ref={
-          wrapperRef
-        }
+        ref={canvasWrapperRef}
         className={`relative flex-1 overflow-hidden ${
           hoveredNodeId
             ? "cursor-pointer"
@@ -1591,37 +1070,20 @@ export function GraphView({
         }`}
       >
         <canvas
-          ref={
-            canvasRef
-          }
-          onMouseDown={
-            handleMouseDown
-          }
-          onMouseMove={
-            handleMouseMove
-          }
-          onMouseUp={
-            handleMouseUp
-          }
-          onMouseLeave={
-            handleMouseLeave
-          }
-          onWheel={
-            handleWheel
-          }
+          ref={canvasRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+          onWheel={handleWheel}
           className="absolute inset-0 block h-full w-full"
         />
 
-        <div className="pointer-events-none absolute bottom-4 right-5 font-serif text-[10px] tracking-wide text-[#5d625e]">
-          點選節點跳轉
-          {" · "}
-          拖曳移動
-          {" · "}
-          滾輪縮放
+        <div className="pointer-events-none absolute bottom-4 right-5 font-serif text-[10px] tracking-wide text-[#5d625d]">
+          點選跳轉 · 拖曳節點 · 拖曳畫布 · 滾輪縮放
         </div>
 
-        {/* 小朱砂印記 */}
-        <div className="pointer-events-none absolute bottom-5 left-5 flex h-8 w-8 items-center justify-center border border-[#a3483d]/40 font-serif text-[10px] text-[#a3483d]/60">
+        <div className="pointer-events-none absolute bottom-5 left-5 flex h-8 w-8 items-center justify-center border border-[#a34b40]/40 font-serif text-[10px] text-[#a34b40]/60">
           墨
         </div>
       </div>
