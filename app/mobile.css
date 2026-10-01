@@ -1586,3 +1586,182 @@
   }
 }
 
+/* ============================================================
+   MOBILE EDITOR HEIGHT FIX
+   ------------------------------------------------------------
+   問題：
+   手機把 Workspace 改成 flex-direction: column 後，
+   單一「編輯」模式的內容容器只有 w-full，沒有 flex / height。
+   因此 textarea 只吃到一小段高度，下面留下大片空白背景。
+
+   修正：
+   - Edit / Preview 單一模式：完整吃滿剩餘高度
+   - Split 模式：上下各 50%
+   - textarea / paper-texture 都正確填滿容器
+   ============================================================ */
+
+@media (max-width: 768px) {
+
+  /*
+   * Workspace 本身一定要吃滿 MarkdownEditor 剩餘空間。
+   */
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div.relative.flex.min-h-0.flex-1 {
+    display: flex !important;
+
+    flex: 1 1 auto !important;
+    flex-direction: column !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+
+    height: auto !important;
+    min-height: 0 !important;
+
+    overflow: hidden !important;
+  }
+
+
+  /*
+   * 單一模式：
+   * - 編輯：div.min-w-0.w-full
+   * - 預覽：div.paper-texture.min-w-0.w-full
+   *
+   * 兩者都要填滿剩餘高度。
+   */
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div.relative.flex.min-h-0.flex-1
+  > div.min-w-0.w-full {
+    width: 100% !important;
+
+    height: 100% !important;
+    min-height: 0 !important;
+
+    flex: 1 1 100% !important;
+
+    overflow: hidden !important;
+  }
+
+
+  /*
+   * Preview 單一模式需要自己垂直捲動。
+   */
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div.relative.flex.min-h-0.flex-1
+  > div.paper-texture.min-w-0.w-full {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+
+  /*
+   * Textarea 真正撐滿 Editor 容器。
+   */
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div.relative.flex.min-h-0.flex-1
+  > div.min-w-0.w-full
+  > textarea {
+    display: block !important;
+
+    width: 100% !important;
+    max-width: 100% !important;
+
+    height: 100% !important;
+    min-height: 100% !important;
+
+    margin: 0 !important;
+
+    overflow-y: auto !important;
+    overflow-x: auto !important;
+
+    resize: none !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+
+  /*
+   * Split 模式：
+   * JSX 會使用 w-1/2，所以手機改成上下各 50%。
+   * 這段必須放在單一模式規則後面。
+   */
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div.relative.flex.min-h-0.flex-1
+  > div.w-1\/2 {
+    width: 100% !important;
+
+    height: 50% !important;
+    min-height: 0 !important;
+
+    flex: 1 1 50% !important;
+
+    overflow: hidden !important;
+  }
+
+
+  /*
+   * Split 的 Preview 要能獨立捲動。
+   */
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div.relative.flex.min-h-0.flex-1
+  > div.paper-texture.w-1\/2 {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+
+  /*
+   * Split 的 Editor textarea 仍然填滿上半部。
+   */
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  > div.relative.flex.h-full.min-w-0.flex-col
+  > div.relative.flex.min-h-0.flex-1
+  > div.w-1\/2
+  > textarea {
+    display: block !important;
+
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+
+    overflow-y: auto !important;
+
+    resize: none !important;
+  }
+
+
+  /*
+   * 不讓 Preview 內容本身把容器撐開。
+   */
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  .obsidian-preview-container {
+    min-height: 100% !important;
+  }
+}
+
