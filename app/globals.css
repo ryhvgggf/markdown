@@ -1034,18 +1034,19 @@ body > div.flex.h-screen.w-screen > aside.w-72 > div:first-child {
       auto 92% !important;
   }
 }
-/* ============================================================
-   最終視覺覆寫：竹林 / 大梅樹
-   直接貼到 app/globals.css 最底部
-   ============================================================ */
 
-/* 中央：竹林 */
 body > div.flex.h-screen.w-screen > main {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+
+  background-color: #080a0b !important;
+
   background-image:
     linear-gradient(
       180deg,
-      rgba(6, 8, 9, 0.68),
-      rgba(6, 8, 9, 0.48)
+      rgba(6, 8, 9, 0.50),
+      rgba(6, 8, 9, 0.36)
     ),
     url("/ink/center-bamboo-forest.png") !important;
 
@@ -1055,26 +1056,56 @@ body > div.flex.h-screen.w-screen > main {
 
   background-position:
     center,
-    center bottom !important;
+    center center !important;
 
   background-size:
     cover,
-    cover !important;
+    contain !important;
 }
 
-/* 讓編輯區仍然看得到竹林，但不影響閱讀 */
+
+/* MarkdownEditor 整體保持透明 */
 body > div.flex.h-screen.w-screen > main > div.flex.h-full.flex-col {
-  background: rgba(7, 9, 10, 0.22) !important;
+  background:
+    rgba(7, 9, 10, 0.10) !important;
 }
 
+
+/* 左邊編輯區 */
 main textarea {
-  background: rgba(5, 7, 8, 0.42) !important;
+  background:
+    rgba(5, 7, 8, 0.43) !important;
+
+  color:
+    #d8d4ca !important;
+
+  backdrop-filter:
+    none !important;
+
+  -webkit-backdrop-filter:
+    none !important;
 }
 
+
+/* 右邊 Preview */
 .paper-texture {
-  background: rgba(6, 8, 9, 0.43) !important;
+  background:
+    rgba(6, 8, 9, 0.40) !important;
+
+  backdrop-filter:
+    none !important;
+
+  -webkit-backdrop-filter:
+    none !important;
 }
 
+
+/* 不額外蓋紙張偽元素 */
+.paper-texture::before,
+.paper-texture::after {
+  display:
+    none !important;
+}
 /* 右側：梅花樹加大，從右下往上延伸 */
 body > div.flex.h-screen.w-screen > aside.w-72 {
   background-image:
