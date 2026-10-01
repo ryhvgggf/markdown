@@ -1,279 +1,894 @@
 @import "tailwindcss";
 
+/* ============================================================
+   現代水墨知識庫 Theme
+   ============================================================ */
+
 @layer base {
   :root {
-    --ink-black: #0c0d10;         /* 焦墨底色 */
-    --ink-dark: #121418;          /* 濃墨底色 */
-    --ink-mid: #1c1f26;           /* 重墨背景 */
-    --ink-wash: rgba(255, 255, 255, 0.03); /* 淡墨暈染 */
-    --ink-wash-hover: rgba(255, 255, 255, 0.05);
-    
-    /* 黛青 (低飽和東方礦物色) */
-    --ink-indigo: #0e7490;
-    --ink-indigo-dim: #155e75;
-    --ink-indigo-glow: rgba(14, 116, 144, 0.15);
-    
-    /* 暗硃砂 (文人印泥紅，僅少量點綴) */
-    --ink-cinnabar: #9f1239;
-    --ink-cinnabar-hover: #be123c;
-    --ink-cinnabar-dim: rgba(159, 18, 57, 0.18);
-    
-    /* 宣紙米白文字 */
-    --paper-white: #eaedf2;
-    --paper-mist: #94a3b8;
-    --paper-dim: #525a66;
+    /* 焦墨 / 濃墨 */
+    --ink-black: #0a0b0d;
+    --ink-deep: #0e1012;
+    --ink-dark: #121416;
+    --ink-mid: #191c1e;
+    --ink-soft: #24282a;
+
+    /* 宣紙文字 */
+    --paper-white: #eeeae1;
+    --paper-main: #d8d5ce;
+    --paper-muted: #9a9b96;
+    --paper-dim: #626661;
+
+    /* 黛青 */
+    --ink-indigo: #718f8a;
+    --ink-indigo-light: #94aaa6;
+    --ink-indigo-dark: #4f706c;
+    --ink-indigo-wash: rgba(113, 143, 138, 0.12);
+
+    /* 朱砂 */
+    --ink-cinnabar: #a3483d;
+    --ink-cinnabar-light: #c26a5c;
+    --ink-cinnabar-wash: rgba(163, 72, 61, 0.14);
+
+    /* 淡墨 */
+    --ink-wash: rgba(238, 234, 225, 0.025);
+    --ink-wash-hover: rgba(238, 234, 225, 0.05);
+    --ink-border: rgba(238, 234, 225, 0.075);
+    --ink-border-soft: rgba(238, 234, 225, 0.04);
   }
 }
 
+/*
+ * 重新映射既有 Tailwind Cyan / Blue / Purple，
+ * 讓現有 Component 不需要全部重寫。
+ */
 @theme inline {
   --color-background: var(--ink-black);
   --color-foreground: var(--paper-white);
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Hiragino Sans GB", "Microsoft JhengHei", sans-serif;
-  --font-serif: "Noto Serif TC", "Source Han Serif TC", "Songti TC", "PMingLiU", "STSong", serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  --font-sans:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang TC",
+    "Microsoft JhengHei",
+    sans-serif;
+
+  --font-serif:
+    "Noto Serif TC",
+    "Source Han Serif TC",
+    "Songti TC",
+    "PMingLiU",
+    "STSong",
+    serif;
+
+  --font-mono:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+
+  /* 原本 Cyan → 黛青 */
+  --color-cyan-200: #b5c9c5;
+  --color-cyan-300: #9eb8b3;
+  --color-cyan-400: #819f9a;
+  --color-cyan-500: #688984;
+  --color-cyan-600: #52736f;
+  --color-cyan-700: #405e5a;
+  --color-cyan-800: #304945;
+  --color-cyan-900: #233936;
+  --color-cyan-950: #172826;
+
+  /* 原本 Blue → 冷墨青 */
+  --color-blue-300: #a9bab6;
+  --color-blue-400: #879e99;
+  --color-blue-500: #6d8983;
+  --color-blue-600: #58736e;
+  --color-blue-700: #455d59;
+  --color-blue-800: #344a46;
+  --color-blue-900: #263a37;
+  --color-blue-950: #172724;
+
+  /* 原本 Purple → 灰青墨，不再紫 */
+  --color-purple-200: #c5ceca;
+  --color-purple-300: #a5b8b3;
+  --color-purple-400: #869f99;
+  --color-purple-500: #6e8882;
+  --color-purple-600: #58716c;
+  --color-purple-700: #455b57;
+  --color-purple-800: #354844;
+  --color-purple-900: #273936;
+  --color-purple-950: #182724;
+
+  /* 圓角收斂 */
+  --radius-lg: 0.35rem;
+  --radius-xl: 0.4rem;
+  --radius-2xl: 0.45rem;
+  --radius-3xl: 0.5rem;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
 }
 
 body {
-  background: var(--ink-black);
-  color: var(--paper-white);
-  font-family: var(--font-sans);
+  margin: 0;
   overflow: hidden;
+
+  background:
+    radial-gradient(
+      ellipse at 45% -20%,
+      rgba(255, 255, 255, 0.035),
+      transparent 52%
+    ),
+    radial-gradient(
+      ellipse at 100% 100%,
+      rgba(113, 143, 138, 0.025),
+      transparent 42%
+    ),
+    #0a0b0d;
+
+  color: var(--paper-main);
+
+  font-family: var(--font-sans);
+
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* 宣紙微透微質紋理背景 (極淡，不影響閱讀) */
-.paper-texture {
-  background-color: #0e1013;
-  background-image: 
-    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.02) 0%, transparent 75%),
-    radial-gradient(ellipse at 80% 100%, rgba(14, 116, 144, 0.015) 0%, transparent 60%);
+/*
+ * 全畫面極淡「墨紙纖維」
+ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+
+  opacity: 0.18;
+
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.008) 0px,
+      rgba(255, 255, 255, 0.008) 1px,
+      transparent 1px,
+      transparent 4px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.004) 0px,
+      rgba(255, 255, 255, 0.004) 1px,
+      transparent 1px,
+      transparent 6px
+    );
 }
 
-/* 淡墨乾筆刷痕分隔線 (Dry-Brush Divider) */
-.ink-brush-divider {
-  height: 1px;
-  background: linear-gradient(90deg, 
-    transparent 0%, 
-    rgba(255, 255, 255, 0.04) 10%, 
-    rgba(255, 255, 255, 0.08) 35%, 
-    rgba(255, 255, 255, 0.04) 70%, 
-    rgba(255, 255, 255, 0.07) 85%, 
-    transparent 100%
-  );
-  position: relative;
-}
-.ink-brush-divider-v {
-  width: 1px;
-  background: linear-gradient(180deg, 
-    transparent 0%, 
-    rgba(255, 255, 255, 0.03) 10%, 
-    rgba(255, 255, 255, 0.07) 50%, 
-    transparent 100%
-  );
-}
+/* ============================================================
+   Scrollbar
+   ============================================================ */
 
-/* 典雅細緻自訂捲軸 (淡墨筆鋒) */
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(238, 234, 225, 0.11);
+  border-radius: 1px;
 }
 
-/* ====================================================
-   Markdown 預覽區：文人宋體排版 + 乾筆刷痕 + 大量留白
-   ==================================================== */
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(238, 234, 225, 0.2);
+}
+
+/* ============================================================
+   Panel / 紙張材質
+   ============================================================ */
+
+aside {
+  background-image:
+    radial-gradient(
+      circle at 0% 100%,
+      rgba(255, 255, 255, 0.025),
+      transparent 38%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.006),
+      transparent 35%
+    );
+}
+
+.paper-texture {
+  position: relative;
+
+  background:
+    radial-gradient(
+      ellipse at 45% 0%,
+      rgba(255, 255, 255, 0.025),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse at 85% 85%,
+      rgba(113, 143, 138, 0.018),
+      transparent 45%
+    ),
+    #0d0f11;
+}
+
+/*
+ * 閱讀區極淡紙紋
+ */
+.paper-texture::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+
+  pointer-events: none;
+
+  opacity: 0.32;
+
+  background:
+    linear-gradient(
+      103deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.008) 23%,
+      transparent 24%
+    ),
+    repeating-linear-gradient(
+      2deg,
+      rgba(255, 255, 255, 0.005) 0px,
+      rgba(255, 255, 255, 0.005) 1px,
+      transparent 1px,
+      transparent 7px
+    );
+}
+
+/* ============================================================
+   乾筆分隔線
+   ============================================================ */
+
+.ink-brush-divider {
+  width: 100%;
+  height: 2px;
+
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(238, 234, 225, 0.18) 3%,
+      rgba(238, 234, 225, 0.08) 12%,
+      transparent 18%,
+      rgba(238, 234, 225, 0.12) 23%,
+      rgba(238, 234, 225, 0.055) 62%,
+      transparent 83%,
+      rgba(238, 234, 225, 0.06) 90%,
+      transparent 100%
+    );
+
+  opacity: 0.8;
+}
+
+.ink-brush-divider-v {
+  width: 1px;
+  height: 100%;
+
+  background:
+    linear-gradient(
+      180deg,
+      transparent,
+      rgba(238, 234, 225, 0.09) 15%,
+      rgba(238, 234, 225, 0.035) 70%,
+      transparent
+    );
+}
+
+/* ============================================================
+   Button
+   ============================================================ */
+
+/*
+ * 把大量 Pill UI 收掉。
+ */
+button.rounded-full {
+  border-radius: 3px !important;
+}
+
+button {
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease;
+}
+
+/* ============================================================
+   Input
+   ============================================================ */
+
+input,
+textarea {
+  caret-color: var(--ink-indigo-light);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #565b58;
+}
+
+input:focus {
+  box-shadow: none !important;
+}
+
+/* ============================================================
+   Markdown Preview
+   ============================================================ */
+
 .obsidian-preview-container {
-  color: #d6dae0;
-  line-height: 1.95;
-  font-size: 0.96rem;
-  letter-spacing: 0.02em;
-  max-width: 840px;
+  position: relative;
+  z-index: 1;
+
+  width: 100%;
+  max-width: 860px;
+
   margin-left: auto;
   margin-right: auto;
-  padding: 1.5rem 1rem;
+
+  padding:
+    2rem
+    1.35rem
+    5rem;
+
+  color: #d7d4cc;
+
+  font-size: 0.96rem;
+  line-height: 1.95;
+  letter-spacing: 0.018em;
 }
 
-/* 標題改為雕版宋體/明體氣質，層次分明 */
+/* H1 */
 .obsidian-preview-container h1 {
-  font-family: var(--font-serif);
-  font-size: 1.85rem;
-  font-weight: 600;
-  color: #f8fafc;
-  margin-top: 2rem;
-  margin-bottom: 1.1rem;
-  padding-bottom: 0.6rem;
   position: relative;
-  letter-spacing: 0.01em;
+
+  margin-top: 1.2rem;
+  margin-bottom: 1.55rem;
+
+  padding-bottom: 0.9rem;
+
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.4;
+
+  color: #f0ece3;
+
+  letter-spacing: 0.035em;
 }
 
-/* 一級標題底部：乾筆刷痕墨紋拖尾 (Dry Brush Underline) */
+/*
+ * H1 真正像「乾筆」
+ */
 .obsidian-preview-container h1::after {
   content: "";
   position: absolute;
+
+  left: -0.2rem;
   bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, 
-    #0e7490 0%, 
-    rgba(14, 116, 144, 0.7) 25%, 
-    rgba(255, 255, 255, 0.15) 55%, 
-    rgba(255, 255, 255, 0.05) 80%, 
-    transparent 100%
-  );
-  border-radius: 1px;
+
+  width: min(100%, 34rem);
+  height: 4px;
+
+  background:
+    linear-gradient(
+      90deg,
+      rgba(222, 216, 202, 0.72) 0%,
+      rgba(222, 216, 202, 0.32) 8%,
+      transparent 14%,
+      rgba(222, 216, 202, 0.36) 17%,
+      rgba(222, 216, 202, 0.15) 48%,
+      transparent 71%,
+      rgba(222, 216, 202, 0.08) 80%,
+      transparent 100%
+    );
+
+  transform: skewX(-8deg);
+
+  opacity: 0.72;
 }
 
+/* H2 */
 .obsidian-preview-container h2 {
-  font-family: var(--font-serif);
-  font-size: 1.38rem;
-  font-weight: 600;
-  color: #f1f5f9;
-  margin-top: 1.8rem;
-  margin-bottom: 0.8rem;
-  padding-left: 0.75rem;
   position: relative;
+
+  margin-top: 2.3rem;
+  margin-bottom: 1rem;
+
+  padding-left: 1rem;
+
+  font-family: var(--font-serif);
+  font-size: 1.45rem;
+  font-weight: 600;
+
+  color: #e9e5dc;
+
+  letter-spacing: 0.03em;
 }
-/* H2 左側：低飽和黛青毛筆落筆線 */
+
 .obsidian-preview-container h2::before {
   content: "";
   position: absolute;
+
   left: 0;
-  top: 15%;
-  height: 70%;
-  width: 2.5px;
-  background: #0e7490;
-  border-radius: 1px;
+  top: 8%;
+
+  width: 3px;
+  height: 86%;
+
+  background:
+    linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(148, 170, 166, 0.9) 12%,
+      rgba(113, 143, 138, 0.7) 61%,
+      rgba(113, 143, 138, 0.15) 88%,
+      transparent 100%
+    );
+
+  transform: rotate(1.5deg);
 }
 
+/* H3 */
 .obsidian-preview-container h3 {
+  margin-top: 1.85rem;
+  margin-bottom: 0.75rem;
+
   font-family: var(--font-serif);
-  font-size: 1.15rem;
+
+  font-size: 1.16rem;
   font-weight: 600;
-  color: #e2e8f0;
-  margin-top: 1.4rem;
-  margin-bottom: 0.6rem;
+
+  color: #ddd9d0;
+
+  letter-spacing: 0.025em;
 }
 
+/* H4-H6 */
+.obsidian-preview-container h4,
+.obsidian-preview-container h5,
+.obsidian-preview-container h6 {
+  font-family: var(--font-serif);
+  color: #cfccc4;
+}
+
+/* Paragraph */
 .obsidian-preview-container p {
-  margin-bottom: 1.15rem;
+  margin-bottom: 1.2rem;
 }
 
-/* 引用塊：淡墨細毛筆飾條，去除厚重彩色卡片感 */
-.obsidian-preview-container blockquote {
-  margin: 1.25rem 0;
-  padding: 0.5rem 1rem 0.5rem 1.1rem;
-  border-left: 2px solid rgba(14, 116, 144, 0.4);
-  background: rgba(255, 255, 255, 0.015);
-  color: #94a3b8;
-  font-style: normal;
+/* Strong */
+.obsidian-preview-container strong {
+  color: #eeeae1;
+  font-weight: 600;
 }
 
-/* 程式碼區塊：現代工程工具感，乾淨墨夜色，無炫彩 */
-.obsidian-preview-container code:not(pre code) {
-  font-family: var(--font-mono);
-  font-size: 0.83em;
-  background: rgba(255, 255, 255, 0.05);
-  color: #e2e8f0;
-  padding: 0.15rem 0.35rem;
-  border-radius: 2px;
-}
+/* ============================================================
+   Wikilink
+   ============================================================ */
 
-.obsidian-preview-container pre {
-  margin: 1.2rem 0;
-  padding: 1rem;
-  background: #111317;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 4px;
-  overflow-x: auto;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  line-height: 1.6;
-}
+.obsidian-wikilink {
+  padding: 0 !important;
 
-/* 雙向連結：黛青水墨微底線，優雅安靜 */
-.obsidian-preview-container a.wikilink {
-  color: #38bdf8;
+  border-radius: 0 !important;
+
+  background: transparent !important;
+
+  color: #8fa9a4 !important;
+
   font-weight: 500;
-  text-decoration: underline;
-  text-decoration-color: rgba(56, 189, 248, 0.3);
-  text-underline-offset: 3px;
-  transition: all 0.15s ease-out;
-  cursor: pointer;
-}
-.obsidian-preview-container a.wikilink:hover {
-  color: #7dd3fc;
-  text-decoration-color: #0e7490;
-  background: rgba(14, 116, 144, 0.08);
+
+  text-decoration: none;
+
+  border-bottom:
+    1px solid
+    rgba(143, 169, 164, 0.32);
+
+  box-shadow: none !important;
 }
 
-/* 標籤：金石方印感 (Square Seal Tag)，非 Rounded Pill */
+.obsidian-wikilink:hover {
+  color: #b5c6c2 !important;
+
+  background:
+    linear-gradient(
+      180deg,
+      transparent 30%,
+      rgba(113, 143, 138, 0.09)
+    ) !important;
+
+  border-bottom-color:
+    rgba(181, 198, 194, 0.7);
+}
+
+/* ============================================================
+   Tag / 印章
+   ============================================================ */
+
+.obsidian-tag,
 .obsidian-tag-seal {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  font-family: var(--font-mono);
+
+  padding:
+    0.13rem
+    0.42rem !important;
+
+  border-radius: 1px !important;
+
+  background:
+    rgba(238, 234, 225, 0.035) !important;
+
+  border:
+    1px solid
+    rgba(238, 234, 225, 0.09) !important;
+
+  color: #b6b5af !important;
+
   font-size: 0.72rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 1px; /* 方正金石印 */
-  background: rgba(255, 255, 255, 0.04);
-  color: #cbd5e1;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.15s ease-out;
-}
-.obsidian-tag-seal:hover {
-  background: rgba(14, 116, 144, 0.15);
-  border-color: rgba(14, 116, 144, 0.35);
-  color: #e2e8f0;
-}
-.obsidian-tag-seal-active {
-  background: rgba(159, 18, 57, 0.25) !important;
-  border-color: rgba(159, 18, 57, 0.6) !important;
-  color: #fda4af !important;
+  font-family: var(--font-mono);
+
+  box-shadow: none !important;
 }
 
-/* 清單與表格 */
-.obsidian-preview-container ul {
-  list-style-type: disc;
-  padding-left: 1.35rem;
-  margin-bottom: 1rem;
+.obsidian-tag:hover,
+.obsidian-tag-seal:hover {
+  background:
+    rgba(113, 143, 138, 0.09) !important;
+
+  border-color:
+    rgba(113, 143, 138, 0.28) !important;
+
+  color: #dedbd3 !important;
 }
+
+.obsidian-tag-seal-active {
+  background:
+    var(--ink-cinnabar-wash) !important;
+
+  border-color:
+    rgba(163, 72, 61, 0.68) !important;
+
+  color:
+    #d99384 !important;
+}
+
+/* ============================================================
+   Blockquote
+   ============================================================ */
+
+.obsidian-preview-container blockquote {
+  position: relative;
+
+  margin:
+    1.5rem
+    0;
+
+  padding:
+    0.75rem
+    1rem
+    0.75rem
+    1.3rem;
+
+  border: 0;
+
+  background:
+    rgba(238, 234, 225, 0.012);
+
+  color: #a5a49e;
+
+  font-style: normal;
+}
+
+.obsidian-preview-container blockquote::before {
+  content: "";
+  position: absolute;
+
+  left: 0;
+  top: 0.1rem;
+
+  width: 2px;
+  height: calc(100% - 0.2rem);
+
+  background:
+    linear-gradient(
+      180deg,
+      transparent,
+      rgba(113, 143, 138, 0.6) 15%,
+      rgba(113, 143, 138, 0.26) 82%,
+      transparent
+    );
+}
+
+/* ============================================================
+   List
+   ============================================================ */
+
+.obsidian-preview-container ul,
 .obsidian-preview-container ol {
-  list-style-type: decimal;
-  padding-left: 1.35rem;
-  margin-bottom: 1rem;
+  margin-bottom: 1.15rem;
+  padding-left: 1.55rem;
 }
+
 .obsidian-preview-container li {
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.45rem;
 }
+
+.obsidian-preview-container li::marker {
+  color: #718f8a;
+}
+
+/* ============================================================
+   Code
+   ============================================================ */
+
+.obsidian-preview-container code:not(pre code) {
+  padding:
+    0.14rem
+    0.34rem;
+
+  border-radius: 2px;
+
+  background:
+    rgba(238, 234, 225, 0.055);
+
+  color: #dcd8ce;
+
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+}
+
+.obsidian-preview-container pre {
+  margin:
+    1.4rem
+    0;
+
+  padding: 1.15rem;
+
+  border-top:
+    1px solid
+    rgba(238, 234, 225, 0.07);
+
+  border-bottom:
+    1px solid
+    rgba(238, 234, 225, 0.05);
+
+  border-left: 0;
+  border-right: 0;
+
+  border-radius: 2px;
+
+  background:
+    #101214 !important;
+
+  color: #c9c8c2;
+
+  box-shadow:
+    inset 0 1px rgba(255,255,255,0.01);
+}
+
+/* ============================================================
+   Media
+   ============================================================ */
+
+.obsidian-media-container {
+  border-radius: 3px !important;
+
+  border:
+    1px solid
+    rgba(238, 234, 225, 0.07) !important;
+
+  background:
+    rgba(0, 0, 0, 0.12) !important;
+
+  box-shadow:
+    0 18px 50px
+    rgba(0, 0, 0, 0.18);
+}
+
+.obsidian-media-container img,
+.obsidian-media-container video {
+  border-radius: 2px !important;
+}
+
+/* ============================================================
+   Tables
+   ============================================================ */
 
 .obsidian-preview-container table {
   width: 100%;
+
+  margin:
+    1.5rem
+    0;
+
   border-collapse: collapse;
-  margin: 1.3rem 0;
+
   font-size: 0.88rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+
+  border-top:
+    1px solid
+    rgba(238, 234, 225, 0.08);
+
+  border-bottom:
+    1px solid
+    rgba(238, 234, 225, 0.06);
 }
+
 .obsidian-preview-container th {
-  color: #f1f5f9;
+  padding:
+    0.65rem
+    0.8rem;
+
+  color: #ddd9d0;
   font-weight: 500;
   text-align: left;
-  padding: 0.6rem 0.8rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+
+  border-bottom:
+    1px solid
+    rgba(238, 234, 225, 0.09);
 }
+
 .obsidian-preview-container td {
-  padding: 0.6rem 0.8rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-  color: #94a3b8;
+  padding:
+    0.65rem
+    0.8rem;
+
+  color: #aaa9a3;
+
+  border-bottom:
+    1px solid
+    rgba(238, 234, 225, 0.035);
+}
+
+/* ============================================================
+   Right Panel 共用樣式
+   ============================================================ */
+
+.ink-side-section {
+  position: relative;
+  padding-bottom: 1.45rem;
+  margin-bottom: 1.5rem;
+}
+
+.ink-side-section::after {
+  content: "";
+  position: absolute;
+
+  left: 0;
+  right: 16%;
+
+  bottom: 0;
+
+  height: 2px;
+
+  background:
+    linear-gradient(
+      90deg,
+      rgba(222, 216, 202, 0.25),
+      rgba(222, 216, 202, 0.075) 48%,
+      transparent
+    );
+}
+
+.ink-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+
+  margin-bottom: 0.85rem;
+
+  font-family: var(--font-serif);
+
+  font-size: 1rem;
+  font-weight: 600;
+
+  color: #dedad1;
+
+  letter-spacing: 0.04em;
+}
+
+.ink-count {
+  color: #767b77;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 400;
+}
+
+.ink-link-row {
+  position: relative;
+
+  width: 100%;
+
+  padding:
+    0.6rem
+    0.2rem
+    0.6rem
+    0.7rem;
+
+  text-align: left;
+
+  color: #c2c0ba;
+
+  border: 0;
+  border-left:
+    1px solid
+    transparent;
+
+  background: transparent;
+
+  cursor: pointer;
+}
+
+.ink-link-row:hover {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(113, 143, 138, 0.065),
+      transparent 82%
+    );
+
+  border-left-color:
+    rgba(113, 143, 138, 0.65);
+}
+
+/* ============================================================
+   Modal
+   ============================================================ */
+
+.fixed.inset-0 > div {
+  backdrop-filter:
+    blur(8px);
+}
+
+/* ============================================================
+   Drag
+   ============================================================ */
+
+@keyframes ink-pulse {
+  0% {
+    opacity: 0.48;
+  }
+
+  50% {
+    opacity: 0.8;
+  }
+
+  100% {
+    opacity: 0.48;
+  }
+}
+
+.ink-drag-pulse {
+  animation:
+    ink-pulse
+    1.8s
+    ease-in-out
+    infinite;
 }
