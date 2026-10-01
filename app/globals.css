@@ -1298,47 +1298,34 @@ main .border-r.border-slate-800 {
 
 /* ============================================================
    RIGHT PANEL
-   梅花背景
    ============================================================ */
 
 body > div.flex.h-screen.w-screen > aside.w-72 {
-  position:
-    relative !important;
+  position: relative !important;
+  isolation: isolate !important;
+  overflow: hidden !important;
 
-  isolation:
-    isolate !important;
-
-  overflow:
-    hidden !important;
-
-  background:
-    #0a0b0c !important;
-
-  background-image:
-    none !important;
+  background: #0a0b0c !important;
+  background-image: none !important;
 
   border-left-color:
-    var(--line) !important;
+    rgba(238, 233, 222, 0.08) !important;
 }
 
 
-/*
- * 梅花圖片獨立圖層。
- */
+/* ============================================================
+   梅花圖片獨立一層
+   ============================================================ */
+
 body > div.flex.h-screen.w-screen > aside.w-72::before {
   content: "";
 
-  position:
-    absolute;
+  position: absolute;
+  inset: 0;
 
-  inset:
-    0;
+  z-index: 0;
 
-  z-index:
-    -1;
-
-  pointer-events:
-    none;
+  pointer-events: none;
 
   background-image:
     url("/ink/right-plum-large.png");
@@ -1352,46 +1339,127 @@ body > div.flex.h-screen.w-screen > aside.w-72::before {
   background-size:
     cover;
 
-  opacity:
-    0.50;
+  /*
+   * 跟竹林一樣，只用 opacity 控制圖片強弱
+   */
+  opacity: 0.32;
 }
 
 
-/*
- * 右欄 UI 永遠在圖片上。
- */
-body > div.flex.h-screen.w-screen > aside.w-72 > * {
-  position:
-    relative;
+/* ============================================================
+   右側所有 UI 放在梅花上面
+   ============================================================ */
 
-  z-index:
-    1;
+body > div.flex.h-screen.w-screen
+  > aside.w-72
+  > * {
+  position: relative;
+
+  z-index: 1;
 }
 
 
-/*
- * 右側 Header。
- */
+/* ============================================================
+   右側內容背景
+   只加一點透明黑，確保文字可讀
+   ============================================================ */
+
+body > div.flex.h-screen.w-screen
+  > aside.w-72
+  > div:last-child {
+  background:
+    rgba(6, 8, 9, 0.28) !important;
+
+  backdrop-filter:
+    none !important;
+
+  -webkit-backdrop-filter:
+    none !important;
+}
+
+
+/* ============================================================
+   Header
+   ============================================================ */
+
 body > div.flex.h-screen.w-screen
   > aside.w-72
   > div:first-child {
   background:
-    rgba(8, 10, 11, 0.30) !important;
+    rgba(6, 8, 9, 0.34) !important;
 
   border-bottom-color:
-    var(--line-soft) !important;
+    rgba(238, 233, 222, 0.08) !important;
 
   color:
-    #c2beb4 !important;
+    #eee9de !important;
 
-  font-family:
-    var(--font-serif);
+  backdrop-filter:
+    none !important;
 
-  letter-spacing:
-    0.08em;
+  -webkit-backdrop-filter:
+    none !important;
 }
 
 
+/* ============================================================
+   右欄標題
+   ============================================================ */
+
+.ink-section-title {
+  color:
+    #eee9de !important;
+}
+
+
+/* ============================================================
+   一般文字
+   ============================================================ */
+
+body > div.flex.h-screen.w-screen
+  > aside.w-72 {
+  color:
+    #d8d3c8 !important;
+}
+
+
+/* ============================================================
+   反向 / 出向連結
+   ============================================================ */
+
+.ink-link-row {
+  color:
+    #d4d0c7 !important;
+}
+
+.ink-link-row:hover {
+  color:
+    #ffffff !important;
+
+  background:
+    rgba(120, 153, 145, 0.08) !important;
+
+  border-left-color:
+    rgba(120, 153, 145, 0.65) !important;
+}
+
+
+/* ============================================================
+   Tag
+   ============================================================ */
+
+body > div.flex.h-screen.w-screen
+  > aside.w-72
+  .obsidian-tag-seal {
+  background:
+    rgba(8, 10, 11, 0.35) !important;
+
+  color:
+    #ddd8ce !important;
+
+  border-color:
+    rgba(238, 233, 222, 0.12) !important;
+}
 /* ============================================================
    Backlinks
    ============================================================ */
