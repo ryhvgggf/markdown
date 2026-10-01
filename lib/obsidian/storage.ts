@@ -1,6 +1,14 @@
-import { batchSaveNotesToDB, getAllNoteMetadata, getAllNotesFromDB } from "./db";
+import {
+  batchSaveNotesToDB,
+  getAllNoteMetadata,
+  getAllNotesFromDB,
+  getAllMediaAttachments,
+  batchSaveMediaAttachments,
+  getCustomFolders,
+  saveCustomFolders,
+} from "./db";
 import { extractOutlinks, extractTags } from "./parser";
-import { Note, VaultBackup } from "./types";
+import { Note, VaultBackup, MediaAttachment, SerializedMediaAttachment } from "./types";
 
 const LEGACY_STORAGE_KEY = "web-obsidian-vault-v1";
 const MIGRATION_FLAG_KEY = "web-obsidian-migrated-to-idb";
@@ -13,8 +21,8 @@ export function getDefaultNotes(): Note[] {
   return [
     {
       id: "note-welcome",
-      title: "歡迎來到 Web Obsidian (高效能版)",
-      content: `# 歡迎使用 Web Obsidian 知識庫 👋
+      title: "歡迎來到 Markdown 知識庫 (高效能版)",
+      content: `# 歡迎使用 Markdown 知識庫 👋
 
 本版本已全面升級為 **IndexedDB 大容量本機資料庫架構**！
 
@@ -40,7 +48,7 @@ export function getDefaultNotes(): Note[] {
 雙向連結（Bi-directional Linking）是第二大腦的核心骨架：
 
 ## 如何使用雙向連結？
-- 輸入 \`[[筆記名稱]]\` 即可指向其他筆記，例如返回 [[歡迎來到 Web Obsidian (高效能版)]]。
+- 輸入 \`[[筆記名稱]]\` 即可指向其他筆記，例如返回 [[歡迎來到 Markdown 知識庫 (高效能版)]]。
 - 若筆記尚未建立，點擊即可一鍵建立新頁面！
 - 支援別名：\`[[筆記名稱|顯示別名]]\`。
 
@@ -48,7 +56,7 @@ export function getDefaultNotes(): Note[] {
 未來可在此筆記中貼入截圖或短影片，系統將以二進位 Blob 形式安全存在本機，隨時在預覽區即時播放。
 `,
       tags: ["筆記方法", "雙向連結"],
-      outlinks: ["歡迎來到 Web Obsidian (高效能版)"],
+      outlinks: ["歡迎來到 Markdown 知識庫 (高效能版)"],
       createdAt: now,
       updatedAt: now,
     },
@@ -65,7 +73,6 @@ export async function initVaultStorage(): Promise<{ migratedCount: number; isFir
     return { migratedCount: 0, isFirstInit: false };
   }
 
-  // 1. 檢查是否需要自 LocalStorage 遷移
   const hasMigrated = window.localStorage.getItem(MIGRATION_FLAG_KEY);
   if (!hasMigrated) {
     try {
@@ -81,7 +88,6 @@ export async function initVaultStorage(): Promise<{ migratedCount: number; isFir
 
           await batchSaveNotesToDB(notesToMigrate);
           window.localStorage.setItem(MIGRATION_FLAG_KEY, "true");
-          // 清除舊的大容量 JSON 避免佔用 5MB
           window.localStorage.removeItem(LEGACY_STORAGE_KEY);
           return { migratedCount: notesToMigrate.length, isFirstInit: false };
         }
@@ -92,7 +98,6 @@ export async function initVaultStorage(): Promise<{ migratedCount: number; isFir
     window.localStorage.setItem(MIGRATION_FLAG_KEY, "true");
   }
 
-  // 2. 檢查 IndexedDB 是否已有資料
   const existingMeta = await getAllNoteMetadata();
   if (existingMeta.length === 0) {
     const defaults = getDefaultNotes();
@@ -104,15 +109,59 @@ export async function initVaultStorage(): Promise<{ migratedCount: number; isFir
 }
 
 /**
- * 匯出完整 Vault JSON 備份檔（自 IndexedDB 提取完整筆記）
+ * 將二進位 Blob 轉為 Base64 DataURL
  */
-export async function exportVaultJson(vaultName: string = "Obsidian-Vault"): Promise<void> {
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * 將 Base64 DataURL 還原為原始二進位 Blob
+ */
+async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
+  const res = await fetch(dataUrl);
+  return res.blob();
+}
+
+/**
+ * 匯出完整無損 Vault 備份檔（包含所有筆記、巢狀資料夾、高清照片與影片）
+ */
+export async function exportVaultJson(vaultName: string = "Markdown-Vault"): Promise<void> {
   const notes = await getAllNotesFromDB();
+  const mediaList = await getAllMediaAttachments();
+  const customFolders = getCustomFolders();
+
+  const serializedMedia: SerializedMediaAttachment[] = [];
+  for (const m of mediaList) {
+    if (m.blob) {
+      try {
+        const dataUrl = await blobToDataUrl(m.blob);
+        serializedMedia.push({
+          id: m.id,
+          filename: m.filename,
+          mimeType: m.mimeType,
+          size: m.size,
+          dataUrl,
+          createdAt: m.createdAt,
+        });
+      } catch (err) {
+        console.warn("備份多媒體失敗:", m.filename, err);
+      }
+    }
+  }
+
   const backup: VaultBackup = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     vaultName,
     notes,
+    customFolders,
+    media: serializedMedia,
   };
 
   const blob = new Blob([JSON.stringify(backup, null, 2)], {
@@ -144,21 +193,25 @@ export function exportNoteMarkdown(note: Note): void {
 }
 
 /**
- * 驗證並解析匯入之 Vault 備份檔案，並寫入 IndexedDB
+ * 驗證並完整還原 Vault 備份檔案（還原筆記、資料夾結構、所有圖片與影片至 IndexedDB）
  */
-export function validateAndParseVaultBackup(jsonStr: string): Note[] {
-  let parsed: unknown;
+export async function parseAndRestoreVaultBackup(jsonStr: string): Promise<{
+  notes: Note[];
+  mediaCount: number;
+  folderCount: number;
+}> {
+  let parsed: any;
   try {
     parsed = JSON.parse(jsonStr);
   } catch {
     throw new Error("檔案非合法的 JSON 格式");
   }
 
-  let notesArray: unknown[];
+  let notesArray: any[] = [];
   if (Array.isArray(parsed)) {
     notesArray = parsed;
-  } else if (parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).notes)) {
-    notesArray = (parsed as Record<string, unknown>).notes as unknown[];
+  } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.notes)) {
+    notesArray = parsed.notes;
   } else {
     throw new Error("檔案結構缺少有效的筆記陣列");
   }
@@ -172,20 +225,19 @@ export function validateAndParseVaultBackup(jsonStr: string): Note[] {
 
   for (const item of notesArray) {
     if (!item || typeof item !== "object") continue;
-    const n = item as Record<string, unknown>;
-    const title = typeof n.title === "string" ? n.title.trim() : "";
-    const content = typeof n.content === "string" ? n.content : "";
+    const title = typeof item.title === "string" ? item.title.trim() : "";
+    const content = typeof item.content === "string" ? item.content : "";
     if (!title) continue;
 
     validNotes.push({
-      id: typeof n.id === "string" && n.id ? n.id : `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: typeof item.id === "string" && item.id ? item.id : `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       title,
       content,
       tags: extractTags(content),
       outlinks: extractOutlinks(content),
-      folder: typeof n.folder === "string" ? n.folder : undefined,
-      createdAt: typeof n.createdAt === "string" ? n.createdAt : now,
-      updatedAt: typeof n.updatedAt === "string" ? n.updatedAt : now,
+      folder: typeof item.folder === "string" ? item.folder : undefined,
+      createdAt: typeof item.createdAt === "string" ? item.createdAt : now,
+      updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : now,
     });
   }
 
@@ -193,5 +245,62 @@ export function validateAndParseVaultBackup(jsonStr: string): Note[] {
     throw new Error("未能從檔案中解析出任何有效格式的筆記");
   }
 
-  return validNotes;
+  // 1. 還原自訂資料夾
+  let folderCount = 0;
+  if (parsed && Array.isArray(parsed.customFolders) && parsed.customFolders.length > 0) {
+    const existing = getCustomFolders();
+    const merged = Array.from(new Set([...existing, ...parsed.customFolders]));
+    saveCustomFolders(merged);
+    folderCount = parsed.customFolders.length;
+  }
+
+  // 2. 還原多媒體附件（無損圖片與影片）
+  let mediaCount = 0;
+  if (parsed && Array.isArray(parsed.media) && parsed.media.length > 0) {
+    const attachments: MediaAttachment[] = [];
+    for (const m of parsed.media) {
+      if (m && m.dataUrl && m.id) {
+        try {
+          const blob = await dataUrlToBlob(m.dataUrl);
+          attachments.push({
+            id: m.id,
+            filename: m.filename || "attachment",
+            mimeType: m.mimeType || blob.type || "application/octet-stream",
+            blob,
+            size: m.size || blob.size,
+            createdAt: m.createdAt || now,
+          });
+        } catch (e) {
+          console.warn("還原媒體附件失敗:", m.filename, e);
+        }
+      }
+    }
+    if (attachments.length > 0) {
+      await batchSaveMediaAttachments(attachments);
+      mediaCount = attachments.length;
+    }
+  }
+
+  // 3. 還原筆記至 IndexedDB
+  await batchSaveNotesToDB(validNotes);
+
+  return {
+    notes: validNotes,
+    mediaCount,
+    folderCount,
+  };
+}
+
+/**
+ * 舊版相容介面
+ */
+export function validateAndParseVaultBackup(jsonStr: string): Note[] {
+  let parsed: any;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    throw new Error("檔案非合法的 JSON 格式");
+  }
+  const notesArray = Array.isArray(parsed) ? parsed : parsed?.notes || [];
+  return notesArray.filter((n: any) => n && n.title);
 }
