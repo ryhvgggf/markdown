@@ -69,59 +69,95 @@ function normalizeFolderPath(path: string): string {
 }
 
 export default function MarkdownVaultPage() {
-  const [notesMeta, setNotesMeta] =
-    useState<NoteMetadata[]>([]);
+  const [
+    notesMeta,
+    setNotesMeta,
+  ] = useState<NoteMetadata[]>([]);
 
-  const [activeNoteId, setActiveNoteId] =
-    useState<string | null>(null);
+  const [
+    activeNoteId,
+    setActiveNoteId,
+  ] = useState<string | null>(null);
 
-  const [activeNote, setActiveNote] =
-    useState<Note | null>(null);
+  const [
+    activeNote,
+    setActiveNote,
+  ] = useState<Note | null>(null);
 
-  const [isLoadingNote, setIsLoadingNote] =
-    useState(false);
+  const [
+    isLoadingNote,
+    setIsLoadingNote,
+  ] = useState(false);
 
-  const [targetHeadingSlug, setTargetHeadingSlug] =
-    useState<string | null>(null);
+  const [
+    targetHeadingSlug,
+    setTargetHeadingSlug,
+  ] = useState<string | null>(null);
 
-  const [selectedTag, setSelectedTag] =
-    useState<string | null>(null);
+  const [
+    selectedTag,
+    setSelectedTag,
+  ] = useState<string | null>(null);
 
-  const [showRightPanel, setShowRightPanel] =
-    useState(true);
+  const [
+    showRightPanel,
+    setShowRightPanel,
+  ] = useState(true);
 
-  const [showBackupModal, setShowBackupModal] =
-    useState(false);
+  const [
+    showBackupModal,
+    setShowBackupModal,
+  ] = useState(false);
 
-  const [mainView, setMainView] =
-    useState<"editor" | "graph">("editor");
+  const [
+    mainView,
+    setMainView,
+  ] = useState<"editor" | "graph">("editor");
 
   /*
-   * Mobile UI state
+   * 手機 UI
+   *
+   * showMobileNotes
+   *   = 左側筆記 Drawer
+   *
+   * showMobileRelations
+   *   = 底部關聯資訊 Drawer
    */
-  const [showMobileNotes, setShowMobileNotes] =
-    useState(false);
+  const [
+    showMobileNotes,
+    setShowMobileNotes,
+  ] = useState(false);
 
-  const [showMobileRelations, setShowMobileRelations] =
-    useState(false);
+  const [
+    showMobileRelations,
+    setShowMobileRelations,
+  ] = useState(false);
 
-  const [notification, setNotification] =
-    useState<{
-      type: "success" | "error" | "info";
-      message: string;
-    } | null>(null);
+  const [
+    notification,
+    setNotification,
+  ] = useState<{
+    type:
+      | "success"
+      | "error"
+      | "info";
+    message: string;
+  } | null>(null);
 
   const fileInputRef =
     useRef<HTMLInputElement>(null);
 
   const saveTimeoutRef =
-    useRef<ReturnType<typeof setTimeout> | null>(
-      null
-    );
+    useRef<
+      ReturnType<typeof setTimeout> | null
+    >(null);
 
   const notify = useCallback(
     (
-      type: "success" | "error" | "info",
+      type:
+        | "success"
+        | "error"
+        | "info",
       message: string
     ) => {
       setNotification({
@@ -141,46 +177,41 @@ export default function MarkdownVaultPage() {
   );
 
   /*
-   * ---------------------------------------------------------
-   * Load note
-   * ---------------------------------------------------------
+   * 讀取指定筆記
    */
+  const selectNoteById =
+    useCallback(
+      async (noteId: string) => {
+        revokeAllActiveMediaUrls();
 
-  const selectNoteById = useCallback(
-    async (noteId: string) => {
-      revokeAllActiveMediaUrls();
+        setActiveNoteId(noteId);
+        setIsLoadingNote(true);
 
-      setActiveNoteId(noteId);
-      setIsLoadingNote(true);
+        try {
+          const full =
+            await getNoteContent(noteId);
 
-      try {
-        const full =
-          await getNoteContent(noteId);
+          setActiveNote(full);
+        } catch (error) {
+          console.error(
+            "讀取筆記失敗:",
+            error
+          );
 
-        setActiveNote(full);
-      } catch (error) {
-        console.error(
-          "讀取筆記失敗:",
-          error
-        );
-
-        notify(
-          "error",
-          "讀取筆記失敗"
-        );
-      } finally {
-        setIsLoadingNote(false);
-      }
-    },
-    [notify]
-  );
+          notify(
+            "error",
+            "讀取筆記失敗"
+          );
+        } finally {
+          setIsLoadingNote(false);
+        }
+      },
+      [notify]
+    );
 
   /*
-   * ---------------------------------------------------------
-   * Initialisation
-   * ---------------------------------------------------------
+   * 初始化 Vault
    */
-
   useEffect(() => {
     let mounted = true;
 
@@ -245,75 +276,42 @@ export default function MarkdownVaultPage() {
     selectNoteById,
   ]);
 
-  /*
-   * ---------------------------------------------------------
-   * Derived data
-   * ---------------------------------------------------------
-   */
+  const existingTitles =
+    useMemo(
+      () =>
+        notesMeta.map(
+          (note) => note.title
+        ),
+      [notesMeta]
+    );
 
-  const existingTitles = useMemo(
-    () =>
-      notesMeta.map(
-        (note) => note.title
-      ),
-    [notesMeta]
-  );
-
-  const backlinks = useMemo(
-    () =>
-      activeNote
-        ? getBacklinks(
-            activeNote,
-            notesMeta
-          )
-        : [],
-    [
-      activeNote,
-      notesMeta,
-    ]
-  );
-
-  const tagsWithCounts = useMemo(
-    () =>
-      getAllTagsWithCounts(
-        notesMeta
-      ),
-    [notesMeta]
-  );
-
-  /*
-   * ---------------------------------------------------------
-   * Mobile helpers
-   * ---------------------------------------------------------
-   */
-
-  const closeMobilePanels =
-    useCallback(() => {
-      setShowMobileNotes(false);
-      setShowMobileRelations(false);
-    }, []);
-
-  const handleMobileSelectNote =
-    useCallback(
-      (id: string) => {
-        closeMobilePanels();
-
-        void selectNoteById(id);
-
-        setMainView("editor");
-      },
+  const backlinks =
+    useMemo(
+      () =>
+        activeNote
+          ? getBacklinks(
+              activeNote,
+              notesMeta
+            )
+          : [],
       [
-        closeMobilePanels,
-        selectNoteById,
+        activeNote,
+        notesMeta,
       ]
     );
 
-  /*
-   * ---------------------------------------------------------
-   * Create note
-   * ---------------------------------------------------------
-   */
+  const tagsWithCounts =
+    useMemo(
+      () =>
+        getAllTagsWithCounts(
+          notesMeta
+        ),
+      [notesMeta]
+    );
 
+  /*
+   * 建立筆記
+   */
   async function handleCreateNote(
     initialTitle?: string,
     folder?: string
@@ -381,11 +379,9 @@ export default function MarkdownVaultPage() {
         "在此開始撰寫筆記內容...\n",
 
       tags: [],
-
       outlinks: [],
 
       createdAt: now,
-
       updatedAt: now,
     };
 
@@ -398,16 +394,10 @@ export default function MarkdownVaultPage() {
         await getAllNoteMetadata();
 
       setNotesMeta(meta);
-
       setActiveNote(newNote);
-
-      setActiveNoteId(
-        newNote.id
-      );
+      setActiveNoteId(newNote.id);
 
       setMainView("editor");
-
-      closeMobilePanels();
 
       notify(
         "success",
@@ -424,11 +414,8 @@ export default function MarkdownVaultPage() {
   }
 
   /*
-   * ---------------------------------------------------------
-   * Move note
-   * ---------------------------------------------------------
+   * 移動筆記到資料夾
    */
-
   async function handleMoveNoteFolder(
     noteId: string,
     targetFolder: string
@@ -449,13 +436,10 @@ export default function MarkdownVaultPage() {
       }
 
       note.folder = target;
-
       note.updatedAt =
         new Date().toISOString();
 
-      await saveNoteToDB(
-        note
-      );
+      await saveNoteToDB(note);
 
       setNotesMeta(
         (previous) =>
@@ -493,11 +477,8 @@ export default function MarkdownVaultPage() {
   }
 
   /*
-   * ---------------------------------------------------------
-   * Move folder
-   * ---------------------------------------------------------
+   * 移動資料夾
    */
-
   async function handleMoveFolder(
     sourceFolder: string,
     targetParent: string
@@ -531,8 +512,9 @@ export default function MarkdownVaultPage() {
     }
 
     const folderName =
-      source.split("/").pop() ||
-      "";
+      source
+        .split("/")
+        .pop() || "";
 
     const newPath =
       normalizeFolderPath(
@@ -563,9 +545,7 @@ export default function MarkdownVaultPage() {
     }
 
     if (
-      knownFolders.has(
-        newPath
-      )
+      knownFolders.has(newPath)
     ) {
       notify(
         "error",
@@ -580,31 +560,28 @@ export default function MarkdownVaultPage() {
         getCustomFolders();
 
       const nextCustom =
-        custom.map(
-          (folder) => {
-            if (
-              folder ===
-              source
-            ) {
-              return newPath;
-            }
-
-            if (
-              folder.startsWith(
-                `${source}/`
-              )
-            ) {
-              return (
-                newPath +
-                folder.slice(
-                  source.length
-                )
-              );
-            }
-
-            return folder;
+        custom.map((folder) => {
+          if (
+            folder === source
+          ) {
+            return newPath;
           }
-        );
+
+          if (
+            folder.startsWith(
+              `${source}/`
+            )
+          ) {
+            return (
+              newPath +
+              folder.slice(
+                source.length
+              )
+            );
+          }
+
+          return folder;
+        });
 
       saveCustomFolders(
         nextCustom
@@ -617,12 +594,9 @@ export default function MarkdownVaultPage() {
         let changed = false;
 
         if (
-          note.folder ===
-          source
+          note.folder === source
         ) {
-          note.folder =
-            newPath;
-
+          note.folder = newPath;
           changed = true;
         } else if (
           note.folder?.startsWith(
@@ -642,18 +616,14 @@ export default function MarkdownVaultPage() {
           note.updatedAt =
             new Date().toISOString();
 
-          await saveNoteToDB(
-            note
-          );
+          await saveNoteToDB(note);
         }
       }
 
       const refreshed =
         await getAllNoteMetadata();
 
-      setNotesMeta(
-        refreshed
-      );
+      setNotesMeta(refreshed);
 
       if (activeNoteId) {
         const latest =
@@ -661,9 +631,7 @@ export default function MarkdownVaultPage() {
             activeNoteId
           );
 
-        setActiveNote(
-          latest
-        );
+        setActiveNote(latest);
       }
     } catch (error) {
       console.error(
@@ -679,11 +647,14 @@ export default function MarkdownVaultPage() {
   }
 
   /*
-   * ---------------------------------------------------------
-   * Rename note
-   * ---------------------------------------------------------
+   * 重新命名筆記
+   *
+   * 同時更新其他筆記裡的：
+   * [[Old]]
+   * [[Old|Alias]]
+   * [[Old#Heading]]
+   * [[Old#Heading|Alias]]
    */
-
   async function handleRenameNote(
     noteId: string,
     newTitle: string
@@ -742,9 +713,7 @@ export default function MarkdownVaultPage() {
         await getAllNotesFromDB();
 
       const safeOld =
-        escapeRegex(
-          oldTitle
-        );
+        escapeRegex(oldTitle);
 
       const linkRegex =
         new RegExp(
@@ -810,9 +779,7 @@ export default function MarkdownVaultPage() {
       const refreshed =
         await getAllNoteMetadata();
 
-      setNotesMeta(
-        refreshed
-      );
+      setNotesMeta(refreshed);
 
       if (activeNoteId) {
         setActiveNote(
@@ -837,11 +804,8 @@ export default function MarkdownVaultPage() {
   }
 
   /*
-   * ---------------------------------------------------------
-   * Media cleanup
-   * ---------------------------------------------------------
+   * 解析附件 ID
    */
-
   async function resolveMediaIds(
     refs: string[]
   ): Promise<Set<string>> {
@@ -866,6 +830,11 @@ export default function MarkdownVaultPage() {
     return result;
   }
 
+  /*
+   * 刪除筆記
+   *
+   * 同時清理只被該筆記使用的附件。
+   */
   async function handleDeleteNote(
     noteId: string
   ) {
@@ -919,9 +888,7 @@ export default function MarkdownVaultPage() {
             ),
           ]);
 
-        for (
-          const ref of deletedRefs
-        ) {
+        for (const ref of deletedRefs) {
           const record =
             await getMediaDetails(
               ref
@@ -948,9 +915,7 @@ export default function MarkdownVaultPage() {
       const refreshed =
         await getAllNoteMetadata();
 
-      setNotesMeta(
-        refreshed
-      );
+      setNotesMeta(refreshed);
 
       if (
         activeNoteId === noteId
@@ -962,14 +927,8 @@ export default function MarkdownVaultPage() {
             refreshed[0].id
           );
         } else {
-          setActiveNoteId(
-            null
-          );
-
-          setActiveNote(
-            null
-          );
-
+          setActiveNoteId(null);
+          setActiveNote(null);
           revokeAllActiveMediaUrls();
         }
       }
@@ -977,8 +936,7 @@ export default function MarkdownVaultPage() {
       notify(
         "info",
         `已刪除筆記「${
-          deletedMeta?.title ||
-          ""
+          deletedMeta?.title || ""
         }」`
       );
     } catch (error: any) {
@@ -992,11 +950,8 @@ export default function MarkdownVaultPage() {
   }
 
   /*
-   * ---------------------------------------------------------
-   * Editor update / autosave
-   * ---------------------------------------------------------
+   * Markdown 編輯器更新
    */
-
   function handleUpdateContent(
     newContent: string
   ) {
@@ -1023,15 +978,14 @@ export default function MarkdownVaultPage() {
         new Date().toISOString(),
     };
 
-    setActiveNote(
-      updated
-    );
+    setActiveNote(updated);
 
     setNotesMeta(
       (previous) =>
         previous.map(
           (meta) =>
-            meta.id === updated.id
+            meta.id ===
+            updated.id
               ? {
                   ...meta,
                   tags:
@@ -1039,7 +993,8 @@ export default function MarkdownVaultPage() {
                   outlinks:
                     updated.outlinks,
                   charCount:
-                    updated.content
+                    updated
+                      .content
                       .length,
                   updatedAt:
                     updated.updatedAt,
@@ -1048,7 +1003,9 @@ export default function MarkdownVaultPage() {
         )
     );
 
-    if (saveTimeoutRef.current) {
+    if (
+      saveTimeoutRef.current
+    ) {
       clearTimeout(
         saveTimeoutRef.current
       );
@@ -1078,11 +1035,8 @@ export default function MarkdownVaultPage() {
   }
 
   /*
-   * ---------------------------------------------------------
-   * WikiLink navigation
-   * ---------------------------------------------------------
+   * 點擊 [[筆記名稱]]
    */
-
   function handleNavigateToNoteTitle(
     title: string,
     headingSlug?: string
@@ -1105,13 +1059,15 @@ export default function MarkdownVaultPage() {
       );
 
     if (existing) {
-      closeMobilePanels();
-
       void selectNoteById(
         existing.id
       );
 
       setMainView("editor");
+
+      setShowMobileRelations(
+        false
+      );
 
       return;
     }
@@ -1128,11 +1084,8 @@ export default function MarkdownVaultPage() {
   }
 
   /*
-   * ---------------------------------------------------------
-   * Backup
-   * ---------------------------------------------------------
+   * 匯出 Vault
    */
-
   async function handleExportVault() {
     try {
       await exportVaultJson(
@@ -1153,6 +1106,9 @@ export default function MarkdownVaultPage() {
     }
   }
 
+  /*
+   * 匯入 Vault
+   */
   async function handleImportVault(
     event: React.ChangeEvent<HTMLInputElement>
   ) {
@@ -1187,15 +1143,14 @@ export default function MarkdownVaultPage() {
       const refreshed =
         await getAllNoteMetadata();
 
-      setNotesMeta(
-        refreshed
-      );
+      setNotesMeta(refreshed);
 
       setSelectedTag(null);
 
       setShowBackupModal(false);
 
-      closeMobilePanels();
+      setShowMobileNotes(false);
+      setShowMobileRelations(false);
 
       if (
         refreshed.length > 0
@@ -1204,13 +1159,8 @@ export default function MarkdownVaultPage() {
           refreshed[0].id
         );
       } else {
-        setActiveNoteId(
-          null
-        );
-
-        setActiveNote(
-          null
-        );
+        setActiveNoteId(null);
+        setActiveNote(null);
       }
 
       notify(
@@ -1236,38 +1186,83 @@ export default function MarkdownVaultPage() {
   }
 
   /*
-   * ---------------------------------------------------------
-   * Render
-   * ---------------------------------------------------------
+   * 手機：選擇筆記
    */
+  const handleMobileSelectNote =
+    useCallback(
+      (id: string) => {
+        setShowMobileNotes(
+          false
+        );
+
+        setShowMobileRelations(
+          false
+        );
+
+        setMainView("editor");
+
+        void selectNoteById(id);
+      },
+      [selectNoteById]
+    );
+
+  /*
+   * 手機：新增筆記
+   */
+  const handleMobileCreateNote =
+    useCallback(() => {
+      setShowMobileNotes(false);
+      setShowMobileRelations(false);
+
+      setMainView("editor");
+
+      void handleCreateNote();
+    }, [notesMeta]);
+
+  /*
+   * 手機：開啟筆記 Drawer
+   */
+  function openMobileNotes() {
+    setShowMobileRelations(false);
+    setShowMobileNotes(true);
+  }
+
+  /*
+   * 手機：開啟 Graph
+   */
+  function openMobileGraph() {
+    setShowMobileNotes(false);
+    setShowMobileRelations(false);
+
+    setMainView("graph");
+  }
+
+  /*
+   * 手機：開啟關聯資訊
+   */
+  function openMobileRelations() {
+    setShowMobileNotes(false);
+
+    setShowRightPanel(true);
+
+    setShowMobileRelations(true);
+  }
+
+  /*
+   * 關閉所有手機 Drawer
+   */
+  function closeMobileDrawers() {
+    setShowMobileNotes(false);
+    setShowMobileRelations(false);
+  }
 
   return (
     <div className="markdown-vault-root flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
 
-      {/* Mobile overlay */}
-      {showMobileNotes && (
-        <button
-          type="button"
-          aria-label="關閉筆記選單"
-          className="mobile-drawer-overlay"
-          onClick={() =>
-            setShowMobileNotes(false)
-          }
-        />
-      )}
+      {/* =====================================================
+          Notification
+          ===================================================== */}
 
-      {showMobileRelations && (
-        <button
-          type="button"
-          aria-label="關閉關聯資訊"
-          className="mobile-drawer-overlay"
-          onClick={() =>
-            setShowMobileRelations(false)
-          }
-        />
-      )}
-
-      {/* Notification */}
       {notification && (
         <div
           className={`fixed bottom-5 right-5 z-[14000] flex items-center gap-2 border px-3.5 py-2 text-xs shadow-2xl ${
@@ -1285,9 +1280,39 @@ export default function MarkdownVaultPage() {
           </span>
 
           <span>
-            {notification.message}
+            {
+              notification.message
+            }
           </span>
         </div>
+      )}
+
+      {/* =====================================================
+          Mobile Drawer Overlay
+          ===================================================== */}
+
+      {showMobileNotes && (
+        <button
+          type="button"
+          aria-label="關閉檔案庫"
+          className="mobile-drawer-overlay"
+          onClick={() =>
+            setShowMobileNotes(false)
+          }
+        />
+      )}
+
+      {showMobileRelations && (
+        <button
+          type="button"
+          aria-label="關閉關聯資訊"
+          className="mobile-drawer-overlay"
+          onClick={() =>
+            setShowMobileRelations(
+              false
+            )
+          }
+        />
       )}
 
       {/* =====================================================
@@ -1295,23 +1320,11 @@ export default function MarkdownVaultPage() {
           ===================================================== */}
 
       <aside
-        className={`
-          app-sidebar
-          flex
-          h-full
-          w-64
-          shrink-0
-          flex-col
-          border-r
-          border-slate-800
-          bg-slate-900/50
-
-          ${
-            showMobileNotes
-              ? "mobile-sidebar-open"
-              : ""
-          }
-        `}
+        className={`app-sidebar flex h-full w-64 shrink-0 flex-col border-r border-slate-800 bg-slate-900/50 ${
+          showMobileNotes
+            ? "mobile-sidebar-open"
+            : ""
+        }`}
       >
         <FileTree
           notes={notesMeta}
@@ -1328,9 +1341,7 @@ export default function MarkdownVaultPage() {
           }
 
           onDeleteNote={(id) =>
-            void handleDeleteNote(
-              id
-            )
+            void handleDeleteNote(id)
           }
 
           onRenameNote={(
@@ -1372,6 +1383,24 @@ export default function MarkdownVaultPage() {
           }
         />
 
+        {/* 手機 Drawer 頂部關閉按鈕 */}
+        <div className="mobile-sidebar-header">
+          <button
+            type="button"
+            onClick={() =>
+              setShowMobileNotes(
+                false
+              )
+            }
+          >
+            關閉
+          </button>
+        </div>
+
+        {/* =================================================
+            Desktop sidebar bottom
+            ================================================= */}
+
         <div className="flex items-center justify-between border-t border-white/5 bg-black/20 p-2 text-[11px] text-slate-500">
           <button
             type="button"
@@ -1389,15 +1418,13 @@ export default function MarkdownVaultPage() {
             type="button"
             onClick={() =>
               setMainView(
-                mainView ===
-                "editor"
+                mainView === "editor"
                   ? "graph"
                   : "editor"
               )
             }
             className={`px-2 py-1 ${
-              mainView ===
-              "graph"
+              mainView === "graph"
                 ? "text-cyan-200"
                 : "hover:text-slate-200"
             }`}
@@ -1412,9 +1439,10 @@ export default function MarkdownVaultPage() {
           ===================================================== */}
 
       <main className="app-main relative flex h-full min-w-0 flex-1 flex-col bg-[#0d0f12]">
-        {mainView ===
-        "graph" ? (
+
+        {mainView === "graph" ? (
           <div className="relative flex h-full flex-1 flex-col overflow-hidden">
+
             <div className="z-20 flex items-center border-b border-white/5 bg-black/25 px-5 py-2.5">
               <button
                 type="button"
@@ -1431,18 +1459,18 @@ export default function MarkdownVaultPage() {
 
             <div className="min-h-0 flex-1">
               <GraphView
-                notes={
-                  notesMeta
-                }
-
+                notes={notesMeta}
                 activeNoteId={
                   activeNoteId
                 }
+                onSelectNote={(id) => {
+                  setShowMobileNotes(
+                    false
+                  );
 
-                onSelectNote={(
-                  id
-                ) => {
-                  closeMobilePanels();
+                  setShowMobileRelations(
+                    false
+                  );
 
                   void selectNoteById(
                     id
@@ -1462,71 +1490,47 @@ export default function MarkdownVaultPage() {
         ) : (
           <MarkdownEditor
             note={activeNote}
-
             existingTitles={
               existingTitles
             }
-
             targetHeadingSlug={
               targetHeadingSlug
             }
-
             onClearTargetHeadingSlug={() =>
               setTargetHeadingSlug(
                 null
               )
             }
-
             onUpdateContent={
               handleUpdateContent
             }
-
             onNavigateToNoteTitle={
               handleNavigateToNoteTitle
             }
-
             onDownloadMarkdown={
               exportNoteMarkdown
             }
-
             onOpenGraphView={() =>
-              setMainView(
-                "graph"
-              )
+              setMainView("graph")
             }
-
             onSelectTag={(tag) =>
-              setSelectedTag(
-                tag
-              )
+              setSelectedTag(tag)
             }
           />
         )}
       </main>
 
       {/* =====================================================
-          RIGHT PANEL
+          RIGHT PANEL / MOBILE BOTTOM SHEET
           ===================================================== */}
 
       {showRightPanel ? (
         <aside
-          className={`
-            app-right-panel
-            flex
-            h-full
-            w-72
-            shrink-0
-            flex-col
-            border-l
-            border-white/5
-            bg-[#121418]
-
-            ${
-              showMobileRelations
-                ? "mobile-right-panel-open"
-                : ""
-            }
-          `}
+          className={`app-right-panel flex h-full w-72 shrink-0 flex-col border-l border-white/5 bg-[#121418] ${
+            showMobileRelations
+              ? "mobile-right-panel-open"
+              : ""
+          }`}
         >
           <div className="flex items-center justify-between border-b border-white/5 px-3 py-2.5 text-xs text-slate-400">
             <span>
@@ -1551,6 +1555,7 @@ export default function MarkdownVaultPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto">
+
             <div className="p-3">
               <BacklinksPanel
                 activeNote={
@@ -1565,10 +1570,14 @@ export default function MarkdownVaultPage() {
                   notesMeta
                 }
 
-                onSelectNote={(
-                  id
-                ) => {
-                  closeMobilePanels();
+                onSelectNote={(id) => {
+                  setShowMobileRelations(
+                    false
+                  );
+
+                  setShowMobileNotes(
+                    false
+                  );
 
                   void selectNoteById(
                     id
@@ -1603,6 +1612,14 @@ export default function MarkdownVaultPage() {
           </div>
         </aside>
       ) : (
+        /*
+         * Desktop：
+         * 右側欄關閉時保留小箭頭。
+         *
+         * Mobile：
+         * CSS 會隱藏這個按鈕，
+         * 改由 MobileBottomBar 開啟。
+         */
         <button
           type="button"
           onClick={() =>
@@ -1623,52 +1640,31 @@ export default function MarkdownVaultPage() {
       <MobileBottomBar
         activeView={mainView}
 
-        onOpenNotes={() => {
-          setShowMobileRelations(
-            false
-          );
+        onOpenNotes={
+          openMobileNotes
+        }
 
-          setShowMobileNotes(
-            true
-          );
-        }}
+        onCreateNote={
+          handleMobileCreateNote
+        }
 
-        onCreateNote={() => {
-          closeMobilePanels();
+        onOpenGraph={
+          openMobileGraph
+        }
 
-          void handleCreateNote();
-        }}
-
-        onOpenGraph={() => {
-          closeMobilePanels();
-
-          setMainView(
-            "graph"
-          );
-        }}
-
-        onOpenRelations={() => {
-          setShowMobileNotes(
-            false
-          );
-
-          setShowRightPanel(
-            true
-          );
-
-          setShowMobileRelations(
-            true
-          );
-        }}
+        onOpenRelations={
+          openMobileRelations
+        }
       />
 
       {/* =====================================================
-          BACKUP MODAL
+          BACKUP / RESTORE MODAL
           ===================================================== */}
 
       {showBackupModal && (
         <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md border border-white/10 bg-[#111416]/98 p-5 text-slate-200 shadow-2xl">
+
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <h3 className="font-serif text-sm text-white">
                 本機知識庫備份與管理
@@ -1688,6 +1684,7 @@ export default function MarkdownVaultPage() {
             </div>
 
             <div className="space-y-4 py-4 text-xs text-slate-400">
+
               <div className="flex justify-between">
                 <span>
                   筆記
