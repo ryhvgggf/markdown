@@ -1219,13 +1219,16 @@ export default function MarkdownVaultPage() {
       void handleCreateNote();
     }, [notesMeta]);
 
-  /*
-   * 手機：開啟筆記 Drawer
-   */
-  function openMobileNotes() {
-    setShowMobileRelations(false);
-    setShowMobileNotes(true);
-  }
+ /*
+ * 開啟筆記時，同時收起關聯資訊。
+ */
+function openMobileNotes() {
+  setShowMobileRelations(false);
+
+  setShowMobileNotes(
+    (previous) => !previous
+  );
+}
 
   /*
    * 手機：開啟 Graph
@@ -1237,17 +1240,19 @@ export default function MarkdownVaultPage() {
     setMainView("graph");
   }
 
-  /*
-   * 手機：開啟關聯資訊
-   */
-  function openMobileRelations() {
-    setShowMobileNotes(false);
+ /*
+ * 開啟關聯時，同時收起筆記 Drawer。
+ */
+function openMobileRelations() {
+  setShowMobileNotes(false);
 
-    setShowRightPanel(true);
+  setShowRightPanel(true);
 
-    setShowMobileRelations(true);
-  }
-
+  setShowMobileRelations(
+    (previous) => !previous
+  );
+}
+  
   /*
    * 關閉所有手機 Drawer
    */
