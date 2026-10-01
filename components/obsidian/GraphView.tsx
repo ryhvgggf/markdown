@@ -8,14 +8,12 @@ interface GraphViewProps {
   notes: Array<Note | NoteMetadata>;
   activeNoteId: string | null;
   onSelectNote: (noteId: string) => void;
-  onClose?: () => void;
 }
 
 export function GraphView({
   notes,
   activeNoteId,
   onSelectNote,
-  onClose,
 }: GraphViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
@@ -25,7 +23,6 @@ export function GraphView({
   );
   const [maxNodesLimit] = useState<number>(300);
   const [filterQuery, setFilterQuery] = useState("");
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
   const transformRef = useRef({
@@ -200,8 +197,8 @@ export function GraphView({
     resizeObserver.observe(wrapper);
 
     /*
-     * Graph background image selected by the user.
-     * This changes only the visual background; graph interaction / physics stay unchanged.
+     * Graph 背景圖片。
+     * 只調整視覺，不影響 Force Physics、拖曳、縮放與節點互動。
      */
     const graphBackground = new Image();
     graphBackground.src = "/ink/graph-bg.png";
@@ -374,8 +371,9 @@ export function GraphView({
       ctx.scale(dpr, dpr);
 
       /*
-       * Actual ink-wash image background.
-       * Draw with "cover" behavior so it always fills the graph canvas.
+       * Graph 背景：
+       * 使用 public/ink/graph-bg.png。
+       * 透明度 0.32，與右側梅花背景的 opacity 調法一致。
        */
       ctx.fillStyle = "#08090a";
       ctx.fillRect(0, 0, width, height);
@@ -413,7 +411,12 @@ export function GraphView({
 
         ctx.save();
 
-        ctx.globalAlpha = 0.78;
+        /*
+         * 與右側梅花一致：
+         * 梅花 CSS opacity = 0.32
+         * Graph Canvas globalAlpha = 0.32
+         */
+        ctx.globalAlpha = 0.32;
 
         ctx.drawImage(
           graphBackground,
@@ -421,19 +424,6 @@ export function GraphView({
           drawY,
           drawWidth,
           drawHeight
-        );
-
-        /*
-         * A light black veil protects node/label readability.
-         */
-        ctx.fillStyle =
-          "rgba(4,6,7,0.18)";
-
-        ctx.fillRect(
-          0,
-          0,
-          width,
-          height
         );
 
         ctx.restore();
@@ -1006,13 +996,7 @@ export function GraphView({
   };
 
   return (
-    <div
-      className={`relative flex flex-col overflow-hidden bg-[#090b0c] text-[#d1cdc4] select-none ${
-        isFullscreen
-          ? "fixed inset-0 z-50"
-          : "h-full w-full"
-      }`}
-    >
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#090b0c] text-[#d1cdc4] select-none">
       <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.055] bg-[#101213]/94 px-5 py-2.5 backdrop-blur-md">
         <div className="flex items-center gap-4">
           <span className="font-serif text-[13px] tracking-[0.08em] text-[#d8d4ca]">
@@ -1090,26 +1074,6 @@ export function GraphView({
           >
             重設視角
           </button>
-
-          <button
-            type="button"
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            className="text-[11px] text-[#838780] hover:text-[#d6d2c8]"
-          >
-            {isFullscreen
-              ? "離開全螢幕"
-              : "全螢幕"}
-          </button>
-
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="ml-1 text-[#98584e] hover:text-[#c47768]"
-            >
-              ✕
-            </button>
-          )}
         </div>
       </div>
 
