@@ -114,11 +114,6 @@ export default function MarkdownVaultPage() {
       string | null
     >(null);
 
-  const [
-    showGraphView,
-    setShowGraphView,
-  ] =
-    useState(false);
 
   const [
     showRightPanel,
@@ -396,10 +391,6 @@ export default function MarkdownVaultPage() {
           "editor"
         );
 
-        setShowGraphView(
-          false
-        );
-
         return;
       }
     }
@@ -452,10 +443,6 @@ export default function MarkdownVaultPage() {
 
       setMainView(
         "editor"
-      );
-
-      setShowGraphView(
-        false
       );
 
       notify(
@@ -1186,10 +1173,6 @@ export default function MarkdownVaultPage() {
         "editor"
       );
 
-      setShowGraphView(
-        false
-      );
-
       return;
     }
 
@@ -1440,7 +1423,7 @@ export default function MarkdownVaultPage() {
         {mainView ===
         "graph" ? (
           <div className="relative flex h-full flex-1 flex-col overflow-hidden">
-            <div className="z-20 flex items-center justify-between border-b border-white/5 bg-black/25 px-5 py-2.5">
+            <div className="z-20 flex items-center border-b border-white/5 bg-black/25 px-5 py-2.5">
               <button
                 type="button"
                 onClick={() =>
@@ -1451,18 +1434,6 @@ export default function MarkdownVaultPage() {
                 className="text-xs text-slate-400 hover:text-slate-100"
               >
                 ← 返回編輯
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setShowGraphView(
-                    true
-                  )
-                }
-                className="text-xs text-slate-500 hover:text-slate-200"
-              >
-                全螢幕
               </button>
             </div>
 
@@ -1611,40 +1582,6 @@ export default function MarkdownVaultPage() {
         </button>
       )}
 
-      {showGraphView && (
-        <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="h-[86vh] w-full max-w-6xl overflow-hidden border border-white/10 bg-[#0c0d10] shadow-2xl">
-            <GraphView
-              notes={
-                notesMeta
-              }
-              activeNoteId={
-                activeNoteId
-              }
-              onSelectNote={(
-                id
-              ) => {
-                void selectNoteById(
-                  id
-                );
-
-                setShowGraphView(
-                  false
-                );
-
-                setMainView(
-                  "editor"
-                );
-              }}
-              onClose={() =>
-                setShowGraphView(
-                  false
-                )
-              }
-            />
-          </div>
-        </div>
-      )}
 
       {showBackupModal && (
         <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
