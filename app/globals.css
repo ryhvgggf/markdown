@@ -1,31 +1,34 @@
 @import "tailwindcss";
 
+/* ============================================================
+   Dark Ink UI — image-based
+   Left  = mountain
+   Center = bamboo
+   Right = plum blossom
+   Graph = graph-bg.png
+   ============================================================ */
+
 @layer base {
   :root {
-    --ink-black: #090a0b;
-    --ink-deep: #0d0f10;
-    --ink-dark: #111315;
-    --ink-mid: #181b1c;
-    --ink-soft: #242827;
+    --ink-black: #08090a;
+    --ink-deep: #0b0d0e;
+    --ink-panel: rgba(10, 12, 13, 0.80);
 
-    --paper-white: #f0ece2;
-    --paper-main: #d9d5cb;
-    --paper-muted: #9c9c95;
-    --paper-dim: #656965;
+    --paper-white: #eee9de;
+    --paper-main: #d8d3c8;
+    --paper-muted: #989a94;
+    --paper-dim: #646964;
 
-    --ink-indigo: #708f89;
-    --ink-indigo-light: #9ab1ac;
-    --ink-indigo-dark: #4d6f69;
-    --ink-indigo-wash: rgba(112, 143, 137, 0.11);
+    --jade: #789991;
+    --jade-light: #a1b9b3;
+    --jade-wash: rgba(120, 153, 145, 0.12);
 
-    --ink-cinnabar: #a34b40;
-    --ink-cinnabar-light: #c36c5e;
-    --ink-cinnabar-wash: rgba(163, 75, 64, 0.14);
+    --cinnabar: #a84f43;
+    --cinnabar-soft: #d08576;
+    --cinnabar-wash: rgba(168, 79, 67, 0.15);
 
-    --ink-wash: rgba(240, 236, 226, 0.026);
-    --ink-wash-hover: rgba(240, 236, 226, 0.05);
-    --ink-border: rgba(240, 236, 226, 0.075);
-    --ink-border-soft: rgba(240, 236, 226, 0.04);
+    --line: rgba(238, 233, 222, 0.075);
+    --line-soft: rgba(238, 233, 222, 0.045);
   }
 }
 
@@ -34,50 +37,58 @@
   --color-foreground: var(--paper-white);
 
   --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI",
-    "PingFang TC", "Microsoft JhengHei", sans-serif;
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang TC",
+    "Microsoft JhengHei",
+    sans-serif;
 
   --font-serif:
-    "Noto Serif TC", "Source Han Serif TC",
-    "Songti TC", "PMingLiU", "STSong", serif;
+    "Noto Serif TC",
+    "Source Han Serif TC",
+    "Songti TC",
+    "PMingLiU",
+    "STSong",
+    serif;
 
   --font-mono:
-    ui-monospace, SFMono-Regular, Menlo,
-    Monaco, Consolas, monospace;
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
 
-  --color-cyan-200: #b7c9c5;
-  --color-cyan-300: #9eb7b1;
-  --color-cyan-400: #83a099;
-  --color-cyan-500: #6d8c85;
-  --color-cyan-600: #56766f;
-  --color-cyan-700: #435f59;
-  --color-cyan-800: #344a46;
-  --color-cyan-900: #263a36;
-  --color-cyan-950: #172824;
+  /* Existing cyan / purple classes are visually converted to ink-jade. */
+  --color-cyan-200: #c3d1cd;
+  --color-cyan-300: #a8bdb8;
+  --color-cyan-400: #89a59f;
+  --color-cyan-500: #718e87;
+  --color-cyan-600: #59756f;
+  --color-cyan-700: #455d58;
+  --color-cyan-800: #344944;
+  --color-cyan-900: #263833;
+  --color-cyan-950: #172622;
 
-  --color-blue-300: #afbfbb;
-  --color-blue-400: #8ca29d;
-  --color-blue-500: #728d87;
-  --color-blue-600: #59756f;
-  --color-blue-700: #455f59;
+  --color-blue-300: #b2c0bc;
+  --color-blue-400: #91a59f;
+  --color-blue-500: #758e88;
+  --color-blue-600: #5c756f;
+  --color-blue-700: #465f59;
   --color-blue-800: #354a46;
   --color-blue-900: #273a36;
   --color-blue-950: #172824;
 
-  --color-purple-200: #c9d0cd;
-  --color-purple-300: #aabbb6;
+  --color-purple-200: #cad1ce;
+  --color-purple-300: #acbcb7;
   --color-purple-400: #8ca39d;
-  --color-purple-500: #728b85;
-  --color-purple-600: #5a746e;
+  --color-purple-500: #738b85;
+  --color-purple-600: #5b746e;
   --color-purple-700: #465d58;
-  --color-purple-800: #374a46;
-  --color-purple-900: #283a36;
-  --color-purple-950: #192824;
-
-  --radius-lg: .3rem;
-  --radius-xl: .35rem;
-  --radius-2xl: .4rem;
-  --radius-3xl: .45rem;
+  --color-purple-800: #364a46;
+  --color-purple-900: #283936;
+  --color-purple-950: #192723;
 }
 
 * {
@@ -90,48 +101,34 @@ body {
   height: 100%;
 }
 
+html {
+  background: #08090a;
+}
+
 body {
   margin: 0;
   overflow: hidden;
+
+  background: #08090a;
+
   color: var(--paper-main);
   font-family: var(--font-sans);
+
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-
-  background:
-    radial-gradient(ellipse at 46% -18%, rgba(255,255,255,.035), transparent 48%),
-    radial-gradient(ellipse at 100% 100%, rgba(112,143,137,.025), transparent 42%),
-    #090a0b;
 }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  pointer-events: none;
-  opacity: .20;
-
-  background-image:
-    repeating-linear-gradient(
-      1deg,
-      rgba(255,255,255,.007) 0,
-      rgba(255,255,255,.007) 1px,
-      transparent 1px,
-      transparent 6px
-    ),
-    repeating-linear-gradient(
-      91deg,
-      rgba(255,255,255,.004) 0,
-      rgba(255,255,255,.004) 1px,
-      transparent 1px,
-      transparent 8px
-    );
+body > div.flex.h-screen.w-screen {
+  background: #08090a !important;
 }
+
+/* ============================================================
+   Scrollbar
+   ============================================================ */
 
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -139,21 +136,24 @@ body::before {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(240,236,226,.11);
-  border-radius: 1px;
+  background: rgba(238,233,222,.13);
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(240,236,226,.2);
+  background: rgba(238,233,222,.22);
 }
+
+/* ============================================================
+   Base controls
+   ============================================================ */
 
 button {
   transition:
     color 150ms ease,
     background-color 150ms ease,
     border-color 150ms ease,
-    opacity 150ms ease,
-    transform 150ms ease;
+    opacity 150ms ease;
 }
 
 button.rounded-full {
@@ -166,12 +166,12 @@ button.rounded-full {
 
 input,
 textarea {
-  caret-color: var(--ink-indigo-light);
+  caret-color: var(--jade-light);
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: #575b58;
+  color: #606660;
 }
 
 input:focus,
@@ -179,53 +179,98 @@ textarea:focus {
   box-shadow: none !important;
 }
 
-aside {
+/* ============================================================
+   LEFT — mountain
+   Only the page's outer sidebar receives the picture.
+   ============================================================ */
+
+body > div.flex.h-screen.w-screen > aside.w-64 {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+
+  border-right-color: var(--line) !important;
+
   background-image:
-    radial-gradient(circle at 0% 100%, rgba(255,255,255,.022), transparent 36%),
-    linear-gradient(180deg, rgba(255,255,255,.006), transparent 34%);
+    linear-gradient(
+      180deg,
+      rgba(8,10,11,.74) 0%,
+      rgba(8,10,11,.60) 56%,
+      rgba(7,9,10,.46) 100%
+    ),
+    url("/ink/left-mountain.png") !important;
+
+  background-repeat:
+    no-repeat,
+    no-repeat !important;
+
+  background-position:
+    center,
+    center bottom !important;
+
+  background-size:
+    cover,
+    cover !important;
+
+  backdrop-filter: blur(1px);
 }
 
-/* ===================== FileTree ===================== */
-
-aside.w-64 {
-  background:
-    linear-gradient(180deg, #101213 0%, #0d0f10 100%) !important;
-  border-right-color: rgba(240,236,226,.055) !important;
+/* FileTree itself is nested inside the outer sidebar.
+   Make it transparent so the mountain is actually visible. */
+body > div.flex.h-screen.w-screen > aside.w-64 > aside.w-64 {
+  background: transparent !important;
+  border-right: 0 !important;
 }
 
+/* Bottom shortcuts also stay translucent. */
+body > div.flex.h-screen.w-screen > aside.w-64 > div:last-child {
+  background: rgba(8,10,11,.48) !important;
+  border-top-color: var(--line-soft) !important;
+  backdrop-filter: blur(8px);
+}
+
+/* Folder rows */
 aside [title^="資料夾："] {
   border: 0 !important;
-  border-radius: 1px !important;
+  border-radius: 0 !important;
   background: transparent !important;
-  color: #aaa9a2 !important;
 }
 
 aside [title^="資料夾："]:hover {
   background:
-    linear-gradient(90deg, rgba(240,236,226,.04), transparent 88%) !important;
+    linear-gradient(
+      90deg,
+      rgba(238,233,222,.045),
+      transparent 90%
+    ) !important;
 }
 
+/* Remove folder emoji only; function unchanged. */
 aside [title^="資料夾："] > div:first-child > span:nth-child(2) {
   display: none !important;
 }
 
 aside [title^="資料夾："] > div:first-child > span:nth-child(3) {
+  color: #c8c4ba !important;
   font-family: var(--font-serif);
   font-weight: 500 !important;
-  color: #c7c4bc !important;
+  letter-spacing: .025em;
 }
 
 aside [title^="資料夾："] > div:first-child > span:first-child {
-  color: #666c68 !important;
+  color: #717771 !important;
   transform: scale(.78);
 }
 
+/* Note rows */
 aside [title*="按住拖曳可歸入"] {
   min-height: 31px;
+
   border: 0 !important;
-  border-radius: 1px !important;
+  border-radius: 0 !important;
+
   background: transparent !important;
-  color: #969993 !important;
+  color: #989c96 !important;
 }
 
 aside [title*="按住拖曳可歸入"] > div:first-child > span:first-child {
@@ -233,35 +278,74 @@ aside [title*="按住拖曳可歸入"] > div:first-child > span:first-child {
 }
 
 aside [title*="按住拖曳可歸入"]:hover {
-  color: #d5d2ca !important;
-  background:
-    linear-gradient(90deg, rgba(240,236,226,.042), transparent 88%) !important;
-}
+  color: #dedad0 !important;
 
-aside [title*="按住拖曳可歸入"][class~="border-l-2"] {
-  color: #e2ded5 !important;
   background:
     linear-gradient(
       90deg,
-      rgba(112,143,137,.12) 0%,
-      rgba(240,236,226,.035) 38%,
-      transparent 100%
+      rgba(238,233,222,.05),
+      transparent 90%
     ) !important;
-  box-shadow: inset 2px 0 0 rgba(154,177,172,.78);
 }
 
+/* Selected note */
+aside [title*="按住拖曳可歸入"][class~="border-l-2"] {
+  position: relative;
+
+  color: #eee9de !important;
+
+  border-color: transparent !important;
+
+  background:
+    linear-gradient(
+      90deg,
+      rgba(120,153,145,.15),
+      rgba(120,153,145,.035) 58%,
+      transparent
+    ) !important;
+}
+
+aside [title*="按住拖曳可歸入"][class~="border-l-2"]::before {
+  content: "";
+
+  position: absolute;
+  left: 0;
+  top: 13%;
+  bottom: 13%;
+
+  width: 2px;
+
+  background:
+    linear-gradient(
+      180deg,
+      transparent,
+      rgba(161,185,179,.92) 16%,
+      rgba(120,153,145,.65) 72%,
+      transparent
+    );
+}
+
+/* Search */
 aside input[placeholder="搜尋筆記或標籤..."] {
   border: 0 !important;
-  border-bottom: 1px solid rgba(240,236,226,.08) !important;
+  border-bottom:
+    1px solid
+    rgba(238,233,222,.10) !important;
+
   border-radius: 0 !important;
-  background: rgba(255,255,255,.012) !important;
-  padding-left: .35rem !important;
+
+  background:
+    rgba(5,7,8,.24) !important;
+
+  color: #d0ccc2 !important;
 }
 
 aside input[placeholder="搜尋筆記或標籤..."]:focus {
-  border-bottom-color: rgba(112,143,137,.55) !important;
+  border-bottom-color:
+    rgba(120,153,145,.60) !important;
 }
 
+/* Existing rename/delete emoji become discreet text actions. */
 aside button[title="重新命名"],
 aside button[title="重新命名資料夾"],
 aside button[title="刪除"],
@@ -277,7 +361,7 @@ aside button[title="重新命名資料夾"]::before {
   content: "改";
   font-family: var(--font-serif);
   font-size: 10px;
-  color: #7f847f;
+  color: #838a85;
 }
 
 aside button[title="刪除"]::before,
@@ -285,300 +369,473 @@ aside button[title="刪除資料夾"]::before {
   content: "刪";
   font-family: var(--font-serif);
   font-size: 10px;
-  color: #9b5a50;
+  color: #a26055;
 }
 
 aside button[title*="新增子資料夾"]::before {
   content: "子";
   font-family: var(--font-serif);
   font-size: 10px;
-  color: #82938e;
+  color: #82958f;
 }
 
-/* ===================== Editor Toolbar ===================== */
+/* ============================================================
+   CENTER — bamboo
+   No logic changes. It is purely the main element background.
+   ============================================================ */
+
+body > div.flex.h-screen.w-screen > main {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(6,8,9,.67),
+      rgba(6,8,9,.52)
+    ),
+    url("/ink/center-bamboo.png") !important;
+
+  background-repeat:
+    no-repeat,
+    no-repeat !important;
+
+  background-position:
+    center,
+    73% center !important;
+
+  background-size:
+    cover,
+    min(80vw, 1300px) auto !important;
+}
+
+/* MarkdownEditor root */
+body > div.flex.h-screen.w-screen > main > div.flex.h-full.flex-col {
+  background:
+    rgba(7,9,10,.26) !important;
+}
+
+/* Header */
+body > div.flex.h-screen.w-screen > main > div > div:first-of-type {
+  background:
+    rgba(9,11,12,.78) !important;
+
+  border-bottom-color:
+    var(--line-soft) !important;
+
+  backdrop-filter: blur(9px);
+}
+
+main h2 {
+  font-family: var(--font-serif) !important;
+  letter-spacing: .045em !important;
+  color: #e8e4da !important;
+}
+
+/* Toolbar */
+main div[class*="bg-black/10"] {
+  background:
+    rgba(8,10,11,.52) !important;
+
+  border-bottom-color:
+    var(--line-soft) !important;
+
+  backdrop-filter: blur(7px);
+}
+
+main div[class*="bg-black/10"] button {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 1px !important;
+  color: #8d918b !important;
+}
+
+main div[class*="bg-black/10"] button:hover {
+  color: #d9d5cb !important;
+
+  background:
+    radial-gradient(
+      ellipse at center,
+      rgba(120,153,145,.10),
+      transparent 75%
+    ) !important;
+}
 
 button[title^="雙向連結 Wikilink"],
 button[title^="嵌入多媒體"] {
-  border-radius: 2px !important;
+  border-radius: 1px !important;
   background: transparent !important;
-  color: #8fa7a1 !important;
-  padding-left: .5rem !important;
-  padding-right: .5rem !important;
+  color: #91aaa4 !important;
 }
 
-button[title^="雙向連結 Wikilink"]:hover,
-button[title^="嵌入多媒體"]:hover {
-  background: rgba(112,143,137,.07) !important;
-  color: #c7d3cf !important;
+/* View-mode buttons */
+main button[class*="border-[#0e7490]"] {
+  background: transparent !important;
+  border-color: var(--jade) !important;
+  color: #e5e1d7 !important;
 }
 
-button[title="開啟知識圖譜主視圖"],
-button[title="下載 Markdown 原文"],
-button[title="上傳圖片或影片"],
-button[title="插入媒體"] {
-  border-radius: 2px !important;
-  box-shadow: none !important;
+main button[class*="bg-white/[0.06]"] {
+  background: transparent !important;
 }
 
-[class*="ring-cyan-500"] {
-  --tw-ring-color: rgba(112,143,137,.5) !important;
+/* Editor pane:
+   readable dark glass but bamboo remains visible underneath. */
+main textarea {
+  background:
+    rgba(5,7,8,.48) !important;
+
+  color: #d8d4ca !important;
+
+  backdrop-filter: blur(1.5px);
 }
 
-[class*="border-dashed"][class*="border-cyan"] {
-  border-color: rgba(112,143,137,.52) !important;
+/* Split divider */
+main .border-r.border-slate-800 {
+  border-right-color:
+    var(--line-soft) !important;
 }
 
-/* ===================== Preview ===================== */
-
+/* Preview:
+   no extra fake mountains, just transparent dark glass over bamboo. */
 .paper-texture {
   position: relative;
+
   background:
-    radial-gradient(ellipse at 45% 0%, rgba(255,255,255,.022), transparent 52%),
-    radial-gradient(ellipse at 88% 88%, rgba(112,143,137,.018), transparent 44%),
-    #0d0f10;
+    rgba(6,8,9,.48) !important;
+
+  backdrop-filter:
+    blur(1.5px)
+    saturate(.75);
 }
 
-.paper-texture::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: .34;
-  background:
-    linear-gradient(
-      103deg,
-      transparent 0%,
-      rgba(255,255,255,.007) 23%,
-      transparent 24%
-    ),
-    repeating-linear-gradient(
-      2deg,
-      rgba(255,255,255,.004) 0,
-      rgba(255,255,255,.004) 1px,
-      transparent 1px,
-      transparent 8px
-    );
+.paper-texture::before,
+.paper-texture::after {
+  display: none !important;
 }
+
+/* ============================================================
+   Markdown Preview
+   ============================================================ */
 
 .obsidian-preview-container {
   position: relative;
   z-index: 1;
+
   width: 100%;
-  max-width: 860px;
+  max-width: 820px;
+
   margin: 0 auto;
-  padding: 2.1rem 1.4rem 5rem;
-  color: #d7d3ca;
+
+  padding:
+    3rem
+    clamp(1.5rem, 4vw, 3.6rem)
+    7rem !important;
+
+  color: #d8d4ca;
+
   font-size: .96rem;
-  line-height: 1.96;
+  line-height: 1.95;
   letter-spacing: .018em;
 }
 
 .obsidian-preview-container h1 {
   position: relative;
-  margin: 1.15rem 0 1.65rem;
-  padding-bottom: .92rem;
+
+  margin:
+    1rem
+    0
+    1.65rem;
+
+  padding-bottom: .9rem;
+
   font-family: var(--font-serif);
-  font-size: 2.05rem;
+
+  font-size: 2rem;
   font-weight: 600;
   line-height: 1.42;
   letter-spacing: .035em;
-  color: #f0ece2;
+
+  color: #f0ebdf;
 }
 
 .obsidian-preview-container h1::after {
   content: "";
+
   position: absolute;
-  left: -.25rem;
+  left: -.15rem;
   bottom: 0;
+
   width: min(100%, 34rem);
-  height: 4px;
+  height: 3px;
+
   background:
     linear-gradient(
       90deg,
-      rgba(226,220,207,.72) 0%,
-      rgba(226,220,207,.3) 8%,
-      transparent 14%,
-      rgba(226,220,207,.34) 17%,
-      rgba(226,220,207,.15) 46%,
-      transparent 69%,
-      rgba(226,220,207,.08) 79%,
+      rgba(231,225,211,.74),
+      rgba(231,225,211,.28) 10%,
+      transparent 17%,
+      rgba(231,225,211,.31) 20%,
+      rgba(231,225,211,.11) 62%,
       transparent 100%
     );
-  transform: skewX(-8deg);
-  opacity: .75;
+
+  transform: skewX(-7deg);
 }
 
 .obsidian-preview-container h2 {
   position: relative;
-  margin: 2.35rem 0 1rem;
-  padding-left: 1rem;
+
+  margin:
+    2.25rem
+    0
+    1rem;
+
+  padding-left: .95rem;
+
   font-family: var(--font-serif);
-  font-size: 1.46rem;
+
+  font-size: 1.44rem;
   font-weight: 600;
+
   letter-spacing: .03em;
-  color: #e8e4da;
+
+  color: #e8e3d8;
 }
 
 .obsidian-preview-container h2::before {
   content: "";
+
   position: absolute;
   left: 0;
-  top: 7%;
+  top: 8%;
+
   width: 3px;
-  height: 88%;
+  height: 84%;
+
   background:
     linear-gradient(
       180deg,
       transparent,
-      rgba(154,177,172,.9) 13%,
-      rgba(112,143,137,.68) 60%,
-      rgba(112,143,137,.13) 88%,
+      rgba(161,185,179,.88) 15%,
+      rgba(120,153,145,.64) 68%,
       transparent
     );
-  transform: rotate(1.5deg);
 }
 
 .obsidian-preview-container h3 {
-  margin: 1.85rem 0 .75rem;
+  margin:
+    1.75rem
+    0
+    .75rem;
+
   font-family: var(--font-serif);
-  font-size: 1.17rem;
+
+  font-size: 1.16rem;
   font-weight: 600;
-  letter-spacing: .025em;
-  color: #ddd8ce;
-}
 
-.obsidian-preview-container h4,
-.obsidian-preview-container h5,
-.obsidian-preview-container h6 {
-  font-family: var(--font-serif);
-  color: #ccc9c0;
-}
-
-.obsidian-preview-container p {
-  margin-bottom: 1.2rem;
+  color: #ddd8cd;
 }
 
 .obsidian-preview-container strong {
-  color: #eee9df;
+  color: #eee9de;
   font-weight: 600;
 }
 
+.obsidian-preview-container p {
+  margin-bottom: 1.15rem;
+}
+
+/* Wikilink */
 .obsidian-wikilink {
   padding: 0 !important;
+
   border-radius: 0 !important;
   background: transparent !important;
-  color: #8fa8a2 !important;
-  font-weight: 500;
+
+  color: #91aaa4 !important;
+
   text-decoration: none;
-  border-bottom: 1px solid rgba(143,168,162,.34);
+
+  border-bottom:
+    1px solid
+    rgba(145,170,164,.34);
+
   box-shadow: none !important;
 }
 
 .obsidian-wikilink:hover {
-  color: #bccbc7 !important;
+  color: #bfcec9 !important;
+
   background:
     linear-gradient(
       180deg,
-      transparent 35%,
-      rgba(112,143,137,.09)
+      transparent 40%,
+      rgba(120,153,145,.09)
     ) !important;
-  border-bottom-color: rgba(188,203,199,.68);
 }
 
+/* Tag / seal */
 .obsidian-tag,
 .obsidian-tag-seal {
   display: inline-flex;
   align-items: center;
-  padding: .13rem .42rem !important;
-  border-radius: 1px !important;
-  background: rgba(240,236,226,.035) !important;
-  border: 1px solid rgba(240,236,226,.09) !important;
-  color: #b6b4ad !important;
+
+  padding:
+    .13rem
+    .42rem !important;
+
+  border-radius: 2px !important;
+
+  background:
+    rgba(238,233,222,.055) !important;
+
+  border:
+    1px solid
+    rgba(238,233,222,.09) !important;
+
+  color: #bab7ae !important;
+
   font-size: .72rem;
   font-family: var(--font-mono);
+
   box-shadow: none !important;
 }
 
 .obsidian-tag:hover,
 .obsidian-tag-seal:hover {
-  background: rgba(112,143,137,.09) !important;
-  border-color: rgba(112,143,137,.28) !important;
-  color: #ded9cf !important;
+  background:
+    rgba(120,153,145,.10) !important;
+
+  border-color:
+    rgba(120,153,145,.28) !important;
+
+  color: #e0dbd1 !important;
 }
 
 .obsidian-tag-seal-active {
-  background: var(--ink-cinnabar-wash) !important;
-  border-color: rgba(163,75,64,.68) !important;
-  color: #dc9587 !important;
+  background:
+    var(--cinnabar-wash) !important;
+
+  border-color:
+    rgba(168,79,67,.66) !important;
+
+  color:
+    #dd9586 !important;
 }
 
+/* Quotes */
 .obsidian-preview-container blockquote {
   position: relative;
-  margin: 1.5rem 0;
-  padding: .75rem 1rem .75rem 1.3rem;
+
+  margin:
+    1.45rem
+    0;
+
+  padding:
+    .7rem
+    1rem
+    .7rem
+    1.25rem;
+
   border: 0;
-  background: rgba(240,236,226,.012);
-  color: #a4a39c;
+
+  background:
+    rgba(6,8,9,.20);
+
+  color: #aaa69e;
+
   font-style: normal;
 }
 
 .obsidian-preview-container blockquote::before {
   content: "";
+
   position: absolute;
   left: 0;
   top: .1rem;
+
   width: 2px;
   height: calc(100% - .2rem);
+
   background:
     linear-gradient(
       180deg,
       transparent,
-      rgba(112,143,137,.62) 15%,
-      rgba(112,143,137,.25) 82%,
+      rgba(120,153,145,.62) 15%,
+      rgba(120,153,145,.25) 82%,
       transparent
     );
 }
 
+/* Lists */
 .obsidian-preview-container ul,
 .obsidian-preview-container ol {
-  margin-bottom: 1.15rem;
+  margin-bottom: 1.1rem;
   padding-left: 1.55rem;
 }
 
 .obsidian-preview-container li {
-  margin-bottom: .45rem;
+  margin-bottom: .42rem;
 }
 
 .obsidian-preview-container li::marker {
-  color: #708f89;
+  color: var(--jade);
 }
 
+/* Code */
 .obsidian-preview-container code:not(pre code) {
-  padding: .14rem .34rem;
+  padding:
+    .14rem
+    .34rem;
+
   border-radius: 2px;
-  background: rgba(240,236,226,.052);
-  color: #dad6cc;
+
+  background:
+    rgba(238,233,222,.06);
+
+  color: #ddd8cd;
+
   font-family: var(--font-mono);
   font-size: .84em;
 }
 
 .obsidian-preview-container pre {
-  margin: 1.4rem 0;
-  padding: 1.15rem;
-  border-top: 1px solid rgba(240,236,226,.07);
-  border-bottom: 1px solid rgba(240,236,226,.05);
-  border-left: 0;
-  border-right: 0;
+  margin:
+    1.35rem
+    0;
+
+  padding: 1.1rem;
+
+  border:
+    1px solid
+    rgba(238,233,222,.055);
+
   border-radius: 2px;
-  background: #101213 !important;
-  color: #c9c6be;
+
+  background:
+    rgba(8,10,11,.67) !important;
+
+  color: #cbc7be;
+
+  backdrop-filter: blur(5px);
 }
 
+/* Media */
 .obsidian-media-container {
   border-radius: 3px !important;
-  border: 1px solid rgba(240,236,226,.07) !important;
-  background: rgba(0,0,0,.13) !important;
-  box-shadow: 0 18px 50px rgba(0,0,0,.18);
+
+  border:
+    1px solid
+    rgba(238,233,222,.075) !important;
+
+  background:
+    rgba(5,7,8,.42) !important;
+
+  box-shadow:
+    0 18px 50px
+    rgba(0,0,0,.18);
 }
 
 .obsidian-media-container img,
@@ -586,49 +843,78 @@ button[title="插入媒體"] {
   border-radius: 2px !important;
 }
 
-.obsidian-preview-container table {
-  width: 100%;
-  margin: 1.5rem 0;
-  border-collapse: collapse;
-  font-size: .88rem;
-  border-top: 1px solid rgba(240,236,226,.08);
-  border-bottom: 1px solid rgba(240,236,226,.06);
+/* ============================================================
+   RIGHT — plum blossom
+   ============================================================ */
+
+body > div.flex.h-screen.w-screen > aside.w-72 {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+
+  border-left-color:
+    var(--line) !important;
+
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(9,11,12,.80),
+      rgba(8,10,11,.64)
+    ),
+    url("/ink/right-plum.png") !important;
+
+  background-repeat:
+    no-repeat,
+    no-repeat !important;
+
+  background-position:
+    center,
+    right bottom !important;
+
+  background-size:
+    cover,
+    auto 100% !important;
+
+  backdrop-filter: blur(1px);
 }
 
-.obsidian-preview-container th {
-  padding: .65rem .8rem;
-  color: #ddd8ce;
-  font-weight: 500;
-  text-align: left;
-  border-bottom: 1px solid rgba(240,236,226,.09);
+body > div.flex.h-screen.w-screen > aside.w-72 > div:first-child {
+  border-bottom-color:
+    var(--line-soft) !important;
+
+  color: #c2beb4 !important;
+
+  font-family: var(--font-serif);
+  letter-spacing: .08em;
+
+  background:
+    rgba(8,10,11,.32);
 }
 
-.obsidian-preview-container td {
-  padding: .65rem .8rem;
-  color: #aaa8a1;
-  border-bottom: 1px solid rgba(240,236,226,.035);
-}
-
-/* ===================== Right Panel ===================== */
-
+/* Backlink sections */
 .ink-side-section {
   position: relative;
-  padding-bottom: 1.45rem;
-  margin-bottom: 1.5rem;
+
+  margin-bottom: 1.45rem;
+  padding-bottom: 1.4rem;
 }
 
 .ink-side-section::after {
   content: "";
+
   position: absolute;
+
   left: 0;
-  right: 16%;
+  right: 15%;
   bottom: 0;
+
   height: 2px;
+
   background:
     linear-gradient(
       90deg,
-      rgba(226,220,207,.25),
-      rgba(226,220,207,.075) 48%,
+      rgba(232,226,212,.28),
+      rgba(232,226,212,.08) 48%,
       transparent
     );
 }
@@ -636,31 +922,49 @@ button[title="插入媒體"] {
 .ink-section-title {
   display: flex;
   align-items: baseline;
-  gap: .6rem;
-  margin-bottom: .85rem;
+  gap: .55rem;
+
+  margin-bottom: .82rem;
+
+  color: #e0dbd0;
+
   font-family: var(--font-serif);
+
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: .04em;
-  color: #ded9cf;
 }
 
 .ink-count {
-  color: #767a75;
+  color: #777c77;
+
   font-family: var(--font-mono);
   font-size: .7rem;
   font-weight: 400;
 }
 
 .ink-link-row {
-  position: relative;
   width: 100%;
-  padding: .6rem .2rem .6rem .7rem;
+
+  padding:
+    .58rem
+    .2rem
+    .58rem
+    .65rem;
+
   text-align: left;
-  color: #c2bfb7;
+
   border: 0;
-  border-left: 1px solid transparent;
+  border-left:
+    1px solid
+    transparent;
+
+  border-radius: 0 !important;
+
   background: transparent;
+
+  color: #c6c2b8;
+
   cursor: pointer;
 }
 
@@ -668,611 +972,65 @@ button[title="插入媒體"] {
   background:
     linear-gradient(
       90deg,
-      rgba(112,143,137,.065),
+      rgba(120,153,145,.085),
       transparent 82%
-    );
-  border-left-color: rgba(112,143,137,.65);
+    ) !important;
+
+  border-left-color:
+    rgba(120,153,145,.62);
 }
-
-/* ===================== Main / Aside Shell ===================== */
-
-main.bg-\[\#0d0f12\] {
-  background:
-    radial-gradient(ellipse at 55% 0%, rgba(255,255,255,.012), transparent 40%),
-    #0b0d0e !important;
-}
-
-aside.w-72 {
-  background:
-    linear-gradient(180deg, #101213, #0d0f10) !important;
-  border-left-color: rgba(240,236,226,.055) !important;
-}
-
-aside.w-64 > div:last-child {
-  border-top-color: rgba(240,236,226,.055) !important;
-  background: #0e1011 !important;
-}
-
-.fixed.inset-0 > div {
-  backdrop-filter: blur(8px);
-}
-
 
 /* ============================================================
-   第二層：真正的「山、水、墨暈、留白」
-   這裡開始使用 SVG 素材，而不是只靠 CSS 漸層。
+   Drag / Modal / Toast
    ============================================================ */
 
-/*
- * 主工作區變成「墨夜長卷」。
- * landscape.svg 只在邊緣出現山與水，中間刻意保留大面積留白。
- */
-main {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
+[class*="ring-cyan-500"] {
+  --tw-ring-color:
+    rgba(120,153,145,.52) !important;
 }
 
-main::before {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  inset: auto -8% -4% -5%;
-  height: 66%;
-  pointer-events: none;
-
-  background-image: url("/ink/landscape.svg");
-  background-repeat: no-repeat;
-  background-position: center bottom;
-  background-size: cover;
-
-  opacity: .34;
-  filter: contrast(.9) saturate(.65);
-  mix-blend-mode: screen;
-
-  transform: translate3d(0, 0, 0);
+[class*="border-dashed"][class*="border-cyan"] {
+  border-color:
+    rgba(120,153,145,.52) !important;
 }
 
-/* 墨暈層會非常緩慢地漂動 */
-main::after {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  inset: -18% -12% -14% -16%;
-  pointer-events: none;
-
-  background-image: url("/ink/wash.svg");
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: 115% 115%;
-
-  opacity: .24;
-  mix-blend-mode: screen;
-
-  animation: ink-mist-drift 24s ease-in-out infinite alternate;
-}
-
-main > * {
-  position: relative;
-  z-index: 1;
-}
-
-/*
- * MarkdownEditor 根節點原本是實心 bg-slate-950，
- * 改成半透明，才能看見後方山水。
- */
-main > div.flex.h-full.flex-col.bg-slate-950 {
-  background:
-    linear-gradient(
-      180deg,
-      rgba(9,10,11,.78),
-      rgba(9,10,11,.68)
-    ) !important;
-
-  backdrop-filter: blur(.4px);
-}
-
-/*
- * 編輯區不是一片死黑，保留山水但確保文字清楚。
- */
-main textarea {
-  background:
-    linear-gradient(
-      180deg,
-      rgba(8,10,11,.72),
-      rgba(8,10,11,.62)
-    ) !important;
-
-  color: #d8d4ca !important;
-  text-shadow: 0 1px 0 rgba(0,0,0,.25);
-}
-
-/* 雙欄中線像淡墨縫，不要標準 UI border */
-main .border-r.border-slate-800 {
-  border-right-color: rgba(224,220,210,.055) !important;
-}
-
-/*
- * Preview 本身像半透明黑宣紙。
- * 山水透出，但不直接壓在正文上。
- */
-.paper-texture {
-  overflow: hidden;
-
-  background:
-    linear-gradient(
-      180deg,
-      rgba(13,15,16,.82),
-      rgba(11,13,14,.76)
-    ),
-    url("/ink/grain.svg") !important;
-
-  background-size:
-    auto,
-    240px 240px !important;
-
-  background-blend-mode:
-    normal,
-    soft-light !important;
-}
-
-/* Preview 山水層 */
-.paper-texture::after {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  pointer-events: none;
-
-  left: -7%;
-  right: -7%;
-  bottom: -2%;
-  height: 48%;
-
-  background-image: url("/ink/landscape.svg");
-  background-repeat: no-repeat;
-  background-position: center bottom;
-  background-size: 115% auto;
-
-  opacity: .24;
-  filter: grayscale(.2) contrast(.86);
-  mix-blend-mode: screen;
-}
-
-.paper-texture > * {
-  position: relative;
-  z-index: 1;
-}
-
-/*
- * 長篇閱讀使用更多留白。
- */
-.obsidian-preview-container {
-  max-width: 820px !important;
-  padding-top: 3rem !important;
-  padding-left: clamp(1.3rem, 5vw, 4rem) !important;
-  padding-right: clamp(1.3rem, 5vw, 4rem) !important;
-  padding-bottom: 12rem !important;
-}
-
-/*
- * 大標題不要 Card，像書卷題字。
- */
-.obsidian-preview-container h1 {
-  max-width: 92%;
-  text-wrap: balance;
-}
-
-.obsidian-preview-container h1::before {
-  content: "";
-  position: absolute;
-  right: -10px;
-  top: -12px;
-
-  width: 36px;
-  height: 36px;
-
-  background: url("/ink/wash.svg") center / 110px 84px no-repeat;
-  opacity: .20;
-  border-radius: 50%;
-
-  pointer-events: none;
-}
-
-/*
- * H2 左筆更加不規則。
- */
-.obsidian-preview-container h2::before {
-  width: 4px !important;
-  border-radius: 40% 60% 48% 56%;
-  filter: blur(.15px);
-}
-
-/*
- * Editor Header：像卷首題籤，不像 Dashboard。
- */
-main > div > div:first-of-type {
-  background:
-    linear-gradient(
-      180deg,
-      rgba(14,16,17,.94),
-      rgba(11,13,14,.88)
-    ) !important;
-
-  border-bottom-color: rgba(224,220,210,.055) !important;
-  box-shadow: none !important;
-}
-
-/*
- * 頂部標題使用書卷字體。
- */
-main h2 {
-  font-family: var(--font-serif) !important;
-  letter-spacing: .045em !important;
-}
-
-/*
- * 模式切換全部去掉科技型底色，
- * 只留下「淡墨底線」。
- */
-main button[class*="border-[#0e7490]"] {
-  background: transparent !important;
-  border-color: #708f89 !important;
-  color: #e4e0d7 !important;
-}
-
-main button[class*="bg-white/[0.06]"] {
-  background: transparent !important;
-}
-
-/*
- * Markdown 快速工具列：
- * 像文房工具，不是 SaaS button bar。
- */
-main div[class*="bg-black/10"] {
-  background:
-    linear-gradient(
-      90deg,
-      rgba(255,255,255,.012),
-      rgba(255,255,255,.004),
-      transparent
-    ) !important;
-
-  border-bottom-color: rgba(224,220,210,.04) !important;
-}
-
-main div[class*="bg-black/10"] button {
-  min-width: 26px;
-  color: #8d918c !important;
-  background: transparent !important;
-  border: 0 !important;
-}
-
-main div[class*="bg-black/10"] button:hover {
-  color: #d6d2c8 !important;
-  background:
-    radial-gradient(
-      ellipse at center,
-      rgba(112,143,137,.09),
-      transparent 72%
-    ) !important;
-}
-
-/*
- * 左側資料夾欄：加入遠山剪影，仍保留操作清晰度。
- */
-aside.w-64 {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-}
-
-body > div.flex.h-screen.w-screen > aside.w-64::before {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  pointer-events: none;
-
-  left: -58%;
-  right: -55%;
-  bottom: -2%;
-  height: 42%;
-
-  background-image: url("/ink/landscape.svg");
-  background-position: left bottom;
-  background-size: auto 100%;
-  background-repeat: no-repeat;
-
-  opacity: .13;
-  mix-blend-mode: screen;
-}
-
-body > div.flex.h-screen.w-screen > aside.w-64::after {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  pointer-events: none;
-
-  inset: 18% -70% 22% -55%;
-
-  background-image: url("/ink/wash.svg");
-  background-size: cover;
-  background-position: center;
-
-  opacity: .11;
-  mix-blend-mode: screen;
-}
-
-body > div.flex.h-screen.w-screen > aside.w-64 > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* 左欄標題「檔案庫」 */
-aside.w-64 [title="拖曳至此處可將筆記移至最外層"] {
-  letter-spacing: .08em;
-}
-
-/*
- * Active note 像一筆墨從左側刷過。
- */
-aside [title*="按住拖曳可歸入"][class~="border-l-2"] {
-  position: relative;
-  box-shadow: none !important;
-}
-
-aside [title*="按住拖曳可歸入"][class~="border-l-2"]::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 13%;
-  bottom: 13%;
-  width: 3px;
-
-  background:
-    linear-gradient(
-      180deg,
-      transparent,
-      rgba(154,177,172,.95) 13%,
-      rgba(112,143,137,.62) 70%,
-      transparent
-    );
-
-  transform: rotate(.7deg);
-  filter: blur(.15px);
-}
-
-/*
- * 左欄搜尋做成一條簡單墨線。
- */
-aside input[placeholder="搜尋筆記或標籤..."] {
-  height: 30px;
-  color: #c6c3ba !important;
-}
-
-/*
- * 右側關聯欄放一點霧，不放山，避免過滿。
- */
-aside.w-72 {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-}
-
-aside.w-72::before {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  pointer-events: none;
-
-  inset: 44% -60% -18% -55%;
-
-  background-image: url("/ink/wash.svg");
-  background-repeat: no-repeat;
-  background-size: cover;
-  background-position: center;
-
-  opacity: .12;
-  mix-blend-mode: screen;
-}
-
-aside.w-72 > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* 右欄標題 */
-aside.w-72 > div:first-child {
-  font-family: var(--font-serif);
-  letter-spacing: .08em;
-  color: #bdbab1 !important;
-}
-
-/*
- * Backlink rows 從 Card 變成卷邊文字列。
- */
-.ink-link-row {
-  border-radius: 0 !important;
-}
-
-.ink-link-row:hover {
-  background:
-    linear-gradient(
-      90deg,
-      rgba(112,143,137,.08),
-      rgba(112,143,137,.025) 58%,
-      transparent
-    ) !important;
-}
-
-/*
- * Tags 更像方形鈐印。
- */
-.obsidian-tag-seal {
-  min-height: 23px;
-  letter-spacing: .025em;
-}
-
-.obsidian-tag-seal-active {
-  box-shadow:
-    inset 0 0 0 1px rgba(195,108,94,.09) !important;
-}
-
-/*
- * Modal：加墨暈，而不是純深色卡片。
- */
+/* Keep modals functional; only make them calmer. */
 .fixed.inset-0 > div {
-  background-image:
-    url("/ink/wash.svg"),
-    linear-gradient(
-      180deg,
-      rgba(19,21,22,.97),
-      rgba(13,15,16,.97)
-    ) !important;
+  backdrop-filter: blur(10px);
 
-  background-size:
-    145% auto,
-    auto !important;
-
-  background-position:
-    center -60px,
-    center !important;
-
-  background-repeat:
-    no-repeat,
-    no-repeat !important;
-
-  border-color: rgba(224,220,210,.08) !important;
-  box-shadow:
-    0 32px 80px rgba(0,0,0,.48) !important;
+  border-color:
+    rgba(238,233,222,.09) !important;
 }
 
-/*
- * Toast：像題籤，不像系統警示。
- */
+/* Toast */
 .fixed.bottom-5.right-5 {
   border-radius: 2px !important;
+
   background:
-    linear-gradient(
-      90deg,
-      rgba(22,24,24,.96),
-      rgba(15,17,17,.96)
-    ) !important;
+    rgba(15,17,18,.94) !important;
 
-  border-color: rgba(112,143,137,.22) !important;
+  border-color:
+    rgba(120,153,145,.24) !important;
 }
 
-/*
- * Loading 不要亮色 spinner。
- */
-main .animate-spin {
-  color: #81938e !important;
-}
+/* ============================================================
+   Responsive
+   ============================================================ */
 
-/*
- * Drag overlay 改成宣紙/墨霧感。
- */
-main [class*="border-dashed"][class*="border-cyan"] {
-  background:
-    rgba(8,10,11,.84)
-    url("/ink/wash.svg")
-    center / cover
-    no-repeat !important;
-
-  border-color: rgba(112,143,137,.48) !important;
-  border-radius: 2px !important;
-}
-
-/*
- * 媒體卡片 / 圖片不使用厚重 SaaS 卡片。
- */
-.obsidian-media-container {
-  position: relative;
-}
-
-.obsidian-media-container::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-  inset: -1px;
-
-  border:
-    1px solid
-    rgba(224,220,210,.025);
-
-  transform: rotate(.08deg);
-}
-
-/*
- * 水墨動畫
- */
-@keyframes ink-mist-drift {
-  0% {
-    transform:
-      translate3d(-1.5%, -1%, 0)
-      scale(1.02);
-    opacity: .18;
-  }
-
-  50% {
-    transform:
-      translate3d(1%, .5%, 0)
-      scale(1.045);
-    opacity: .25;
-  }
-
-  100% {
-    transform:
-      translate3d(2%, -1.3%, 0)
-      scale(1.025);
-    opacity: .20;
-  }
-}
-
-/*
- * 尊重系統減少動態設定。
- */
-@media (prefers-reduced-motion: reduce) {
-  main::after {
-    animation: none;
-  }
-}
-
-/*
- * 小螢幕：降低山水存在感，確保可讀。
- */
 @media (max-width: 1100px) {
-  main::before {
-    opacity: .22;
-    height: 48%;
+  body > div.flex.h-screen.w-screen > main {
+    background-size:
+      cover,
+      1050px auto !important;
+
+    background-position:
+      center,
+      78% center !important;
   }
 
-  main::after {
-    opacity: .14;
+  body > div.flex.h-screen.w-screen > aside.w-72 {
+    background-size:
+      cover,
+      auto 92% !important;
   }
-
-  .paper-texture::after {
-    opacity: .16;
-  }
-}
-
-
-/* RootLayout 明確改用水墨根節點，避免原本 bg-slate utility 壓過主題 */
-.ink-root {
-  background:
-    radial-gradient(ellipse at 46% -18%, rgba(255,255,255,.035), transparent 48%),
-    radial-gradient(ellipse at 100% 100%, rgba(112,143,137,.025), transparent 42%),
-    #090a0b !important;
-
-  color: var(--paper-main);
-}
-
-body > div.flex.h-screen.w-screen {
-  background:
-    linear-gradient(
-      180deg,
-      rgba(10,11,12,.96),
-      rgba(8,9,10,.98)
-    ) !important;
-
-  color: var(--paper-main) !important;
 }
