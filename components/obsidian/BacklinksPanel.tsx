@@ -23,11 +23,11 @@ export function BacklinksPanel({
   const outlinks = activeNote.outlinks;
 
   return (
-    <div className="flex h-full flex-col bg-slate-900 border-l border-slate-800 text-slate-200 overflow-y-auto">
+    <div className="flex h-full flex-col bg-[#121418] border-l border-white/6 text-slate-200 overflow-y-auto">
       {/* 標題列 */}
-      <div className="p-3 border-b border-slate-800">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-          <svg className="w-3.5 h-3.5 text-purple-400" viewBox="0 0 24 24" fill="currentColor">
+      <div className="p-3 border-b border-white/6">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 font-serif">
+          <svg className="w-3.5 h-3.5 text-cyan-400" viewBox="0 0 24 24" fill="currentColor">
             <path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
           </svg>
           連結關係網絡
@@ -47,7 +47,7 @@ export function BacklinksPanel({
           </div>
 
           {backlinks.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-800 bg-slate-950/40 p-3 text-center text-xs text-slate-500">
+            <div className="rounded-lg border border-dashed border-white/8 bg-transparent p-3 text-center text-xs text-slate-500">
               尚無其他筆記引用此篇
             </div>
           ) : (
@@ -56,10 +56,10 @@ export function BacklinksPanel({
                 <div
                   key={link.sourceNoteId}
                   onClick={() => onSelectNote(link.sourceNoteId)}
-                  className="group rounded-lg border border-slate-800 bg-slate-950/60 p-2.5 transition hover:border-purple-600/70 hover:bg-slate-950 cursor-pointer"
+                  className="group rounded-lg border border-white/6 bg-[#16181f] p-2.5 transition-colors hover:border-white/15 hover:bg-white/2 rounded-lg hover:bg-slate-950 cursor-pointer"
                 >
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300 group-hover:text-purple-200">
-                    <svg className="w-3 h-3 text-purple-400" viewBox="0 0 24 24" fill="currentColor">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-cyan-300 group-hover:text-cyan-200">
+                    <svg className="w-3 h-3 text-cyan-400" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                     <span>{link.sourceNoteTitle}</span>
@@ -85,7 +85,7 @@ export function BacklinksPanel({
           </div>
 
           {outlinks.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-800 bg-slate-950/40 p-3 text-center text-xs text-slate-500">
+            <div className="rounded-lg border border-dashed border-white/8 bg-transparent p-3 text-center text-xs text-slate-500">
               本文未包含任何 [[雙向連結]]
             </div>
           ) : (
@@ -100,7 +100,7 @@ export function BacklinksPanel({
                   >
                     <span className="text-slate-200 truncate pr-2">{targetTitle}</span>
                     {exists ? (
-                      <span className="text-[10px] text-purple-400 font-medium flex-shrink-0">已連結</span>
+                      <span className="text-[10px] text-cyan-400 font-medium flex-shrink-0">已連結</span>
                     ) : (
                       <span className="text-[10px] text-amber-500 font-medium flex-shrink-0">未建立</span>
                     )}
