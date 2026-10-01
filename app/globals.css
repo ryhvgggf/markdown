@@ -1208,9 +1208,9 @@ body > div.flex.h-screen.w-screen
     rgba(120, 153, 145, 0.24) !important;
 }
 
-/* ============================================================
-   MOBILE RESPONSIVE APP
-   ============================================================ */
+ /* ============================================================
+    MOBILE UI
+    ============================================================ */
 
 .mobile-bottom-bar {
   display: none;
@@ -1220,12 +1220,17 @@ body > div.flex.h-screen.w-screen
   display: none;
 }
 
+.mobile-sidebar-header {
+  display: none;
+}
+
 
 /* ============================================================
-   Mobile / Tablet
+   PHONE
    ============================================================ */
 
 @media (max-width: 768px) {
+
   html,
   body {
     width: 100%;
@@ -1243,20 +1248,10 @@ body > div.flex.h-screen.w-screen
     -webkit-text-size-adjust: 100%;
   }
 
-  /*
-   * Prevent iOS Safari input zoom.
-   */
 
-  input,
-  textarea,
-  select,
-  button {
-    font-size: 16px;
-  }
-
-  /*
-   * Root application
-   */
+  /* ----------------------------------------------------------
+     ROOT
+     ---------------------------------------------------------- */
 
   .markdown-vault-root {
     position: relative !important;
@@ -1267,23 +1262,31 @@ body > div.flex.h-screen.w-screen
     height: 100vh !important;
     height: 100dvh !important;
 
-    min-height: 100dvh !important;
+    min-height: 0 !important;
 
     overflow: hidden !important;
   }
 
 
-  /* ==========================================================
-     MAIN EDITOR
-     ========================================================== */
+  /* ----------------------------------------------------------
+     MAIN CONTENT
+     ---------------------------------------------------------- */
 
-  .app-main {
+  .markdown-vault-root > .app-main {
+    position: relative !important;
+
+    display: flex !important;
+
     width: 100% !important;
 
     height: 100% !important;
 
     min-width: 0 !important;
     min-height: 0 !important;
+
+    flex: 1 1 auto !important;
+
+    overflow: hidden !important;
 
     padding-bottom:
       calc(
@@ -1293,140 +1296,383 @@ body > div.flex.h-screen.w-screen
   }
 
 
-  /* ==========================================================
-     LEFT SIDEBAR
-     ========================================================== */
+  /* ----------------------------------------------------------
+     LEFT DRAWER
+     ---------------------------------------------------------- */
 
-  .app-sidebar {
+  .markdown-vault-root > .app-sidebar {
     position: fixed !important;
 
-    z-index: 10000 !important;
+    z-index: 10020 !important;
 
     top: 0 !important;
     left: 0 !important;
     bottom: 0 !important;
 
-    width: min(88vw, 360px) !important;
+    display: flex !important;
 
-    height: 100dvh !important;
+    width:
+      min(88vw, 360px) !important;
 
-    max-width: 360px !important;
+    height:
+      100dvh !important;
+
+    max-height:
+      100dvh !important;
+
+    margin: 0 !important;
+
+    padding: 0 !important;
 
     transform:
-      translateX(-105%) !important;
+      translate3d(-105%, 0, 0) !important;
 
     transition:
-      transform 220ms ease,
-      box-shadow 220ms ease !important;
+      transform 240ms
+      cubic-bezier(
+        0.22,
+        1,
+        0.36,
+        1
+      ) !important;
 
     background:
-      rgba(13, 15, 18, 0.98) !important;
+      #111416 !important;
 
     border-right:
       1px solid
-      rgba(255, 255, 255, 0.08) !important;
+      rgba(
+        255,
+        255,
+        255,
+        0.10
+      ) !important;
 
     box-shadow:
-      20px 0 70px
-      rgba(0, 0, 0, 0.55) !important;
-
-    padding-bottom:
-      env(safe-area-inset-bottom) !important;
+      18px 0 60px
+      rgba(
+        0,
+        0,
+        0,
+        0.65
+      ) !important;
 
     overflow: hidden !important;
   }
 
-  .app-sidebar.mobile-sidebar-open {
+  .markdown-vault-root
+  > .app-sidebar.mobile-sidebar-open {
     transform:
-      translateX(0) !important;
-
-    box-shadow:
-      20px 0 90px
-      rgba(0, 0, 0, 0.78) !important;
+      translate3d(
+        0,
+        0,
+        0
+      ) !important;
   }
 
 
-  /* ==========================================================
-     OVERLAY
-     ========================================================== */
+  /* ----------------------------------------------------------
+     FileTree nested aside
+     ---------------------------------------------------------- */
 
-  .mobile-drawer-overlay {
-    display: block;
+  .markdown-vault-root
+  > .app-sidebar
+  > aside {
+    position: relative !important;
 
-    position: fixed;
-
-    z-index: 9999;
-
-    inset: 0;
-
-    width: 100%;
-    height: 100%;
-
-    padding: 0;
-    margin: 0;
-
-    border: 0;
-
-    background:
-      rgba(0, 0, 0, 0.58);
-
-    backdrop-filter:
-      blur(2px);
-
-    -webkit-backdrop-filter:
-      blur(2px);
-
-    cursor: pointer;
-
-    -webkit-tap-highlight-color:
-      transparent;
-  }
-
-
-  /* ==========================================================
-     RIGHT PANEL
-     ========================================================== */
-
-  .app-right-panel {
-    position: fixed !important;
-
-    z-index: 10001 !important;
-
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-
-    top: auto !important;
+    display: flex !important;
 
     width: 100% !important;
 
+    height: 100% !important;
+
+    min-width: 0 !important;
+
+    flex: 1 1 auto !important;
+
+    border-right: 0 !important;
+
+    overflow: hidden !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     FileTree header
+     ---------------------------------------------------------- */
+
+  .markdown-vault-root
+  > .app-sidebar
+  > aside
+  > div:first-child {
+    flex-shrink: 0 !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     FileTree note list
+     ---------------------------------------------------------- */
+
+  .markdown-vault-root
+  > .app-sidebar
+  > aside
+  > div:nth-child(2) {
+    min-height: 0 !important;
+
+    flex: 1 1 auto !important;
+
+    overflow-y: auto !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     FileTree mobile close bar
+     ---------------------------------------------------------- */
+
+  .mobile-sidebar-header {
+    display: flex !important;
+
+    position: absolute !important;
+
+    z-index: 30 !important;
+
+    right: 8px !important;
+    top: 8px !important;
+
+    align-items: center !important;
+
+    gap: 8px !important;
+
+    pointer-events: none;
+  }
+
+  .mobile-sidebar-header span {
+    display: none;
+  }
+
+  .mobile-sidebar-header button {
+    pointer-events: auto;
+
+    min-height: 32px !important;
+
+    padding:
+      5px 10px !important;
+
+    border:
+      1px solid
+      rgba(
+        255,
+        255,
+        255,
+        0.10
+      ) !important;
+
+    background:
+      rgba(
+        0,
+        0,
+        0,
+        0.30
+      ) !important;
+
+    color:
+      #a5aaa6 !important;
+
+    font-size:
+      11px !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     FileTree ADD BUTTON
+     ---------------------------------------------------------- */
+
+  .markdown-vault-root
+  > .app-sidebar
+  > aside
+  > div:first-child
+  button {
+    min-width: 36px !important;
+
+    min-height: 36px !important;
+
+    padding:
+      7px !important;
+
+    font-size:
+      16px !important;
+
+    color:
+      #9ba9a4 !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     FileTree note actions
+     
+     原本是 opacity-0 + group-hover。
+     手機沒有 hover，所以直接顯示。
+     ---------------------------------------------------------- */
+
+  .markdown-vault-root
+  > .app-sidebar
+  .group
+  > div:last-child {
+    opacity: 1 !important;
+
+    display: flex !important;
+
+    visibility: visible !important;
+  }
+
+  .markdown-vault-root
+  > .app-sidebar
+  .group
+  > div:last-child
+  button {
+    min-width: 34px !important;
+
+    min-height: 34px !important;
+
+    padding:
+      7px 6px !important;
+
+    color:
+      #929a96 !important;
+
+    opacity: 1 !important;
+
+    visibility: visible !important;
+  }
+
+  .markdown-vault-root
+  > .app-sidebar
+  .group
+  > div:last-child
+  button:last-child {
+    color:
+      #a67c7c !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     DRAWER OVERLAY
+     ---------------------------------------------------------- */
+
+  .mobile-drawer-overlay {
+    display: block !important;
+
+    position: fixed !important;
+
+    z-index: 10010 !important;
+
+    inset: 0 !important;
+
+    width: 100vw !important;
+    height: 100dvh !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    border: 0 !important;
+
+    background:
+      rgba(
+        0,
+        0,
+        0,
+        0.56
+      ) !important;
+
+    backdrop-filter:
+      blur(2px) !important;
+
+    -webkit-backdrop-filter:
+      blur(2px) !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     RIGHT PANEL
+     
+     ★ 關鍵：
+     不再使用右側固定位置。
+     完全改成 bottom sheet。
+     ---------------------------------------------------------- */
+
+  .markdown-vault-root
+  > .app-right-panel {
+    position: fixed !important;
+
+    z-index: 10030 !important;
+
+    left: 0 !important;
+    right: 0 !important;
+
+    top: auto !important;
+    bottom: 0 !important;
+
+    display: flex !important;
+
+    width: 100vw !important;
+    width: 100dvw !important;
+
     height:
-      min(76dvh, 620px) !important;
+      min(
+        78dvh,
+        680px
+      ) !important;
 
     max-height:
-      76dvh !important;
+      78dvh !important;
 
-    transform:
-      translateY(105%) !important;
+    min-height: 0 !important;
 
-    transition:
-      transform 220ms ease !important;
+    margin: 0 !important;
+
+    border: 0 !important;
 
     border-top:
       1px solid
-      rgba(255, 255, 255, 0.1) !important;
-
-    border-left: 0 !important;
+      rgba(
+        255,
+        255,
+        255,
+        0.12
+      ) !important;
 
     border-radius:
       18px 18px 0 0 !important;
 
     background:
-      rgba(18, 20, 24, 0.99) !important;
+      #111416 !important;
 
     box-shadow:
-      0 -20px 80px
-      rgba(0, 0, 0, 0.72) !important;
+      0 -20px 70px
+      rgba(
+        0,
+        0,
+        0,
+        0.70
+      ) !important;
+
+    transform:
+      translate3d(
+        0,
+        105%,
+        0
+      ) !important;
+
+    transition:
+      transform 260ms
+      cubic-bezier(
+        0.22,
+        1,
+        0.36,
+        1
+      ) !important;
 
     overflow: hidden !important;
 
@@ -1434,127 +1680,195 @@ body > div.flex.h-screen.w-screen
       env(safe-area-inset-bottom) !important;
   }
 
-  .app-right-panel.mobile-right-panel-open {
+
+  /* ★ 打開時從下面彈出 */
+
+  .markdown-vault-root
+  > .app-right-panel.mobile-right-panel-open {
     transform:
-      translateY(0) !important;
+      translate3d(
+        0,
+        0,
+        0
+      ) !important;
   }
 
 
-  /* ==========================================================
-     BOTTOM NAVIGATION
-     ========================================================== */
+  /* ----------------------------------------------------------
+     RIGHT PANEL CONTENT
+     ---------------------------------------------------------- */
+
+  .markdown-vault-root
+  > .app-right-panel
+  > div:first-child {
+    flex-shrink: 0 !important;
+
+    min-height: 52px !important;
+
+    padding:
+      14px 16px !important;
+
+    background:
+      #141719 !important;
+  }
+
+  .markdown-vault-root
+  > .app-right-panel
+  > div:first-child::before {
+    content: "";
+
+    position: absolute;
+
+    top: 7px;
+    left: 50%;
+
+    width: 42px;
+    height: 4px;
+
+    transform:
+      translateX(-50%);
+
+    border-radius:
+      999px;
+
+    background:
+      rgba(
+        255,
+        255,
+        255,
+        0.20
+      );
+  }
+
+  .markdown-vault-root
+  > .app-right-panel
+  > div:nth-child(2) {
+    min-height: 0 !important;
+
+    flex: 1 1 auto !important;
+
+    overflow-y: auto !important;
+
+    -webkit-overflow-scrolling:
+      touch !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     Bottom navigation
+     ---------------------------------------------------------- */
 
   .mobile-bottom-bar {
     display: flex !important;
 
-    position: fixed;
+    position: fixed !important;
 
-    z-index: 11000;
+    z-index: 11000 !important;
 
-    left: 0;
-    right: 0;
-    bottom: 0;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
 
-    width: 100%;
+    width: 100vw !important;
+    width: 100dvw !important;
 
     height:
       calc(
         68px +
         env(safe-area-inset-bottom)
-      );
+      ) !important;
 
     padding:
-      0 6px
+      0 5px
       env(safe-area-inset-bottom)
-      0;
+      0 !important;
 
     border-top:
       1px solid
-      rgba(255, 255, 255, 0.08);
+      rgba(
+        255,
+        255,
+        255,
+        0.09
+      ) !important;
 
     background:
-      rgba(16, 18, 20, 0.97);
+      rgba(
+        16,
+        18,
+        20,
+        0.98
+      ) !important;
 
     backdrop-filter:
-      blur(20px);
+      blur(18px) !important;
 
     -webkit-backdrop-filter:
-      blur(20px);
-
-    box-shadow:
-      0 -10px 40px
-      rgba(0, 0, 0, 0.35);
-
-    align-items: center;
-    justify-content: space-around;
+      blur(18px) !important;
   }
 
   .mobile-bottom-button {
-    position: relative;
+    position: relative !important;
 
-    display: flex;
+    display: flex !important;
 
-    flex: 1;
+    flex: 1 1 0 !important;
 
-    min-width: 0;
+    min-width: 0 !important;
 
-    height: 60px;
+    height: 62px !important;
 
-    margin: 0;
+    margin: 0 !important;
 
-    padding: 4px 2px;
+    padding:
+      5px 2px !important;
 
-    border: 0;
-
-    outline: none;
+    border: 0 !important;
 
     background:
-      transparent;
+      transparent !important;
 
     color:
-      #777d83;
+      #777d83 !important;
 
-    align-items: center;
-    justify-content: center;
+    align-items: center !important;
 
-    flex-direction: column;
+    justify-content: center !important;
 
-    gap: 3px;
+    flex-direction: column !important;
 
-    font-size: 10px;
+    gap: 3px !important;
 
-    line-height: 1;
-
-    touch-action: manipulation;
+    font-size:
+      10px !important;
 
     -webkit-tap-highlight-color:
-      transparent;
-
-    transition:
-      color 150ms ease,
-      background 150ms ease;
+      transparent !important;
   }
 
   .mobile-bottom-button:active {
     background:
-      rgba(255, 255, 255, 0.05);
-
-    color:
-      #eee9de;
+      rgba(
+        255,
+        255,
+        255,
+        0.05
+      ) !important;
   }
 
   .mobile-bottom-icon {
-    display: flex;
+    display: flex !important;
 
-    width: 30px;
-    height: 30px;
+    width: 30px !important;
+    height: 30px !important;
 
-    align-items: center;
-    justify-content: center;
+    align-items: center !important;
+    justify-content: center !important;
 
-    font-size: 20px;
+    font-size:
+      19px !important;
 
-    line-height: 1;
+    line-height: 1 !important;
   }
 
   .mobile-bottom-active {
@@ -1567,10 +1881,10 @@ body > div.flex.h-screen.w-screen
 
     position: absolute;
 
-    top: 2px;
+    top: 3px;
     left: 50%;
 
-    width: 26px;
+    width: 25px;
     height: 2px;
 
     transform:
@@ -1585,87 +1899,26 @@ body > div.flex.h-screen.w-screen
 
   .mobile-create-button {
     color:
-      #a8c3bb;
-  }
-
-  .mobile-create-button
-  .mobile-bottom-icon {
-    width: 32px;
-    height: 32px;
-
-    border:
-      1px solid
-      rgba(120, 153, 145, 0.42);
-
-    border-radius:
-      999px;
-
-    background:
-      rgba(120, 153, 145, 0.08);
+      #a8c3bb !important;
   }
 
 
-  /* ==========================================================
-     EDITOR
-     ========================================================== */
+  /* ----------------------------------------------------------
+     Editor
+     ---------------------------------------------------------- */
 
   .app-main input,
   .app-main textarea {
-    font-size: 16px !important;
-  }
-
-  /*
-   * Make editor scroll correctly above bottom nav.
-   */
-
-  .app-main {
-    overflow: hidden !important;
-  }
-
-  .app-main > * {
-    min-height: 0;
+    font-size:
+      16px !important;
   }
 
 
-  /* ==========================================================
-     GRAPH
-     ========================================================== */
+  /* ----------------------------------------------------------
+     Toast
+     ---------------------------------------------------------- */
 
-  .app-main svg {
-    max-width: 100%;
-  }
-
-
-  /* ==========================================================
-     BACKLINK / TAG PANEL
-     ========================================================== */
-
-  .app-right-panel .ink-link-row {
-    min-height: 46px;
-  }
-
-  .app-right-panel button {
-    min-height: 42px;
-  }
-
-
-  /* ==========================================================
-     FILE TREE
-     ========================================================== */
-
-  .app-sidebar button {
-    min-height: 42px;
-  }
-
-  .app-sidebar input {
-    font-size: 16px !important;
-  }
-
-
-  /* ==========================================================
-     TOAST
-     ========================================================== */
-
+  .markdown-vault-root
   .fixed.bottom-5.right-5 {
     left: 12px !important;
     right: 12px !important;
@@ -1679,106 +1932,61 @@ body > div.flex.h-screen.w-screen
     width: auto !important;
 
     max-width: none !important;
-
-    justify-content: center !important;
-
-    text-align: center !important;
   }
 
 
-  /* ==========================================================
-     BACKUP MODAL
-     ========================================================== */
+  /* ----------------------------------------------------------
+     Backup modal
+     ---------------------------------------------------------- */
 
   .markdown-vault-root
   .fixed.inset-0 {
-    padding: 12px !important;
+    padding:
+      12px !important;
 
     align-items:
       flex-end !important;
   }
 
-  .markdown-vault-root
-  .fixed.inset-0
-  > div {
-    width: 100% !important;
 
-    max-width: none !important;
+  /* ----------------------------------------------------------
+     Touch targets
+     ---------------------------------------------------------- */
 
-    max-height: 88dvh !important;
-
-    overflow-y: auto !important;
-
-    border-radius:
-      18px 18px 0 0 !important;
-
-    padding: 20px !important;
-
-    padding-bottom:
-      calc(
-        20px +
-        env(safe-area-inset-bottom)
-      ) !important;
-  }
-
-
-  /* ==========================================================
-     SCROLLBARS
-     ========================================================== */
-
-  .app-sidebar,
-  .app-right-panel,
-  .app-main {
-    scrollbar-width: thin;
-
-    scrollbar-color:
-      rgba(255, 255, 255, 0.14)
-      transparent;
-  }
-
-
-  /* ==========================================================
-     TOUCH
-     ========================================================== */
-
-  button,
-  a {
-    -webkit-tap-highlight-color:
-      transparent;
+  .app-sidebar button,
+  .app-right-panel button,
+  .mobile-bottom-button {
+    touch-action:
+      manipulation;
   }
 }
 
 
 /* ============================================================
-   Small Phones
+   SMALL PHONE
    ============================================================ */
 
 @media (max-width: 480px) {
-  .app-sidebar {
+
+  .markdown-vault-root
+  > .app-sidebar {
     width:
       92vw !important;
   }
 
-  .app-right-panel {
+  .markdown-vault-root
+  > .app-right-panel {
     height:
       82dvh !important;
 
     max-height:
       82dvh !important;
   }
-
-  .mobile-bottom-button {
-    font-size: 9px;
-  }
-
-  .mobile-bottom-icon {
-    font-size: 18px;
-  }
 }
 
 
 /* ============================================================
-   Landscape Phones
+   LANDSCAPE PHONE
    ============================================================ */
 
 @media (
@@ -1786,12 +1994,18 @@ body > div.flex.h-screen.w-screen
 ) and (
   orientation: landscape
 ) {
-  .app-sidebar {
+
+  .markdown-vault-root
+  > .app-sidebar {
     width:
-      min(55vw, 360px) !important;
+      min(
+        58vw,
+        360px
+      ) !important;
   }
 
-  .app-right-panel {
+  .markdown-vault-root
+  > .app-right-panel {
     height:
       88dvh !important;
 
@@ -1817,15 +2031,20 @@ body > div.flex.h-screen.w-screen
 
 
 /* ============================================================
-   Reduced Motion
+   REDUCED MOTION
    ============================================================ */
 
 @media (
   prefers-reduced-motion: reduce
 ) {
-  .app-sidebar,
-  .app-right-panel,
+
+  .markdown-vault-root
+  > .app-sidebar,
+  .markdown-vault-root
+  > .app-right-panel,
   .mobile-bottom-button {
-    transition: none !important;
+    transition:
+      none !important;
   }
 }
+
