@@ -1040,6 +1040,11 @@ body > div.flex.h-screen.w-screen > main {
   isolation: isolate;
   overflow: hidden;
 
+body > div.flex.h-screen.w-screen > main {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+
   background-color: #080a0b !important;
 
   background-image:
@@ -1054,57 +1059,18 @@ body > div.flex.h-screen.w-screen > main {
     no-repeat,
     no-repeat !important;
 
+  /* 關鍵：竹林貼著底部 */
   background-position:
     center,
-    center center !important;
+    center bottom !important;
 
+  /*
+   * 不用 cover 放大。
+   * 寬度配合中央區域，高度按比例計算。
+   */
   background-size:
     cover,
-    contain !important;
-}
-
-
-/* MarkdownEditor 整體保持透明 */
-body > div.flex.h-screen.w-screen > main > div.flex.h-full.flex-col {
-  background:
-    rgba(7, 9, 10, 0.10) !important;
-}
-
-
-/* 左邊編輯區 */
-main textarea {
-  background:
-    rgba(5, 7, 8, 0.43) !important;
-
-  color:
-    #d8d4ca !important;
-
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-
-/* 右邊 Preview */
-.paper-texture {
-  background:
-    rgba(6, 8, 9, 0.40) !important;
-
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-
-/* 不額外蓋紙張偽元素 */
-.paper-texture::before,
-.paper-texture::after {
-  display:
-    none !important;
+    100% auto !important;
 }
 /* 右側：梅花樹加大，從右下往上延伸 */
 body > div.flex.h-screen.w-screen > aside.w-72 {
