@@ -70,7 +70,7 @@ export function MarkdownEditor({
   onOpenGraphView,
   onSelectTag,
 }: MarkdownEditorProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>("split");
+  const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
