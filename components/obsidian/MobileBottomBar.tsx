@@ -16,25 +16,36 @@ export function MobileBottomBar({
   onOpenRelations,
 }: MobileBottomBarProps) {
   return (
-    <nav className="mobile-bottom-bar">
+    <nav
+      className="mobile-bottom-bar"
+      aria-label="手機導覽"
+    >
       <button
         type="button"
         className="mobile-bottom-button"
         onClick={onOpenNotes}
-        aria-label="開啟筆記"
       >
-        <span className="mobile-bottom-icon">☰</span>
-        <span>筆記</span>
+        <span className="mobile-bottom-icon">
+          ☰
+        </span>
+
+        <span>
+          筆記
+        </span>
       </button>
 
       <button
         type="button"
         className="mobile-bottom-button mobile-create-button"
         onClick={onCreateNote}
-        aria-label="新增筆記"
       >
-        <span className="mobile-bottom-icon">＋</span>
-        <span>新增</span>
+        <span className="mobile-bottom-icon">
+          ＋
+        </span>
+
+        <span>
+          新增
+        </span>
       </button>
 
       <button
@@ -45,20 +56,28 @@ export function MobileBottomBar({
             : ""
         }`}
         onClick={onOpenGraph}
-        aria-label="開啟圖譜"
       >
-        <span className="mobile-bottom-icon">◎</span>
-        <span>圖譜</span>
+        <span className="mobile-bottom-icon">
+          ◎
+        </span>
+
+        <span>
+          圖譜
+        </span>
       </button>
 
       <button
         type="button"
         className="mobile-bottom-button"
         onClick={onOpenRelations}
-        aria-label="開啟關聯資訊"
       >
-        <span className="mobile-bottom-icon">⌘</span>
-        <span>關聯</span>
+        <span className="mobile-bottom-icon">
+          ⌘
+        </span>
+
+        <span>
+          關聯
+        </span>
       </button>
     </nav>
   );
