@@ -1259,3 +1259,330 @@
     transition: none !important;
   }
 }
+
+/* ============================================================
+   MOBILE LAYOUT HARD FIX
+   ------------------------------------------------------------
+   globals.css 的 Desktop 水墨 selector 例如：
+   body > div.flex.h-screen.w-screen > aside.w-64
+   specificity 比早期 mobile selector 更高，而且帶 !important。
+
+   iPhone 上會造成：
+   - 左側 Sidebar 雖然被 transform 移走，仍占 Flex 寬度
+   - 右側 Relations 仍占 Flex 寬度
+   - Main 被擠出畫面
+   - 畫面看起來只剩黑底 + 右側欄一小截
+
+   這裡用更高 specificity 明確覆蓋 Desktop 規則。
+   ============================================================ */
+
+@media (max-width: 768px) {
+
+  /* ROOT：手機只有 Main 留在正常 Flex Flow */
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen {
+    position: relative !important;
+
+    display: flex !important;
+    flex-direction: row !important;
+
+    width: 100vw !important;
+    width: 100dvw !important;
+
+    height: 100vh !important;
+    height: 100dvh !important;
+
+    min-width: 0 !important;
+    min-height: 0 !important;
+
+    overflow: hidden !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     LEFT SIDEBAR
+     Desktop globals.css 曾設 position: relative !important。
+     手機一定要強制 fixed，否則會繼續占 Flex 寬度。
+     ---------------------------------------------------------- */
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > aside.app-sidebar.w-64 {
+    position: fixed !important;
+
+    z-index: 10020 !important;
+
+    top: 0 !important;
+    left: 0 !important;
+
+    right: auto !important;
+
+    bottom:
+      calc(
+        var(--mobile-bottom-height) +
+        env(safe-area-inset-bottom)
+      ) !important;
+
+    display: flex !important;
+
+    width: min(88vw, 360px) !important;
+
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+
+    flex:
+      0 0 auto !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    transform:
+      translate3d(
+        -105%,
+        0,
+        0
+      ) !important;
+
+    overflow: hidden !important;
+  }
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > aside.app-sidebar.w-64.mobile-sidebar-open {
+    transform:
+      translate3d(
+        0,
+        0,
+        0
+      ) !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     MAIN
+     Sidebar / Right Panel 都 fixed 後，
+     Main 取得整個手機可用寬度。
+     ---------------------------------------------------------- */
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main {
+    position: relative !important;
+
+    display: flex !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+
+    height: 100% !important;
+    min-height: 0 !important;
+
+    flex:
+      1 1 100% !important;
+
+    margin: 0 !important;
+
+    overflow: hidden !important;
+
+    transform:
+      none !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     RIGHT PANEL
+     Desktop globals.css 也曾強制 position: relative !important。
+     手機一定要 fixed + translateY 隱藏。
+     ---------------------------------------------------------- */
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > aside.app-right-panel.w-72 {
+    position: fixed !important;
+
+    z-index: 10030 !important;
+
+    left: 0 !important;
+    right: 0 !important;
+
+    top: auto !important;
+
+    bottom:
+      calc(
+        var(--mobile-bottom-height) +
+        env(safe-area-inset-bottom)
+      ) !important;
+
+    display: flex !important;
+
+    width: 100vw !important;
+    width: 100dvw !important;
+
+    min-width: 0 !important;
+    max-width: 100dvw !important;
+
+    height:
+      min(
+        70dvh,
+        620px
+      ) !important;
+
+    max-height:
+      calc(
+        100dvh -
+        var(--mobile-bottom-height) -
+        env(safe-area-inset-bottom) -
+        18px
+      ) !important;
+
+    flex:
+      0 0 auto !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    transform:
+      translate3d(
+        0,
+        calc(100% + 20px),
+        0
+      ) !important;
+
+    overflow: hidden !important;
+  }
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > aside.app-right-panel.w-72.mobile-right-panel-open {
+    transform:
+      translate3d(
+        0,
+        0,
+        0
+      ) !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     Desktop 關閉右欄後的小箭頭：
+     手機由底部「關聯」按鈕負責。
+     ---------------------------------------------------------- */
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > button.absolute.right-0 {
+    display: none !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     MarkdownEditor 必須真的吃滿 Main。
+     ---------------------------------------------------------- */
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  > div.relative.flex.h-full.min-w-0.flex-col {
+    width: 100% !important;
+    min-width: 0 !important;
+
+    height: 100% !important;
+    min-height: 0 !important;
+
+    flex: 1 1 auto !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     Preview / Editor 不允許產生水平溢出。
+     ---------------------------------------------------------- */
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  .paper-texture,
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  textarea,
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > main.app-main
+  .obsidian-preview-container {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+
+  /* ----------------------------------------------------------
+     Overlay 一定只蓋 App 區，不影響 Bottom Nav。
+     ---------------------------------------------------------- */
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > .mobile-drawer-overlay {
+    position: fixed !important;
+
+    z-index: 10010 !important;
+
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+
+    bottom:
+      calc(
+        var(--mobile-bottom-height) +
+        env(safe-area-inset-bottom)
+      ) !important;
+  }
+}
+
+
+/* SMALL PHONE specificity hard-fix */
+@media (max-width: 480px) {
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > aside.app-sidebar.w-64 {
+    width: 92vw !important;
+  }
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > aside.app-right-panel.w-72 {
+    height:
+      min(
+        74dvh,
+        600px
+      ) !important;
+  }
+}
+
+
+/* LANDSCAPE PHONE specificity hard-fix */
+@media
+  (max-width: 900px)
+  and (orientation: landscape) {
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > aside.app-sidebar.w-64 {
+    width:
+      min(
+        60vw,
+        360px
+      ) !important;
+  }
+
+  body
+  > div.markdown-vault-root.flex.h-screen.w-screen
+  > aside.app-right-panel.w-72 {
+    height:
+      min(
+        76dvh,
+        470px
+      ) !important;
+  }
+}
+
