@@ -1,9 +1,24 @@
 "use client";
 
-import { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import DOMPurify from "dompurify";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  deleteSavedMedia,
+  getMediaDetails,
+  resolveMediaUrl,
+  revokeAllActiveMediaUrls,
+  saveUploadedMedia,
+} from "@/lib/obsidian/media";
+
 import { renderMarkdownToHtml } from "@/lib/obsidian/parser";
 import { Note, ViewMode } from "@/lib/obsidian/types";
-import { saveUploadedMedia, resolveMediaUrl, revokeAllActiveMediaUrls, getMediaDetails } from "@/lib/obsidian/media";
 
 interface MarkdownEditorProps {
   note: Note | null;
@@ -15,6 +30,33 @@ interface MarkdownEditorProps {
   onDownloadMarkdown: (note: Note) => void;
   onOpenGraphView: () => void;
   onSelectTag?: (tag: string) => void;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getFileIcon(fileType: string): string {
+  switch (fileType) {
+    case "pdf":
+      return "PDF";
+    case "excel":
+      return "XLS";
+    case "doc":
+      return "DOC";
+    case "ppt":
+      return "PPT";
+    case "archive":
+      return "ZIP";
+    case "audio":
+      return "AUD";
+    case "video":
+      return "VID";
+    case "image":
+      return "IMG";
+    default:
+      return "FILE";
+  }
 }
 
 export function MarkdownEditor({
@@ -32,499 +74,844 @@ export function MarkdownEditor({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [sanitizedHtml, setSanitizedHtml] = useState("");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileAttachmentInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
-  // 切換筆記或組件卸載時，釋放先前的 Object URLs
   useEffect(() => {
     return () => {
       revokeAllActiveMediaUrls();
     };
   }, [note?.id]);
 
-  // 靜態渲染 HTML
-  const renderedHtml = useMemo(() => {
+  const rawHtml = useMemo(() => {
     if (!note) return "";
-    return renderMarkdownToHtml(note.content, existingTitles, note.title);
-  }, [note?.content, existingTitles, note?.title]);
 
-  // 平滑滾動定位至指定標題並發光高亮
+    return renderMarkdownToHtml(
+      note.content,
+      existingTitles,
+      note.title
+    );
+  }, [note?.content, note?.title, existingTitles]);
+
+  /**
+   * Security:
+   * 所有 parser 產生的 HTML 都先過 DOMPurify，
+   * 再交給 dangerouslySetInnerHTML。
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setSanitizedHtml("");
+      return;
+    }
+
+    const clean = DOMPurify.sanitize(rawHtml, {
+      ADD_ATTR: [
+        "data-media-id",
+        "data-media-name",
+        "data-media-type",
+        "data-note-title",
+        "data-heading-target",
+        "data-heading-slug",
+        "data-tag",
+      ],
+    });
+
+    setSanitizedHtml(clean);
+  }, [rawHtml]);
+
   const scrollToHeading = useCallback((slug: string) => {
-    if (!previewRef.current) return;
-    let targetEl: HTMLElement | null = null;
-    try {
-      const elById = document.getElementById(slug);
-      if (elById && previewRef.current.contains(elById)) {
-        targetEl = elById;
-      }
-      if (!targetEl) {
-        const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(slug) : slug.replace(/[^a-zA-Z0-9_-]/g, '\\const targetEl = previewRef.current.querySelector<HTMLElement>(`#${slug}`);');
-        targetEl = previewRef.current.querySelector<HTMLElement>('[id="' + escaped + '"]') ||
-                   previewRef.current.querySelector<HTMLElement>('[data-heading-slug="' + escaped + '"]');
-      }
-    } catch (e) {
-      console.warn("無法定位標題錨點:", e);
+    if (!previewRef.current || !slug) return;
+
+    let target: HTMLElement | null = null;
+
+    const byId = document.getElementById(slug);
+
+    if (byId && previewRef.current.contains(byId)) {
+      target = byId;
     }
-    if (targetEl) {
-      targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
-      targetEl.classList.add("bg-purple-900/60", "ring-2", "ring-purple-400", "shadow-xl");
-      setTimeout(() => {
-        targetEl.classList.remove("bg-purple-900/60", "ring-2", "ring-purple-400", "shadow-xl");
-      }, 2200);
+
+    if (!target && typeof CSS !== "undefined" && CSS.escape) {
+      target = previewRef.current.querySelector<HTMLElement>(
+        `#${CSS.escape(slug)}`
+      );
     }
+
+    if (!target) {
+      target = previewRef.current.querySelector<HTMLElement>(
+        `[data-heading-slug="${slug.replace(/"/g, '\\"')}"]`
+      );
+    }
+
+    if (!target) return;
+
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+
+    target.classList.add(
+      "ring-1",
+      "ring-cyan-500/50",
+      "bg-cyan-950/20"
+    );
+
+    window.setTimeout(() => {
+      target?.classList.remove(
+        "ring-1",
+        "ring-cyan-500/50",
+        "bg-cyan-950/20"
+      );
+    }, 1800);
   }, []);
 
-  // 當外部傳入目標章節標題 slug 時自動滾動定位
   useEffect(() => {
     if (!targetHeadingSlug || !note) return;
-    const timer = setTimeout(() => {
-      scrollToHeading(targetHeadingSlug);
-      if (onClearTargetHeadingSlug) {
-        onClearTargetHeadingSlug();
-      }
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [targetHeadingSlug, note?.id, scrollToHeading, onClearTargetHeadingSlug]);
 
-  // 動態非同步注入 IndexedDB 中的多媒體 Object URLs 到預覽畫面
+    const timer = window.setTimeout(() => {
+      scrollToHeading(targetHeadingSlug);
+      onClearTargetHeadingSlug?.();
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    targetHeadingSlug,
+    note?.id,
+    sanitizedHtml,
+    scrollToHeading,
+    onClearTargetHeadingSlug,
+  ]);
+
+  /**
+   * 將 IndexedDB Blob 安全地掛進 Preview。
+   * 這裡不使用 innerHTML，避免重新引入 XSS。
+   */
   useEffect(() => {
     if (!previewRef.current || !note) return;
 
-    let isCancelled = false;
-    const container = previewRef.current;
-    const mediaNodes = container.querySelectorAll<HTMLElement>(".obsidian-media-container[data-media-name]");
+    let cancelled = false;
+    const root = previewRef.current;
 
-    mediaNodes.forEach(async (el) => {
-      const mediaName = el.getAttribute("data-media-name");
-      const fileType = el.getAttribute("data-media-type") || "file";
-      if (!mediaName) return;
+    const nodes = root.querySelectorAll<HTMLElement>(
+      ".obsidian-media-container[data-media-id]"
+    );
+
+    const renderMedia = async (el: HTMLElement) => {
+      const ref = el.dataset.mediaId || "";
+      const hintedName = el.dataset.mediaName || ref;
+      const hintedType = el.dataset.mediaType || "file";
+
+      if (!ref) return;
 
       try {
-        const objectUrl = await resolveMediaUrl(mediaName);
-        if (isCancelled || !el.parentElement) return;
+        const [record, objectUrl] = await Promise.all([
+          getMediaDetails(ref),
+          resolveMediaUrl(ref),
+        ]);
 
-        if (objectUrl) {
-          if (fileType === "image") {
-            el.innerHTML = `<div class="relative group/media inline-block my-2 max-w-full"><img src="${objectUrl}" alt="${mediaName}" class="rounded-lg max-h-96 max-w-full object-contain border border-white/10 shadow-sm transition" /><a href="${objectUrl}" download="${mediaName}" title="下載原始圖片 (${mediaName})" class="opacity-0 group-hover/media:opacity-100 absolute top-2.5 right-2.5 bg-black/65 hover:bg-black/85 text-slate-200 text-[11px] px-2 py-0.8 rounded-md border border-white/10 backdrop-blur-xs transition-opacity flex items-center gap-1 cursor-pointer select-none"><span>⬇️</span><span>下載原檔</span></a></div>`;
-          } else if (fileType === "video") {
-            el.innerHTML = `<div class="relative group/media inline-block my-2 max-w-full"><video controls class="rounded-lg max-h-96 max-w-full border border-white/10 shadow-sm" src="${objectUrl}">無法播放此影片格式</video><a href="${objectUrl}" download="${mediaName}" title="下載原始影片 (${mediaName})" class="opacity-0 group-hover/media:opacity-100 absolute top-2.5 right-2.5 bg-black/65 hover:bg-black/85 text-slate-200 text-[11px] px-2 py-0.8 rounded-md border border-white/10 backdrop-blur-xs transition-opacity flex items-center gap-1 cursor-pointer select-none"><span>⬇️</span><span>下載原檔</span></a></div>`;
-          } else if (fileType === "audio") {
-            el.innerHTML = `<div class="relative group/media inline-flex items-center gap-3 my-2 p-2.5 rounded-lg bg-[#14171d] border border-white/8 shadow-sm"><audio controls class="h-8 max-w-xs" src="${objectUrl}"></audio><a href="${objectUrl}" download="${mediaName}" title="下載音訊" class="bg-white/6 hover:bg-white/10 text-slate-200 text-xs px-2.5 py-1 rounded-md transition flex items-center gap-1 border border-white/10"><span>⬇️</span></a></div>`;
-          } else {
-            // 通用檔案卡片 (PDF, Excel, Word, ZIP, etc.)
-            let icon = "📄";
-            let color = "text-purple-300";
-            if (fileType === "pdf") { icon = "📕"; color = "text-red-400"; }
-            else if (fileType === "excel") { icon = "📊"; color = "text-emerald-400"; }
-            else if (fileType === "doc") { icon = "📝"; color = "text-cyan-400"; }
-            else if (fileType === "ppt") { icon = "📽️"; color = "text-amber-400"; }
-            else if (fileType === "archive") { icon = "📦"; color = "text-indigo-400"; }
+        if (cancelled || !el.isConnected) return;
 
-            el.innerHTML = `<div class="my-2 flex items-center justify-between gap-3 p-2.5 rounded-lg border border-white/8 bg-[#14161c] hover:border-white/15 transition-all max-w-md group"><div class="flex items-center gap-2.5 overflow-hidden pr-2"><div class="w-8 h-8 rounded-md bg-white/4 border border-white/8 flex items-center justify-center text-sm shrink-0">${icon}</div><div class="overflow-hidden"><div class="font-medium text-xs text-slate-200 truncate group-hover:text-cyan-200 transition-colors">${mediaName}</div><div class="text-[10px] text-slate-500 font-mono mt-0.5 uppercase flex items-center gap-1.5"><span>${fileType.toUpperCase()}</span><span>• 檔案附件</span></div></div></div><a href="${objectUrl}" download="${mediaName}" class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-white/6 hover:bg-cyan-950/50 hover:text-cyan-200 text-slate-300 text-xs font-medium border border-white/10 transition-colors cursor-pointer shrink-0"><span>下載</span></a></div>`;
-          }
-        } else {
-          el.innerHTML = `<span class="text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 px-2.5 py-1 rounded-full inline-flex items-center gap-1 font-mono">⚠️ 檔案「${mediaName}」不存在於本機庫</span>`;
+        const displayName = record?.filename || hintedName || ref;
+        const fileType = hintedType;
+
+        el.replaceChildren();
+
+        if (!objectUrl) {
+          const missing = document.createElement("div");
+          missing.className =
+            "inline-flex items-center gap-2 rounded border border-amber-700/40 bg-amber-950/20 px-2.5 py-1.5 text-xs text-amber-300";
+
+          const text = document.createElement("span");
+          text.textContent = `附件「${displayName}」不存在於本機庫`;
+
+          const removeButton = document.createElement("button");
+          removeButton.type = "button";
+          removeButton.className =
+            "rounded border border-white/10 px-2 py-0.5 text-[10px] text-slate-300 hover:text-white";
+          removeButton.textContent = "移除引用";
+          removeButton.dataset.mediaDeleteRef = ref;
+          removeButton.dataset.mediaDeleteName = displayName;
+
+          missing.append(text, removeButton);
+          el.appendChild(missing);
+          return;
         }
-      } catch (err) {
-        if (!isCancelled && el.parentElement) {
-          el.innerHTML = `<span class="text-xs text-red-400 font-mono">載入失敗: ${mediaName}</span>`;
+
+        const shell = document.createElement("div");
+        shell.className =
+          "relative group/media my-2 inline-block max-w-full";
+
+        const actions = document.createElement("div");
+        actions.className =
+          "absolute right-2 top-2 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover/media:opacity-100";
+
+        const download = document.createElement("a");
+        download.href = objectUrl;
+        download.download = displayName;
+        download.className =
+          "rounded border border-white/10 bg-black/70 px-2 py-1 text-[10px] text-slate-200 backdrop-blur-sm hover:bg-black/90";
+        download.textContent = "下載";
+
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className =
+          "rounded border border-red-500/20 bg-black/70 px-2 py-1 text-[10px] text-red-300 backdrop-blur-sm hover:bg-red-950/80 hover:text-red-200";
+        deleteButton.textContent = "刪除";
+        deleteButton.dataset.mediaDeleteRef = ref;
+        deleteButton.dataset.mediaDeleteName = displayName;
+
+        actions.append(download, deleteButton);
+
+        if (fileType === "image") {
+          const image = document.createElement("img");
+          image.src = objectUrl;
+          image.alt = displayName;
+          image.className =
+            "max-h-96 max-w-full rounded object-contain border border-white/10 shadow-sm";
+
+          shell.append(image, actions);
+          el.appendChild(shell);
+          return;
+        }
+
+        if (fileType === "video") {
+          const video = document.createElement("video");
+          video.src = objectUrl;
+          video.controls = true;
+          video.className =
+            "max-h-96 max-w-full rounded border border-white/10 shadow-sm";
+
+          shell.append(video, actions);
+          el.appendChild(shell);
+          return;
+        }
+
+        if (fileType === "audio") {
+          const audioShell = document.createElement("div");
+          audioShell.className =
+            "flex max-w-md items-center gap-3 rounded border border-white/10 bg-black/25 p-3";
+
+          const audio = document.createElement("audio");
+          audio.src = objectUrl;
+          audio.controls = true;
+          audio.className = "h-9 max-w-xs";
+
+          const name = document.createElement("span");
+          name.className =
+            "min-w-0 flex-1 truncate text-xs text-slate-300";
+          name.textContent = displayName;
+
+          audioShell.append(audio, name, download, deleteButton);
+          el.appendChild(audioShell);
+          return;
+        }
+
+        const card = document.createElement("div");
+        card.className =
+          "flex max-w-md items-center justify-between gap-3 rounded border border-white/10 bg-black/25 p-3";
+
+        const left = document.createElement("div");
+        left.className = "flex min-w-0 items-center gap-3";
+
+        const icon = document.createElement("div");
+        icon.className =
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded border border-white/10 bg-white/[0.03] text-[9px] font-mono text-slate-400";
+        icon.textContent = getFileIcon(fileType);
+
+        const meta = document.createElement("div");
+        meta.className = "min-w-0";
+
+        const name = document.createElement("div");
+        name.className = "truncate text-xs text-slate-200";
+        name.textContent = displayName;
+
+        const sub = document.createElement("div");
+        sub.className =
+          "mt-0.5 text-[9px] uppercase tracking-wide text-slate-500";
+        sub.textContent = "本機附件";
+
+        meta.append(name, sub);
+        left.append(icon, meta);
+
+        const cardActions = document.createElement("div");
+        cardActions.className = "flex shrink-0 items-center gap-1";
+        cardActions.append(download, deleteButton);
+
+        card.append(left, cardActions);
+        el.appendChild(card);
+      } catch (error) {
+        console.error("載入附件失敗:", ref, error);
+
+        if (!cancelled && el.isConnected) {
+          el.textContent = `載入失敗：${hintedName}`;
         }
       }
+    };
+
+    nodes.forEach((el) => {
+      void renderMedia(el);
     });
 
     return () => {
-      isCancelled = true;
+      cancelled = true;
     };
-  }, [renderedHtml, note?.id]);
+  }, [sanitizedHtml, note?.id]);
 
   if (!note) {
     return (
-      <div className="flex h-full flex-col items-center justify-center bg-slate-950 p-6 text-center text-slate-400">
-        <div className="mb-4 rounded-3xl bg-cyan-950/40 p-4 border border-cyan-800/40 shadow-xl">
-          <svg className="w-12 h-12 text-cyan-400" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z" />
-          </svg>
-        </div>
-        <h3 className="text-lg font-bold text-slate-200">未選取任何筆記</h3>
-        <p className="mt-1 text-xs text-slate-500">請從左側列表或資料夾中選取筆記，或點選「新筆記」開始建立知識庫！</p>
+      <div className="flex h-full flex-col items-center justify-center bg-transparent p-6 text-center text-slate-400">
+        <div className="mb-3 font-serif text-2xl text-slate-500">墨</div>
+        <h3 className="font-serif text-base text-slate-200">
+          未選取任何筆記
+        </h3>
+        <p className="mt-1 text-xs text-slate-500">
+          請從左側選取筆記，或建立一篇新筆記。
+        </p>
       </div>
     );
   }
 
-  // 格式插入輔助函數
-  const insertFormatting = (prefix: string, suffix: string = "") => {
+  const insertFormatting = (
+    prefix: string,
+    suffix: string = ""
+  ) => {
     const textarea = textareaRef.current;
+
     if (!textarea) return;
 
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const text = textarea.value;
     const selected = text.substring(start, end);
-    const replacement = `${prefix}${selected || "文字"}${suffix}`;
+    const body = selected || "文字";
+    const replacement = `${prefix}${body}${suffix}`;
 
-    const newContent = text.substring(0, start) + replacement + text.substring(end);
-    onUpdateContent(newContent);
+    onUpdateContent(
+      text.substring(0, start) +
+        replacement +
+        text.substring(end)
+    );
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       textarea.focus();
+
       textarea.setSelectionRange(
         start + prefix.length,
-        start + prefix.length + (selected.length || "文字".length)
+        start + prefix.length + body.length
       );
     }, 0);
   };
 
   const insertTextAtCursor = (insertion: string) => {
     const textarea = textareaRef.current;
+
     if (!textarea) {
-      onUpdateContent(note.content + "\n" + insertion);
+      onUpdateContent(
+        note.content +
+          (note.content.endsWith("\n") ? "" : "\n") +
+          insertion
+      );
       return;
     }
 
     const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
     const text = textarea.value;
-    const newContent = text.substring(0, start) + insertion + text.substring(start);
-    onUpdateContent(newContent);
 
-    setTimeout(() => {
+    onUpdateContent(
+      text.substring(0, start) +
+        insertion +
+        text.substring(end)
+    );
+
+    window.setTimeout(() => {
       textarea.focus();
-      const nextPos = start + insertion.length;
-      textarea.setSelectionRange(nextPos, nextPos);
+
+      const next = start + insertion.length;
+      textarea.setSelectionRange(next, next);
     }, 0);
   };
 
-  // 處理檔案上傳
-  const handleProcessFiles = async (files: FileList | File[]) => {
-    const fileList = Array.from(files);
-    if (fileList.length === 0) return;
+  const handleProcessFiles = async (
+    files: FileList | File[]
+  ) => {
+    const list = Array.from(files);
+
+    if (list.length === 0) return;
 
     setIsUploading(true);
-    setUploadMessage(`正在儲存 ${fileList.length} 個檔案至本機資料庫...`);
+    setUploadMessage(
+      `正在儲存 ${list.length} 個附件至本機資料庫…`
+    );
 
     try {
-      let insertTags = "";
-      for (const file of fileList) {
+      let insertion = "";
+
+      for (const file of list) {
         const saved = await saveUploadedMedia(file);
-        insertTags += `\n![[${saved.filename}]]\n`;
+
+        /**
+         * 重要：
+         * Markdown 內真正保存 media ID，
+         * filename 只做顯示名稱。
+         */
+        const safeLabel = saved.filename
+          .replace(/\|/g, "／")
+          .replace(/\]/g, "）");
+
+        insertion += `\n![[${saved.id}|${safeLabel}]]\n`;
       }
-      insertTextAtCursor(insertTags);
-      setUploadMessage(`已成功儲存並插入 ${fileList.length} 個檔案附件！`);
-      setTimeout(() => setUploadMessage(null), 3000);
-    } catch (err: any) {
-      alert(`儲存檔案失敗: ${err.message || err}`);
+
+      insertTextAtCursor(insertion);
+
+      setUploadMessage(
+        `已加入 ${list.length} 個附件`
+      );
+
+      window.setTimeout(
+        () => setUploadMessage(null),
+        2600
+      );
+    } catch (error: any) {
+      setUploadMessage(
+        `附件儲存失敗：${error?.message || error}`
+      );
     } finally {
       setIsUploading(false);
     }
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
-      e.preventDefault();
-      handleProcessFiles(e.clipboardData.files);
+  const removeMediaReference = (
+    ref: string
+  ) => {
+    if (!note) return;
+
+    const escaped = escapeRegExp(ref);
+
+    const regex = new RegExp(
+      `!?\\[\\[${escaped}(?:\\|[^\\]]+)?\\]\\]\\s*`,
+      "g"
+    );
+
+    onUpdateContent(
+      note.content.replace(regex, "")
+    );
+  };
+
+  const handleDeleteMedia = async (
+    ref: string,
+    displayName: string
+  ) => {
+    const confirmed = window.confirm(
+      `確定要刪除附件「${displayName}」嗎？\n\n` +
+        "此動作會刪除本機 IndexedDB 中的附件，並移除目前筆記中的引用。"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await deleteSavedMedia(ref);
+      removeMediaReference(ref);
+
+      setUploadMessage(
+        `已刪除 ${displayName}`
+      );
+
+      window.setTimeout(
+        () => setUploadMessage(null),
+        2200
+      );
+    } catch (error: any) {
+      setUploadMessage(
+        `刪除失敗：${error?.message || error}`
+      );
     }
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handlePaste = (
+    event: React.ClipboardEvent<HTMLTextAreaElement>
+  ) => {
+    const files = event.clipboardData?.files;
+
+    if (files?.length) {
+      event.preventDefault();
+      void handleProcessFiles(files);
+    }
+  };
+
+  const handleDragOver = (
+    event: React.DragEvent<HTMLDivElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
     setIsDragging(true);
   };
 
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
+  const handleDragLeave = (
+    event: React.DragEvent<HTMLDivElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-
-    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleProcessFiles(e.dataTransfer.files);
+    if (event.currentTarget === event.target) {
+      setIsDragging(false);
     }
   };
 
-  // 點擊預覽區內的 Wikilink、章節標題跳轉與標籤
-  const handlePreviewClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
+  const handleDrop = (
+    event: React.DragEvent<HTMLDivElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
 
-    // 點選雙向鏈結 (支援 [[Note#Heading]])
-    const linkEl = target.closest<HTMLAnchorElement>(".obsidian-wikilink");
-    if (linkEl) {
-      e.preventDefault();
-      const noteTitle = linkEl.getAttribute("data-note-title");
-      const headingSlug = linkEl.getAttribute("data-heading-slug");
+    setIsDragging(false);
 
-      // 如果是指向當前筆記內部標題（或無 noteTitle）
-      if (!noteTitle || (note && note.title.toLowerCase() === noteTitle.toLowerCase())) {
+    if (event.dataTransfer?.files?.length) {
+      void handleProcessFiles(
+        event.dataTransfer.files
+      );
+    }
+  };
+
+  const handlePreviewClick = (
+    event: React.MouseEvent<HTMLDivElement>
+  ) => {
+    const target = event.target as HTMLElement;
+
+    const deleteButton =
+      target.closest<HTMLButtonElement>(
+        "[data-media-delete-ref]"
+      );
+
+    if (deleteButton) {
+      event.preventDefault();
+
+      const ref =
+        deleteButton.dataset.mediaDeleteRef || "";
+
+      const name =
+        deleteButton.dataset.mediaDeleteName || ref;
+
+      if (ref) {
+        void handleDeleteMedia(ref, name);
+      }
+
+      return;
+    }
+
+    const link =
+      target.closest<HTMLAnchorElement>(
+        ".obsidian-wikilink"
+      );
+
+    if (link) {
+      event.preventDefault();
+
+      const noteTitle =
+        link.dataset.noteTitle || "";
+
+      const headingSlug =
+        link.dataset.headingSlug || "";
+
+      if (
+        !noteTitle ||
+        note.title.toLowerCase() ===
+          noteTitle.toLowerCase()
+      ) {
         if (headingSlug) {
           scrollToHeading(headingSlug);
         }
       } else {
-        // 跨筆記標題跳轉
-        onNavigateToNoteTitle(noteTitle, headingSlug || undefined);
+        onNavigateToNoteTitle(
+          noteTitle,
+          headingSlug || undefined
+        );
       }
+
       return;
     }
 
-    // 點選標籤
-    const tagEl = target.closest<HTMLElement>(".obsidian-tag");
-    if (tagEl && onSelectTag) {
-      e.preventDefault();
-      const tag = tagEl.getAttribute("data-tag");
-      if (tag) {
-        onSelectTag(tag);
+    const tag =
+      target.closest<HTMLElement>(
+        ".obsidian-tag"
+      );
+
+    if (tag && onSelectTag) {
+      event.preventDefault();
+
+      const value = tag.dataset.tag;
+
+      if (value) {
+        onSelectTag(value);
       }
-      return;
     }
   };
 
-  const wordCount = note.content.trim() ? note.content.trim().split(/\s+/).length : 0;
+  const wordCount = note.content.trim()
+    ? note.content.trim().split(/\s+/).length
+    : 0;
+
   const charCount = note.content.length;
 
   return (
-    <div className="flex h-full flex-col bg-slate-950 text-slate-100 min-w-0 relative">
+    <div
+      className="relative flex h-full min-w-0 flex-col bg-transparent text-slate-100"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {uploadMessage && (
-        <div className="fixed bottom-5 right-5 z-50 rounded-lg bg-[#181a20]/95 border border-white/10 px-3.5 py-2 text-xs text-slate-200 shadow-2xl backdrop-blur-md flex items-center gap-2 transition-all duration-200">
-          <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <circle cx="12" cy="12" r="10" strokeWidth="3" strokeDasharray="32" strokeLinecap="round" />
-          </svg>
-          {uploadMessage}
+        <div className="fixed bottom-5 right-5 z-[12000] flex items-center gap-2 rounded border border-white/10 bg-[#121415]/95 px-3.5 py-2 text-xs text-slate-200 shadow-2xl">
+          <span className="font-serif text-cyan-300">
+            {isUploading ? "…" : "✓"}
+          </span>
+          <span>{uploadMessage}</span>
         </div>
       )}
 
       <input
-        type="file"
         ref={fileInputRef}
-        onChange={(e) => {
-          if (e.target.files && e.target.files.length > 0) {
-            handleProcessFiles(e.target.files);
-            e.target.value = "";
-          }
-        }}
+        type="file"
         multiple
         className="hidden"
+        onChange={(event) => {
+          if (event.target.files?.length) {
+            void handleProcessFiles(
+              event.target.files
+            );
+
+            event.target.value = "";
+          }
+        }}
       />
 
-      {/* 頂部操作欄 */}
-      <div className="flex items-center justify-between border-b border-white/5 bg-[#0e1013] px-5 py-2.5 select-none relative after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[1px] after:bg-gradient-to-r after:from-transparent after:via-white/10 after:to-transparent">
-        <div className="flex items-center gap-3 min-w-0">
-          <h2 className="text-base font-serif font-medium text-slate-100 truncate tracking-wide flex items-center gap-2">
-            <span>{note.title}</span>
-            {note.folder && (
-              <span className="text-[11px] font-sans font-normal text-slate-400 bg-white/4 px-2 py-0.5 rounded-[2px]">
-                {note.folder}
-              </span>
-            )}
+      <div className="flex items-center justify-between border-b border-white/5 bg-black/20 px-5 py-2.5 select-none">
+        <div className="flex min-w-0 items-center gap-3">
+          <h2 className="truncate font-serif text-base font-medium tracking-wide text-slate-100">
+            {note.title}
           </h2>
-          <span className="text-[11px] text-slate-500 font-sans hidden sm:inline">
+
+          {note.folder && (
+            <span className="hidden max-w-40 truncate text-[10px] text-slate-500 sm:inline">
+              {note.folder}
+            </span>
+          )}
+
+          <span className="hidden text-[10px] text-slate-500 lg:inline">
             {charCount} 字 · {wordCount} 詞
           </span>
         </div>
 
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           <button
-            onClick={() => fileInputRef.current?.click()}
+            type="button"
             disabled={isUploading}
-            className="px-2.5 py-1 text-xs text-slate-300 hover:text-slate-100 hover:bg-white/4 transition-colors cursor-pointer rounded-[2px] flex items-center gap-1.5"
-            title="放檔案或多媒體 (支援任意格式附件)"
+            onClick={() =>
+              fileInputRef.current?.click()
+            }
+            className="px-2 py-1 text-xs text-slate-400 hover:text-slate-100"
+            title="加入圖片、影片或任意檔案"
           >
-            <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-            </svg>
             檔案 / 媒體
           </button>
 
           <button
+            type="button"
             onClick={onOpenGraphView}
-            className="px-2.5 py-1 text-xs text-slate-300 hover:text-slate-100 hover:bg-white/4 transition-colors cursor-pointer rounded-[2px] flex items-center gap-1.5"
-            title="開啟知識圖譜主視圖"
+            className="px-2 py-1 text-xs text-slate-400 hover:text-slate-100"
           >
-            <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-            </svg>
-            圖譜視圖
+            圖譜
           </button>
 
           <button
-            onClick={() => onDownloadMarkdown(note)}
-            className="p-1 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer rounded-[2px]"
-            title="下載 Markdown 原文"
+            type="button"
+            onClick={() =>
+              onDownloadMarkdown(note)
+            }
+            className="px-2 py-1 text-xs text-slate-400 hover:text-slate-100"
+            title="下載 Markdown"
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
+            ↓
           </button>
 
-          {/* 模式切換器：極簡底線墨痕切換，無厚重外框 */}
-          <div className="flex items-center gap-0.5 ml-1 border-l border-white/8 pl-2">
-            <button
-              onClick={() => setViewMode("edit")}
-              className={`px-2 py-0.8 text-xs transition-colors cursor-pointer rounded-[2px] ${
-                viewMode === "edit"
-                  ? "text-slate-100 font-medium bg-white/[0.06] border-b border-[#0e7490]"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              編輯
-            </button>
-            <button
-              onClick={() => setViewMode("split")}
-              className={`px-2 py-0.8 text-xs transition-colors cursor-pointer hidden md:inline-block rounded-[2px] ${
-                viewMode === "split"
-                  ? "text-slate-100 font-medium bg-white/[0.06] border-b border-[#0e7490]"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              雙欄
-            </button>
-            <button
-              onClick={() => setViewMode("preview")}
-              className={`px-2 py-0.8 text-xs transition-colors cursor-pointer rounded-[2px] ${
-                viewMode === "preview"
-                  ? "text-slate-100 font-medium bg-white/[0.06] border-b border-[#0e7490]"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              預覽
-            </button>
+          <div className="ml-1 flex items-center gap-1 border-l border-white/10 pl-2">
+            {(["edit", "split", "preview"] as ViewMode[]).map(
+              (mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setViewMode(mode)}
+                  className={`border-b px-2 py-1 text-xs ${
+                    viewMode === mode
+                      ? "border-cyan-600 text-slate-100"
+                      : "border-transparent text-slate-500 hover:text-slate-200"
+                  }`}
+                >
+                  {mode === "edit"
+                    ? "編輯"
+                    : mode === "split"
+                    ? "雙欄"
+                    : "預覽"}
+                </button>
+              )
+            )}
           </div>
         </div>
       </div>
 
-      {/* 快速排版工具列 */}
       {viewMode !== "preview" && (
-        <div className="flex items-center gap-1 overflow-x-auto border-b border-white/4 bg-black/10 px-4 py-1 text-slate-400 text-xs select-none">
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-white/5 bg-black/10 px-4 py-1 text-xs text-slate-500 select-none">
           <button
-            onClick={() => insertFormatting("**", "**")}
-            className="px-2 py-0.5 rounded-[2px] hover:bg-white/4 hover:text-slate-200 transition-colors font-bold"
-            title="粗體"
+            type="button"
+            onClick={() =>
+              insertFormatting("**", "**")
+            }
+            className="px-2 py-1 font-bold hover:text-slate-200"
           >
             B
           </button>
+
           <button
-            onClick={() => insertFormatting("*", "*")}
-            className="px-2 py-0.5 rounded-[2px] hover:bg-white/4 hover:text-slate-200 transition-colors italic font-serif"
-            title="斜體"
+            type="button"
+            onClick={() =>
+              insertFormatting("*", "*")
+            }
+            className="px-2 py-1 italic hover:text-slate-200"
           >
             I
           </button>
+
           <button
-            onClick={() => insertFormatting("## ")}
-            className="px-2 py-0.5 rounded-[2px] hover:bg-white/4 hover:text-slate-200 transition-colors font-bold"
-            title="二級標題"
+            type="button"
+            onClick={() =>
+              insertFormatting("## ")
+            }
+            className="px-2 py-1 hover:text-slate-200"
           >
             H2
           </button>
+
           <button
-            onClick={() => insertFormatting("### ")}
-            className="px-2 py-0.5 rounded-[2px] hover:bg-white/4 hover:text-slate-200 transition-colors font-bold"
-            title="三級標題"
+            type="button"
+            onClick={() =>
+              insertFormatting("### ")
+            }
+            className="px-2 py-1 hover:text-slate-200"
           >
             H3
           </button>
+
           <button
-            onClick={() => insertFormatting("- [ ] ")}
-            className="px-2 py-0.5 rounded-[2px] hover:bg-white/4 hover:text-slate-200 transition-colors"
-            title="待辦清單"
-          >
-            ☑
-          </button>
-          <button
-            onClick={() => insertFormatting("- ")}
-            className="px-2 py-0.5 rounded-[2px] hover:bg-white/4 hover:text-slate-200 transition-colors"
-            title="無序清單"
+            type="button"
+            onClick={() =>
+              insertFormatting("- ")
+            }
+            className="px-2 py-1 hover:text-slate-200"
           >
             • 清單
           </button>
+
           <button
-            onClick={() => insertFormatting("> ")}
-            className="px-2 py-0.5 rounded-[2px] hover:bg-white/4 hover:text-slate-200 transition-colors"
-            title="引用區塊"
+            type="button"
+            onClick={() =>
+              insertFormatting("> ")
+            }
+            className="px-2 py-1 hover:text-slate-200"
           >
-            “ 引用
+            引用
           </button>
+
           <button
-            onClick={() => insertFormatting("[[", "]]")}
-            className="rounded-full px-2.5 py-0.5 bg-purple-900/50 text-purple-300 hover:bg-purple-800 hover:text-purple-100 font-mono font-bold"
-            title="雙向連結 Wikilink (亦支援 [[筆記#章節]])"
+            type="button"
+            onClick={() =>
+              insertFormatting("[[", "]]")
+            }
+            title="雙向連結 Wikilink"
+            className="px-2 py-1 text-cyan-300"
           >
             [[連結]]
           </button>
+
           <button
-            onClick={() => insertFormatting("#")}
-            className="px-2 py-0.5 rounded-[2px] hover:bg-white/4 hover:text-slate-200 transition-colors font-bold"
-            title="標籤"
+            type="button"
+            onClick={() =>
+              insertFormatting("#")
+            }
+            className="px-2 py-1 hover:text-slate-200"
           >
             #標籤
           </button>
+
           <button
-            onClick={() => insertFormatting("![[", "]]")}
-            className="rounded-full px-2 py-0.5 hover:bg-slate-800 text-purple-300 hover:text-cyan-200 font-mono"
-            title="嵌入多媒體 ![[檔名]]"
+            type="button"
+            onClick={() =>
+              fileInputRef.current?.click()
+            }
+            title="嵌入多媒體"
+            className="px-2 py-1 text-cyan-300"
           >
             ![[媒體]]
           </button>
         </div>
       )}
 
-      {/* 主要工作區 */}
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={`flex-1 overflow-hidden flex min-h-0 relative ${
-          isDragging ? "ring-2 ring-cyan-500/80 bg-cyan-950/20" : ""
-        }`}
-      >
-        {isDragging && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs border-2 border-dashed border-cyan-500 rounded-2xl pointer-events-none">
-            <div className="text-center">
-              <svg className="w-12 h-12 text-cyan-400 mx-auto mb-2 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
-              <p className="text-sm font-bold text-cyan-200">放開滑鼠以放入檔案或媒體至本機庫</p>
-              <p className="text-xs text-slate-400 mt-1">支援任意檔案格式（PDF、Office、壓縮檔、圖片、影片等）並自動插入 Markdown</p>
-            </div>
-          </div>
-        )}
-
-        {/* 編輯區 */}
-        {(viewMode === "edit" || viewMode === "split") && (
+      <div className="relative flex min-h-0 flex-1">
+        {(viewMode === "edit" ||
+          viewMode === "split") && (
           <div
-            className={`flex flex-col h-full ${
-              viewMode === "split" ? "w-1/2 border-r border-slate-800" : "w-full"
+            className={`min-w-0 ${
+              viewMode === "split"
+                ? "w-1/2 border-r border-slate-800"
+                : "w-full"
             }`}
           >
             <textarea
               ref={textareaRef}
               value={note.content}
-              onChange={(e) => onUpdateContent(e.target.value)}
+              onChange={(event) =>
+                onUpdateContent(
+                  event.target.value
+                )
+              }
               onPaste={handlePaste}
-              placeholder="提筆賦墨：在此揮灑 Markdown，支援任意檔案拖入、[[長卷篇章]] 雙向連結、#標籤、或貼上圖像檔案..."
-              className="flex-1 max-w-3xl mx-auto w-full resize-none bg-transparent p-6 font-sans text-[15px] leading-[1.85] text-slate-200 placeholder:text-slate-600 focus:outline-none"
+              spellCheck={false}
+              className="h-full w-full resize-none bg-transparent p-5 font-mono text-sm leading-7 text-slate-200 outline-none"
             />
           </div>
         )}
 
-        {/* 預覽區 */}
-        {(viewMode === "preview" || viewMode === "split") && (
+        {(viewMode === "preview" ||
+          viewMode === "split") && (
           <div
-            ref={previewRef}
-            onClick={handlePreviewClick}
-            className={`flex flex-col h-full overflow-y-auto p-6 paper-texture ${
-              viewMode === "split" ? "w-1/2" : "w-full"
+            className={`paper-texture min-w-0 overflow-y-auto ${
+              viewMode === "split"
+                ? "w-1/2"
+                : "w-full"
             }`}
           >
             <div
-              className="obsidian-preview-container text-slate-200 leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: renderedHtml }}
+              ref={previewRef}
+              className="obsidian-preview-container"
+              onClick={handlePreviewClick}
+              dangerouslySetInnerHTML={{
+                __html: sanitizedHtml,
+              }}
             />
+          </div>
+        )}
+
+        {isDragging && (
+          <div className="pointer-events-none absolute inset-3 z-40 flex items-center justify-center border border-dashed border-cyan-500/50 bg-black/60">
+            <div className="text-center">
+              <div className="font-serif text-lg text-slate-200">
+                放下附件
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                將儲存至本機 IndexedDB
+              </div>
+            </div>
           </div>
         )}
       </div>
