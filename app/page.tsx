@@ -23,15 +23,16 @@ import {
   exportVaultJson,
   getDefaultNotes,
   validateAndParseVaultBackup,
+  parseAndRestoreVaultBackup,
 } from "@/lib/obsidian/storage";
 import { revokeAllActiveMediaUrls } from "@/lib/obsidian/media";
-import { Note, NoteMetadata } from "@/lib/obsidian/types";
+import { Note, NoteMetadata, ViewMode } from "@/lib/obsidian/types";
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export default function ObsidianVaultPage() {
+export default function MarkdownVaultPage() {
   const [notesMeta, setNotesMeta] = useState<NoteMetadata[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [activeNote, setActiveNote] = useState<Note | null>(null);
@@ -42,6 +43,8 @@ export default function ObsidianVaultPage() {
   const [showGraphView, setShowGraphView] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [showBackupModal, setShowBackupModal] = useState(false);
+  const [mainView, setMainView] = useState<"editor" | "graph">("editor");
+  const [editorViewMode, setEditorViewMode] = useState<ViewMode>("split");
   const [notification, setNotification] = useState<{
     type: "success" | "error" | "info";
     message: string;
@@ -49,6 +52,9 @@ export default function ObsidianVaultPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+
+
 
   function notify(type: "success" | "error" | "info", message: string) {
     setNotification({ type, message });
@@ -381,7 +387,7 @@ export default function ObsidianVaultPage() {
 
   async function handleExportVault() {
     try {
-      await exportVaultJson();
+      await exportVaultJson("Markdown-Vault");
       notify("success", "已成功匯出知識庫備份檔");
     } catch (err: any) {
       notify("error", "匯出失敗: " + err.message);
@@ -394,8 +400,7 @@ export default function ObsidianVaultPage() {
 
     try {
       const text = await file.text();
-      const parsedNotes = validateAndParseVaultBackup(text);
-      await importVaultBackupToDB(parsedNotes);
+      const result = await parseAndRestoreVaultBackup(text);
 
       const refreshed = await getAllNoteMetadata();
       setNotesMeta(refreshed);
@@ -403,7 +408,8 @@ export default function ObsidianVaultPage() {
         selectNoteById(refreshed[0].id);
       }
       setShowBackupModal(false);
-      notify("success", `成功匯入 ${parsedNotes.length} 篇筆記！`);
+      const mediaInfo = result.mediaCount > 0 ? `、${result.mediaCount} 個照片/影片` : "";
+      notify("success", `成功還原 ${result.notes.length} 篇筆記${mediaInfo}！`);
     } catch (err: any) {
       notify("error", `匯入失敗: ${err.message || "檔案格式不符"}`);
     } finally {
@@ -417,24 +423,12 @@ export default function ObsidianVaultPage() {
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
       {/* 浮動通知提示 Toast */}
       {notification && (
-        <div
-          className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-medium shadow-2xl transition-all border ${
-            notification.type === "success"
-              ? "bg-emerald-950/90 text-emerald-200 border-emerald-800"
-              : notification.type === "error"
-              ? "bg-rose-950/90 text-rose-200 border-rose-800"
-              : "bg-purple-950/90 text-purple-200 border-purple-800"
-          }`}
-        >
+        <div className="fixed bottom-5 right-5 z-50 rounded-lg bg-[#181a20]/95 border border-white/10 px-3.5 py-2 text-xs text-slate-200 shadow-2xl backdrop-blur-md flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <span className="text-slate-300 font-mono">✓</span>
           <span>{notification.message}</span>
-          <button
-            onClick={() => setNotification(null)}
-            className="ml-2 text-slate-400 hover:text-white"
-          >
-            ✕
-          </button>
         </div>
       )}
+
 
       {/* 左側檔案樹導覽欄 */}
       <aside className="w-64 flex-shrink-0 flex flex-col h-full border-r border-slate-800 bg-slate-900/50">
@@ -452,39 +446,76 @@ export default function ObsidianVaultPage() {
         />
 
         {/* 底部功能捷徑 */}
-        <div className="border-t border-slate-800 p-2 bg-slate-900/80 flex items-center justify-between text-xs text-slate-400">
+        <div className="border-t border-white/6 p-2 bg-[#121418] flex items-center justify-between text-xs text-slate-400 select-none">
           <button
             onClick={() => setShowBackupModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-slate-800 hover:text-slate-200 transition cursor-pointer"
-            title="備份與還原"
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-white/5 hover:text-slate-200 transition-colors cursor-pointer text-[11px]"
+            title="備份與還原知識庫"
           >
-            <svg className="w-3.5 h-3.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+            <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
             </svg>
             備份 / 還原
           </button>
 
+
           <button
-            onClick={() => setShowGraphView(true)}
-            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-slate-800 hover:text-purple-300 transition cursor-pointer"
-            title="全螢幕圖譜"
+            onClick={() => setMainView(mainView === "editor" ? "graph" : "editor")}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors cursor-pointer text-[11px] ${
+              mainView === "graph"
+                ? "bg-cyan-950/60 text-cyan-200"
+                : "hover:bg-white/5 hover:text-slate-200 text-slate-400"
+            }`}
+            title="切換知識圖譜主視圖"
           >
-            <svg className="w-3.5 h-3.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
             </svg>
-            關聯圖譜
+            圖譜視圖
           </button>
         </div>
       </aside>
 
       {/* 中央主區域：Markdown 編輯器 / 圖譜檢視 */}
-      <main className="flex-1 flex flex-col min-w-0 h-full relative">
-        {isLoadingNote ? (
-          <div className="flex-1 flex items-center justify-center bg-slate-950 text-slate-400 gap-2">
-            <svg className="w-5 h-5 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <circle cx="12" cy="12" r="10" strokeWidth="3" strokeDasharray="32" strokeLinecap="round" />
+      <main className="flex-1 flex flex-col min-w-0 h-full relative bg-[#0d0f12]">
+        {mainView === "graph" ? (
+          <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+            <div className="flex items-center justify-between px-5 py-2.5 border-b border-white/5 bg-[#101216] z-20">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setMainView("editor")}
+                  className="flex items-center gap-1 px-2 py-0.8 text-xs text-slate-300 hover:text-slate-100 transition-colors cursor-pointer rounded-[2px]"
+                >
+                  <span>←</span>
+                  <span>返回編輯</span>
+                </button>
+                <span className="text-xs font-serif text-slate-400 ml-2">知識圖譜長卷 · 獨立主視圖</span>
+              </div>
+              <button
+                onClick={() => setShowGraphView(true)}
+                className="px-2 py-0.8 text-xs text-slate-400 hover:text-slate-200 transition-colors rounded-[2px]"
+                title="全螢幕開啟"
+              >
+                全螢幕
+              </button>
+            </div>
+            <div className="flex-1 h-full w-full">
+              <GraphView
+                notes={notesMeta}
+                activeNoteId={activeNoteId}
+                onSelectNote={(id) => {
+                  selectNoteById(id);
+                  setMainView("editor");
+                }}
+              />
+            </div>
+          </div>
+        ) : isLoadingNote ? (
+          <div className="flex-1 flex items-center justify-center bg-[#0d0f12] text-slate-400 gap-2">
+            <svg className="w-4 h-4 animate-spin text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="12" cy="12" r="10" strokeWidth="2.5" strokeDasharray="32" strokeLinecap="round" />
             </svg>
-            <span className="text-xs">正在載入筆記內容...</span>
+            <span className="text-xs text-slate-400">正在調入篇章...</span>
           </div>
         ) : (
           <MarkdownEditor
@@ -495,7 +526,7 @@ export default function ObsidianVaultPage() {
             onClearTargetHeadingSlug={() => setTargetHeadingSlug(null)}
             onNavigateToNoteTitle={handleNavigateToNoteTitle}
             onDownloadMarkdown={exportNoteMarkdown}
-            onOpenGraphView={() => setShowGraphView(true)}
+            onOpenGraphView={() => setMainView("graph")}
             onSelectTag={(t) => setSelectedTag(t)}
           />
         )}
@@ -503,8 +534,8 @@ export default function ObsidianVaultPage() {
 
       {/* 右側欄：反向連結 (Backlinks) 與 標籤 (Tags) */}
       {showRightPanel ? (
-        <aside className="w-72 flex-shrink-0 flex flex-col h-full border-l border-slate-800 bg-slate-900/40">
-          <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2 text-xs font-semibold text-slate-400">
+        <aside className="w-72 flex-shrink-0 flex flex-col h-full border-l border-white/6 bg-[#121418]">
+          <div className="flex items-center justify-between border-b border-white/6 px-3 py-2.5 text-xs font-semibold text-slate-400">
             <span>關聯資訊</span>
             <button
               onClick={() => setShowRightPanel(false)}
@@ -515,7 +546,7 @@ export default function ObsidianVaultPage() {
             </button>
           </div>
 
-          <div className="flex-1 flex flex-col overflow-y-auto divide-y divide-slate-800">
+          <div className="flex-1 flex flex-col overflow-y-auto divide-y divide-white/6">
             {/* 反向連結區塊 */}
             <div className="p-3">
               <BacklinksPanel
@@ -540,7 +571,7 @@ export default function ObsidianVaultPage() {
       ) : (
         <button
           onClick={() => setShowRightPanel(true)}
-          className="absolute right-0 top-12 z-20 rounded-l-lg bg-slate-800 border-l border-t border-b border-slate-700 p-1.5 text-xs text-slate-400 hover:text-purple-300"
+          className="absolute right-0 top-12 z-20 rounded-l-lg bg-slate-800 border-l border-t border-b border-slate-700 p-1.5 text-xs text-slate-400 hover:text-cyan-300"
           title="展開關聯與標籤"
         >
           ◀
@@ -550,7 +581,7 @@ export default function ObsidianVaultPage() {
       {/* 全螢幕/彈出式圖譜檢視 (Graph View Modal) */}
       {showGraphView && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className="relative w-full max-w-5xl h-[85vh] rounded-3xl overflow-hidden border border-purple-500/30 shadow-2xl shadow-purple-950/60 bg-slate-950/95 flex flex-col ring-1 ring-white/10">
+          <div className="relative w-full max-w-5xl h-[85vh] rounded-xl overflow-hidden border border-white/10 shadow-2xl bg-[#0c0d10] flex flex-col">
             <GraphView
               notes={notesMeta}
               activeNoteId={activeNoteId}
@@ -564,13 +595,14 @@ export default function ObsidianVaultPage() {
         </div>
       )}
 
+
       {/* 備份與還原 Modal */}
       {showBackupModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-3xl bg-slate-900/95 border border-purple-500/30 p-6 shadow-2xl shadow-purple-950/50 text-slate-200 backdrop-blur-xl ring-1 ring-white/10">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="w-full max-w-md rounded-xl bg-[#14161c]/95 border border-white/10 p-5 shadow-2xl text-slate-200 backdrop-blur-md ring-1 ring-white/5">
+            <div className="flex items-center justify-between pb-3 border-b border-white/8">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7z" />
                 </svg>
                 本機知識庫備份與管理
@@ -585,24 +617,24 @@ export default function ObsidianVaultPage() {
 
             <div className="py-4 space-y-4 text-xs leading-relaxed text-slate-300">
               <p>
-                知識庫採用高效 <strong className="text-purple-300">IndexedDB</strong> 兩層儲存架構，資料保存於瀏覽器本機沙盒中。即使開啟龐大筆記與圖譜也不會造成卡頓。
+                知識庫採用高效 <strong className="text-rose-300">IndexedDB</strong> 兩層儲存架構，資料保存於瀏覽器本機沙盒中。即使開啟龐大筆記與圖譜也不會造成卡頓。
               </p>
 
-              <div className="rounded-lg bg-slate-950/80 p-3 border border-slate-800 space-y-2">
+              <div className="rounded-lg bg-white/3 p-3 border border-white/8 rounded-lg space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400">目前筆記數量:</span>
-                  <span className="font-mono text-purple-400 font-bold">{notesMeta.length} 篇</span>
+                  <span className="font-mono text-slate-400 font-bold">{notesMeta.length} 篇</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400">標籤數量:</span>
-                  <span className="font-mono text-purple-400 font-bold">{tagsWithCounts.length} 個</span>
+                  <span className="font-mono text-slate-400 font-bold">{tagsWithCounts.length} 個</span>
                 </div>
               </div>
 
               <div className="flex flex-col gap-2 pt-2">
                 <button
                   onClick={handleExportVault}
-                  className="w-full flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 shadow-lg shadow-purple-900/40 hover:bg-purple-500 py-2.5 text-xs font-semibold text-white transition shadow cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 rounded-lg bg-[#be123c] hover:bg-[#9f1239] py-2 text-xs font-medium text-white transition-colors cursor-pointer shadow-sm"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -610,8 +642,8 @@ export default function ObsidianVaultPage() {
                   匯出整座知識庫 (JSON 備份檔)
                 </button>
 
-                <label className="w-full flex items-center justify-center gap-2 rounded-full bg-slate-800 hover:bg-slate-700 py-2.5 text-xs font-semibold text-slate-200 transition border border-slate-700 cursor-pointer">
-                  <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <label className="w-full flex items-center justify-center gap-2 rounded-lg bg-white/4 hover:bg-white/8 py-2 text-xs font-medium text-slate-200 transition-colors border border-white/8 cursor-pointer">
+                  <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l4-4m0 0l4 4m-4-4v12" />
                   </svg>
                   還原 / 匯入備份檔
