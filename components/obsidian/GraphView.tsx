@@ -379,6 +379,243 @@ export function GraphView({
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, width, height);
 
+      /*
+       * 山水背景：
+       * 直接用 Canvas 畫，不依賴 CSS 漸層，也不會阻塞節點互動。
+       * 中央刻意留白，只讓山、水停留在畫布邊緣。
+       */
+      ctx.save();
+
+      const sceneryAlpha =
+        0.82 + Math.sin(time * 0.00018) * 0.05;
+
+      ctx.globalAlpha = sceneryAlpha;
+
+      /*
+       * 遠山
+       */
+      const mountainFade =
+        ctx.createLinearGradient(
+          0,
+          height * 0.58,
+          0,
+          height
+        );
+
+      mountainFade.addColorStop(
+        0,
+        "rgba(196,199,190,0)"
+      );
+
+      mountainFade.addColorStop(
+        0.48,
+        "rgba(170,177,170,0.055)"
+      );
+
+      mountainFade.addColorStop(
+        1,
+        "rgba(150,158,152,0.12)"
+      );
+
+      ctx.beginPath();
+      ctx.moveTo(
+        -80,
+        height + 20
+      );
+
+      ctx.bezierCurveTo(
+        width * 0.04,
+        height * 0.78,
+        width * 0.12,
+        height * 0.66,
+        width * 0.21,
+        height * 0.76
+      );
+
+      ctx.bezierCurveTo(
+        width * 0.29,
+        height * 0.83,
+        width * 0.34,
+        height * 0.70,
+        width * 0.42,
+        height * 0.79
+      );
+
+      ctx.bezierCurveTo(
+        width * 0.51,
+        height * 0.88,
+        width * 0.58,
+        height * 0.76,
+        width * 0.67,
+        height * 0.72
+      );
+
+      ctx.bezierCurveTo(
+        width * 0.76,
+        height * 0.68,
+        width * 0.81,
+        height * 0.82,
+        width * 0.90,
+        height * 0.77
+      );
+
+      ctx.bezierCurveTo(
+        width * 0.97,
+        height * 0.73,
+        width * 1.03,
+        height * 0.86,
+        width + 80,
+        height + 20
+      );
+
+      ctx.closePath();
+      ctx.fillStyle =
+        mountainFade;
+      ctx.fill();
+
+      /*
+       * 左右兩側較深的山脊，
+       * 不穿過中央知識網絡。
+       */
+      ctx.beginPath();
+
+      ctx.moveTo(
+        -30,
+        height * 0.88
+      );
+
+      ctx.bezierCurveTo(
+        width * 0.06,
+        height * 0.66,
+        width * 0.13,
+        height * 0.59,
+        width * 0.22,
+        height * 0.77
+      );
+
+      ctx.strokeStyle =
+        "rgba(190,194,185,0.11)";
+
+      ctx.lineWidth =
+        8;
+
+      ctx.lineCap =
+        "round";
+
+      ctx.stroke();
+
+      ctx.beginPath();
+
+      ctx.moveTo(
+        width * 0.78,
+        height * 0.76
+      );
+
+      ctx.bezierCurveTo(
+        width * 0.86,
+        height * 0.58,
+        width * 0.92,
+        height * 0.63,
+        width + 25,
+        height * 0.84
+      );
+
+      ctx.strokeStyle =
+        "rgba(185,190,181,0.09)";
+
+      ctx.lineWidth =
+        7;
+
+      ctx.stroke();
+
+      /*
+       * 水面：幾條非常淡的長線。
+       */
+      const waterY =
+        height * 0.88;
+
+      for (
+        let ripple = 0;
+        ripple < 4;
+        ripple++
+      ) {
+        const offset =
+          ripple * 16;
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+          width * 0.14,
+          waterY +
+            offset
+        );
+
+        ctx.bezierCurveTo(
+          width * 0.34,
+          waterY -
+            7 +
+            offset,
+          width * 0.55,
+          waterY +
+            8 +
+            offset,
+          width * 0.83,
+          waterY +
+            offset
+        );
+
+        ctx.strokeStyle =
+          `rgba(120,148,140,${
+            0.10 -
+            ripple * 0.017
+          })`;
+
+        ctx.lineWidth =
+          ripple === 0
+            ? 1.1
+            : 0.7;
+
+        ctx.stroke();
+      }
+
+      /*
+       * 一點霧，讓山水不是硬邊。
+       */
+      const mist =
+        ctx.createLinearGradient(
+          0,
+          height * 0.70,
+          0,
+          height * 0.91
+        );
+
+      mist.addColorStop(
+        0,
+        "rgba(210,211,203,0)"
+      );
+
+      mist.addColorStop(
+        0.52,
+        "rgba(210,211,203,0.022)"
+      );
+
+      mist.addColorStop(
+        1,
+        "rgba(210,211,203,0)"
+      );
+
+      ctx.fillStyle =
+        mist;
+
+      ctx.fillRect(
+        0,
+        height * 0.69,
+        width,
+        height * 0.25
+      );
+
+      ctx.restore();
+
       ctx.save();
       ctx.globalAlpha = 0.11;
 
