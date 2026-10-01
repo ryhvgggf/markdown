@@ -359,7 +359,7 @@ aside [title^="資料夾："]
 /*
  * Note Row。
  */
-aside [title*="按住拖曳可歸入"] {
+ {
   min-height:
     31px;
 
@@ -377,15 +377,6 @@ aside [title*="按住拖曳可歸入"] {
 }
 
 
-/*
- * 隱藏 Note Emoji。
- */
-aside [title*="按住拖曳可歸入"]
-  > div:first-child
-  > span:first-child {
-  display:
-    none !important;
-}
 
 
 /*
