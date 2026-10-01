@@ -1,1637 +1,1733 @@
-@import "tailwindcss";
+"use client";
 
-/* ============================================================
-   Markdown Knowledge Base
-   Modern Ink Wash Theme
-   ============================================================ */
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-@layer base {
-  :root {
-    --ink-black: #08090a;
-    --ink-deep: #0b0d0e;
-    --ink-panel: #101213;
+import { BacklinksPanel } from "@/components/obsidian/BacklinksPanel";
+import FileTree from "@/components/obsidian/FileTree";
+import { GraphView } from "@/components/obsidian/GraphView";
+import { MarkdownEditor } from "@/components/obsidian/MarkdownEditor";
+import { TagList } from "@/components/obsidian/TagList";
 
-    --paper-white: #eee9de;
-    --paper-main: #d8d3c8;
-    --paper-muted: #989a94;
-    --paper-dim: #646964;
+import {
+  deleteNoteFromDB,
+  getAllNoteMetadata,
+  getAllNotesFromDB,
+  getCustomFolders,
+  getNoteContent,
+  saveCustomFolders,
+  saveNoteToDB,
+} from "@/lib/obsidian/db";
 
-    --jade: #789991;
-    --jade-light: #a1b9b3;
-    --jade-dark: #526f69;
+import {
+  getAllTagsWithCounts,
+  getBacklinks,
+} from "@/lib/obsidian/links";
 
-    --jade-wash: rgba(120, 153, 145, 0.12);
+import {
+  extractMediaReferences,
+  parseLinksAndTags,
+} from "@/lib/obsidian/parser";
 
-    --cinnabar: #a84f43;
-    --cinnabar-soft: #d08576;
-    --cinnabar-wash: rgba(168, 79, 67, 0.15);
+import {
+  deleteSavedMedia,
+  getMediaDetails,
+  revokeAllActiveMediaUrls,
+} from "@/lib/obsidian/media";
 
-    --line: rgba(238, 233, 222, 0.075);
-    --line-soft: rgba(238, 233, 222, 0.045);
+import {
+  exportNoteMarkdown,
+  exportVaultJson,
+  initVaultStorage,
+  parseAndRestoreVaultBackup,
+} from "@/lib/obsidian/storage";
+
+import {
+  Note,
+  NoteMetadata,
+} from "@/lib/obsidian/types";
+
+function escapeRegex(text: string): string {
+  return text.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&"
+  );
+}
+
+function normalizeFolderPath(path: string): string {
+  return path
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("/");
+}
+
+export default function MarkdownVaultPage() {
+  const [
+    notesMeta,
+    setNotesMeta,
+  ] =
+    useState<NoteMetadata[]>(
+      []
+    );
+
+  const [
+    activeNoteId,
+    setActiveNoteId,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const [
+    activeNote,
+    setActiveNote,
+  ] =
+    useState<
+      Note | null
+    >(null);
+
+  const [
+    isLoadingNote,
+    setIsLoadingNote,
+  ] =
+    useState(false);
+
+  const [
+    targetHeadingSlug,
+    setTargetHeadingSlug,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const [
+    selectedTag,
+    setSelectedTag,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const [
+    showGraphView,
+    setShowGraphView,
+  ] =
+    useState(false);
+
+  const [
+    showRightPanel,
+    setShowRightPanel,
+  ] =
+    useState(true);
+
+  const [
+    showBackupModal,
+    setShowBackupModal,
+  ] =
+    useState(false);
+
+  const [
+    mainView,
+    setMainView,
+  ] =
+    useState<
+      "editor" | "graph"
+    >("editor");
+
+  const [
+    notification,
+    setNotification,
+  ] =
+    useState<{
+      type:
+        | "success"
+        | "error"
+        | "info";
+      message: string;
+    } | null>(
+      null
+    );
+
+  const fileInputRef =
+    useRef<HTMLInputElement>(
+      null
+    );
+
+  const saveTimeoutRef =
+    useRef<
+      ReturnType<
+        typeof setTimeout
+      > | null
+    >(null);
+
+  const notify = useCallback(
+    (
+      type:
+        | "success"
+        | "error"
+        | "info",
+      message: string
+    ) => {
+      setNotification({
+        type,
+        message,
+      });
+
+      window.setTimeout(
+        () => {
+          setNotification(
+            (current) =>
+              current?.message ===
+              message
+                ? null
+                : current
+          );
+        },
+        3600
+      );
+    },
+    []
+  );
+
+  const selectNoteById =
+    useCallback(
+      async (
+        noteId: string
+      ) => {
+        revokeAllActiveMediaUrls();
+
+        setActiveNoteId(
+          noteId
+        );
+
+        setIsLoadingNote(
+          true
+        );
+
+        try {
+          const full =
+            await getNoteContent(
+              noteId
+            );
+
+          setActiveNote(
+            full
+          );
+        } catch (error) {
+          console.error(
+            "讀取筆記失敗:",
+            error
+          );
+
+          notify(
+            "error",
+            "讀取筆記失敗"
+          );
+        } finally {
+          setIsLoadingNote(
+            false
+          );
+        }
+      },
+      [notify]
+    );
+
+  useEffect(() => {
+    let mounted =
+      true;
+
+    const init =
+      async () => {
+        try {
+          const initResult =
+            await initVaultStorage();
+
+          const meta =
+            await getAllNoteMetadata();
+
+          if (!mounted) {
+            return;
+          }
+
+          setNotesMeta(
+            meta
+          );
+
+          if (
+            initResult.migratedCount >
+            0
+          ) {
+            notify(
+              "success",
+              `已將 ${initResult.migratedCount} 篇舊筆記遷移至 IndexedDB`
+            );
+          }
+
+          if (
+            meta.length >
+            0
+          ) {
+            await selectNoteById(
+              meta[0].id
+            );
+          }
+        } catch (error: any) {
+          console.error(
+            "初始化知識庫失敗:",
+            error
+          );
+
+          notify(
+            "error",
+            `載入知識庫失敗：${
+              error?.message ||
+              error
+            }`
+          );
+        }
+      };
+
+    void init();
+
+    return () => {
+      mounted =
+        false;
+
+      if (
+        saveTimeoutRef.current
+      ) {
+        clearTimeout(
+          saveTimeoutRef.current
+        );
+      }
+
+      revokeAllActiveMediaUrls();
+    };
+  }, [
+    notify,
+    selectNoteById,
+  ]);
+
+  const existingTitles =
+    useMemo(
+      () =>
+        notesMeta.map(
+          (note) =>
+            note.title
+        ),
+      [notesMeta]
+    );
+
+  const backlinks =
+    useMemo(
+      () =>
+        activeNote
+          ? getBacklinks(
+              activeNote,
+              notesMeta
+            )
+          : [],
+      [
+        activeNote,
+        notesMeta,
+      ]
+    );
+
+  const tagsWithCounts =
+    useMemo(
+      () =>
+        getAllTagsWithCounts(
+          notesMeta
+        ),
+      [notesMeta]
+    );
+
+  async function handleCreateNote(
+    initialTitle?: string,
+    folder?: string
+  ) {
+    let title =
+      initialTitle?.trim();
+
+    if (!title) {
+      let counter =
+        1;
+
+      title =
+        `未命名筆記 ${counter}`;
+
+      while (
+        notesMeta.some(
+          (note) =>
+            note.title
+              .toLowerCase() ===
+            title?.toLowerCase()
+        )
+      ) {
+        counter +=
+          1;
+
+        title =
+          `未命名筆記 ${counter}`;
+      }
+    } else {
+      const existing =
+        notesMeta.find(
+          (note) =>
+            note.title
+              .toLowerCase() ===
+            title?.toLowerCase()
+        );
+
+      if (
+        existing
+      ) {
+        await selectNoteById(
+          existing.id
+        );
+
+        setMainView(
+          "editor"
+        );
+
+        setShowGraphView(
+          false
+        );
+
+        return;
+      }
+    }
+
+    const now =
+      new Date().toISOString();
+
+    const newNote:
+      Note =
+      {
+        id:
+          `note-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
+        title,
+        folder:
+          normalizeFolderPath(
+            folder || ""
+          ),
+        content:
+          `# ${title}\n\n` +
+          "在此開始撰寫筆記內容...\n",
+        tags: [],
+        outlinks: [],
+        createdAt:
+          now,
+        updatedAt:
+          now,
+      };
+
+    try {
+      await saveNoteToDB(
+        newNote
+      );
+
+      const meta =
+        await getAllNoteMetadata();
+
+      setNotesMeta(
+        meta
+      );
+
+      setActiveNote(
+        newNote
+      );
+
+      setActiveNoteId(
+        newNote.id
+      );
+
+      setMainView(
+        "editor"
+      );
+
+      setShowGraphView(
+        false
+      );
+
+      notify(
+        "success",
+        `已建立筆記「${title}」`
+      );
+    } catch (error: any) {
+      notify(
+        "error",
+        `建立筆記失敗：${
+          error?.message ||
+          error
+        }`
+      );
+    }
   }
-}
-
-
-/* ============================================================
-   Tailwind Theme
-   ============================================================ */
-
-@theme inline {
-  --color-background: var(--ink-black);
-  --color-foreground: var(--paper-white);
-
-  --font-sans:
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    "PingFang TC",
-    "Microsoft JhengHei",
-    sans-serif;
-
-  --font-serif:
-    "Noto Serif TC",
-    "Source Han Serif TC",
-    "Songti TC",
-    "PMingLiU",
-    "STSong",
-    serif;
-
-  --font-mono:
-    ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Monaco,
-    Consolas,
-    monospace;
-
-  /*
-   * 原本程式使用 Cyan / Blue / Purple。
-   * 直接重新映射成黛青，避免科技紫。
-   */
-
-  --color-cyan-200: #c3d1cd;
-  --color-cyan-300: #a8bdb8;
-  --color-cyan-400: #89a59f;
-  --color-cyan-500: #718e87;
-  --color-cyan-600: #59756f;
-  --color-cyan-700: #455d58;
-  --color-cyan-800: #344944;
-  --color-cyan-900: #263833;
-  --color-cyan-950: #172622;
-
-  --color-blue-300: #b2c0bc;
-  --color-blue-400: #91a59f;
-  --color-blue-500: #758e88;
-  --color-blue-600: #5c756f;
-  --color-blue-700: #465f59;
-  --color-blue-800: #354a46;
-  --color-blue-900: #273a36;
-  --color-blue-950: #172824;
-
-  --color-purple-200: #cad1ce;
-  --color-purple-300: #acbcb7;
-  --color-purple-400: #8ca39d;
-  --color-purple-500: #738b85;
-  --color-purple-600: #5b746e;
-  --color-purple-700: #465d58;
-  --color-purple-800: #364a46;
-  --color-purple-900: #283936;
-  --color-purple-950: #192723;
-}
-
-
-/* ============================================================
-   Base
-   ============================================================ */
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  width: 100%;
-  height: 100%;
-}
-
-html {
-  background: var(--ink-black);
-}
-
-body {
-  margin: 0;
-  overflow: hidden;
-
-  background: var(--ink-black);
-
-  color: var(--paper-main);
-
-  font-family: var(--font-sans);
-
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
 
-body > div.flex.h-screen.w-screen {
-  background: var(--ink-black) !important;
-}
-
-
-/* ============================================================
-   Scrollbar
-   ============================================================ */
-
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(238, 233, 222, 0.13);
-  border-radius: 2px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(238, 233, 222, 0.22);
-}
-
-
-/* ============================================================
-   Controls
-   ============================================================ */
-
-button {
-  transition:
-    color 150ms ease,
-    background-color 150ms ease,
-    border-color 150ms ease,
-    opacity 150ms ease;
-}
-
-button.rounded-full {
-  border-radius: 2px !important;
-}
-
-.animate-bounce {
-  animation: none !important;
-}
-
-input,
-textarea {
-  caret-color: var(--jade-light);
-}
-
-input::placeholder,
-textarea::placeholder {
-  color: #606660;
-}
-
-input:focus,
-textarea:focus {
-  box-shadow: none !important;
-}
-
-
-/* ============================================================
-   LEFT PANEL
-   山水背景
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen > aside.w-64 {
-  position: relative !important;
-
-  isolation: isolate !important;
-
-  overflow: hidden !important;
-
-  background:
-    #090b0c !important;
-
-  background-image:
-    none !important;
-
-  border-right-color:
-    var(--line) !important;
-}
-
-
-/*
- * 左側山水圖片獨立一層。
- */
-body > div.flex.h-screen.w-screen > aside.w-64::before {
-  content: "";
-
-  position: absolute;
-
-  inset: 0;
-
-  z-index: -1;
-
-  pointer-events: none;
-
-  background-image:
-    url("/ink/left-mountain.png");
-
-  background-repeat:
-    no-repeat;
-
-  background-position:
-    center bottom;
-
-  background-size:
-    cover;
-
-  opacity: 0.42;
-}
-
-
-/*
- * 左側所有 UI 永遠在圖片上方。
- */
-body > div.flex.h-screen.w-screen > aside.w-64 > * {
-  position: relative;
-  z-index: 1;
-}
-
-
-/*
- * FileTree 本體透明。
- */
-body > div.flex.h-screen.w-screen
-  > aside.w-64
-  > aside.w-64 {
-  background:
-    transparent !important;
-
-  border-right:
-    0 !important;
-}
-
-
-/*
- * 左下功能列。
- */
-body > div.flex.h-screen.w-screen
-  > aside.w-64
-  > div:last-child {
-  background:
-    rgba(7, 9, 10, 0.42) !important;
-
-  border-top-color:
-    var(--line-soft) !important;
-}
-
-
-/* ============================================================
-   FileTree
-   ============================================================ */
-
-aside [title^="資料夾："] {
-  border:
-    0 !important;
-
-  border-radius:
-    0 !important;
-
-  background:
-    transparent !important;
-}
-
-aside [title^="資料夾："]:hover {
-  background:
-    linear-gradient(
-      90deg,
-      rgba(238, 233, 222, 0.045),
-      transparent 90%
-    ) !important;
-}
-
-
-/*
- * 隱藏彩色 Folder Emoji。
- */
-aside [title^="資料夾："]
-  > div:first-child
-  > span:nth-child(2) {
-  display:
-    none !important;
-}
-
-
-/*
- * Folder 文字。
- */
-aside [title^="資料夾："]
-  > div:first-child
-  > span:nth-child(3) {
-  color:
-    #c8c4ba !important;
-
-  font-family:
-    var(--font-serif);
-
-  font-weight:
-    500 !important;
-
-  letter-spacing:
-    0.025em;
-}
-
-
-/*
- * Folder 展開箭頭。
- */
-aside [title^="資料夾："]
-  > div:first-child
-  > span:first-child {
-  color:
-    #717771 !important;
-
-  transform:
-    scale(0.78);
-}
-
-
-/*
- * Note Row。
- */
-aside [title*="按住拖曳可歸入"] {
-  min-height:
-    31px;
-
-  border:
-    0 !important;
-
-  border-radius:
-    0 !important;
-
-  background:
-    transparent !important;
-
-  color:
-    #989c96 !important;
-}
-
-
-/*
- * 隱藏 Note Emoji。
- */
-aside [title*="按住拖曳可歸入"]
-  > div:first-child
-  > span:first-child {
-  display:
-    none !important;
-}
-
-
-/*
- * Note Hover。
- */
-aside [title*="按住拖曳可歸入"]:hover {
-  color:
-    #dedad0 !important;
-
-  background:
-    linear-gradient(
-      90deg,
-      rgba(238, 233, 222, 0.05),
-      transparent 90%
-    ) !important;
-}
-
-
-/*
- * Active Note。
- */
-aside [title*="按住拖曳可歸入"][class~="border-l-2"] {
-  position:
-    relative;
-
-  color:
-    #eee9de !important;
-
-  border-color:
-    transparent !important;
-
-  background:
-    linear-gradient(
-      90deg,
-      rgba(120, 153, 145, 0.15),
-      rgba(120, 153, 145, 0.035) 58%,
-      transparent
-    ) !important;
-}
-
-
-/*
- * Active Note 左側筆觸。
- */
-aside [title*="按住拖曳可歸入"][class~="border-l-2"]::before {
-  content: "";
-
-  position:
-    absolute;
-
-  left:
-    0;
-
-  top:
-    13%;
-
-  bottom:
-    13%;
-
-  width:
-    2px;
-
-  background:
-    linear-gradient(
-      180deg,
-      transparent,
-      rgba(161, 185, 179, 0.92) 16%,
-      rgba(120, 153, 145, 0.65) 72%,
-      transparent
-    );
-}
-
-
-/* ============================================================
-   FileTree Search
-   ============================================================ */
-
-aside input[placeholder="搜尋筆記或標籤..."] {
-  border:
-    0 !important;
-
-  border-bottom:
-    1px solid
-    rgba(238, 233, 222, 0.10) !important;
-
-  border-radius:
-    0 !important;
-
-  background:
-    rgba(5, 7, 8, 0.24) !important;
-
-  color:
-    #d0ccc2 !important;
-}
-
-aside input[placeholder="搜尋筆記或標籤..."]:focus {
-  border-bottom-color:
-    rgba(120, 153, 145, 0.60) !important;
-}
-
-
-/* ============================================================
-   FileTree Actions
-   ============================================================ */
-
-aside button[title="重新命名"],
-aside button[title="重新命名資料夾"],
-aside button[title="刪除"],
-aside button[title="刪除資料夾"],
-aside button[title*="新增子資料夾"] {
-  font-size:
-    0 !important;
-
-  border-radius:
-    1px !important;
-
-  background:
-    transparent !important;
-}
-
-aside button[title="重新命名"]::before,
-aside button[title="重新命名資料夾"]::before {
-  content:
-    "改";
-
-  font-family:
-    var(--font-serif);
-
-  font-size:
-    10px;
-
-  color:
-    #838a85;
-}
-
-aside button[title="刪除"]::before,
-aside button[title="刪除資料夾"]::before {
-  content:
-    "刪";
-
-  font-family:
-    var(--font-serif);
-
-  font-size:
-    10px;
-
-  color:
-    #a26055;
-}
-
-aside button[title*="新增子資料夾"]::before {
-  content:
-    "子";
-
-  font-family:
-    var(--font-serif);
-
-  font-size:
-    10px;
-
-  color:
-    #82958f;
-}
-
-
-/* ============================================================
-   CENTER PANEL
-   竹林背景
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen > main {
-  position:
-    relative !important;
-
-  isolation:
-    isolate !important;
-
-  overflow:
-    hidden !important;
-
-  background:
-    #080a0b !important;
-
-  background-image:
-    none !important;
-}
-
-
-/*
- * 竹林圖片獨立圖層。
- *
- * 只需要調整這三個：
- *
- * opacity
- * background-position
- * background-size
- */
-body > div.flex.h-screen.w-screen > main::before {
-  content: "";
-
-  position:
-    absolute;
-
-  inset:
-    0;
-
-  z-index:
-    -1;
-
-  pointer-events:
-    none;
-
-  background-image:
-    url("/ink/center-bamboo-forest.png");
-
-  background-repeat:
-    no-repeat;
-
-  background-position:
-    center center;
-
-  background-size:
-    cover;
-
-  /*
-   * 竹林透明度。
-   *
-   * 0.20 = 很淡
-   * 0.25 = 建議
-   * 0.30 = 明顯
-   */
-  opacity:
-    0.25;
-}
-
-
-/*
- * Main 所有 UI 在竹林上方。
- */
-body > div.flex.h-screen.w-screen > main > * {
-  position:
-    relative;
-
-  z-index:
-    1;
-}
-
-
-/* ============================================================
-   MarkdownEditor Root
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen
-  > main
-  > div.flex.h-full.flex-col {
-  background:
-    transparent !important;
-}
-
-
-/* ============================================================
-   Editor Header
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen
-  > main
-  > div
-  > div:first-of-type {
-  background:
-    rgba(8, 10, 11, 0.78) !important;
-
-  border-bottom-color:
-    var(--line-soft) !important;
-
-  /*
-   * 不要 Blur。
-   */
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-main h2 {
-  font-family:
-    var(--font-serif) !important;
-
-  letter-spacing:
-    0.045em !important;
-
-  color:
-    #e8e4da !important;
-}
-
-
-/* ============================================================
-   Toolbar
-   ============================================================ */
-
-main div[class*="bg-black/10"] {
-  background:
-    rgba(8, 10, 11, 0.52) !important;
-
-  border-bottom-color:
-    var(--line-soft) !important;
-
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-main div[class*="bg-black/10"] button {
-  background:
-    transparent !important;
-
-  border:
-    0 !important;
-
-  border-radius:
-    1px !important;
-
-  color:
-    #8d918b !important;
-}
-
-main div[class*="bg-black/10"] button:hover {
-  color:
-    #d9d5cb !important;
-
-  background:
-    rgba(120, 153, 145, 0.08) !important;
-}
-
-
-/*
- * Wikilink / Media Button。
- */
-button[title^="雙向連結 Wikilink"],
-button[title^="嵌入多媒體"] {
-  border-radius:
-    1px !important;
-
-  background:
-    transparent !important;
-
-  color:
-    #91aaa4 !important;
-}
-
-
-/*
- * Active View Button。
- */
-main button[class*="border-[#0e7490]"] {
-  background:
-    transparent !important;
-
-  border-color:
-    var(--jade) !important;
-
-  color:
-    #e5e1d7 !important;
-}
-
-main button[class*="bg-white/[0.06]"] {
-  background:
-    transparent !important;
-}
-
-
-/* ============================================================
-   Markdown Editor
-   ============================================================ */
-
-main textarea {
-  background:
-    rgba(5, 7, 8, 0.28) !important;
-
-  color:
-    #dedad0 !important;
-
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-
-/*
- * Split divider。
- */
-main .border-r.border-slate-800 {
-  border-right-color:
-    var(--line-soft) !important;
-}
-
-
-/* ============================================================
-   Markdown Preview
-   ============================================================ */
-
-.paper-texture {
-  position:
-    relative;
-
-  background:
-    rgba(5, 7, 8, 0.25) !important;
-
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-
-/*
- * 不再蓋額外的假紙紋。
- */
-.paper-texture::before,
-.paper-texture::after {
-  display:
-    none !important;
-}
-
-
-/* ============================================================
-   Markdown Content
-   ============================================================ */
-
-.obsidian-preview-container {
-  position:
-    relative;
-
-  z-index:
-    1;
-
-  width:
-    100%;
-
-  max-width:
-    820px;
-
-  margin:
-    0 auto;
-
-  padding:
-    3rem
-    clamp(1.5rem, 4vw, 3.6rem)
-    7rem !important;
-
-  color:
-    #d8d4ca;
-
-  font-size:
-    0.96rem;
-
-  line-height:
-    1.95;
-
-  letter-spacing:
-    0.018em;
-}
-
-
-/* ============================================================
-   H1
-   ============================================================ */
-
-.obsidian-preview-container h1 {
-  position:
-    relative;
-
-  margin:
-    1rem 0 1.65rem;
-
-  padding-bottom:
-    0.9rem;
-
-  font-family:
-    var(--font-serif);
-
-  font-size:
-    2rem;
-
-  font-weight:
-    600;
-
-  line-height:
-    1.42;
-
-  letter-spacing:
-    0.035em;
-
-  color:
-    #f0ebdf;
-}
-
-
-/*
- * H1 乾筆底線。
- */
-.obsidian-preview-container h1::after {
-  content: "";
-
-  position:
-    absolute;
-
-  left:
-    -0.15rem;
-
-  bottom:
-    0;
-
-  width:
-    min(100%, 34rem);
-
-  height:
-    3px;
-
-  background:
-    linear-gradient(
-      90deg,
-      rgba(231, 225, 211, 0.74),
-      rgba(231, 225, 211, 0.28) 10%,
-      transparent 17%,
-      rgba(231, 225, 211, 0.31) 20%,
-      rgba(231, 225, 211, 0.11) 62%,
-      transparent 100%
+  async function handleMoveNoteFolder(
+    noteId: string,
+    targetFolder: string
+  ) {
+    const target =
+      normalizeFolderPath(
+        targetFolder
+      );
+
+    try {
+      const note =
+        await getNoteContent(
+          noteId
+        );
+
+      if (!note) {
+        return;
+      }
+
+      note.folder =
+        target;
+
+      note.updatedAt =
+        new Date().toISOString();
+
+      await saveNoteToDB(
+        note
+      );
+
+      setNotesMeta(
+        (previous) =>
+          previous.map(
+            (meta) =>
+              meta.id ===
+              noteId
+                ? {
+                    ...meta,
+                    folder:
+                      target,
+                    updatedAt:
+                      note.updatedAt,
+                  }
+                : meta
+          )
+      );
+
+      if (
+        activeNoteId ===
+        noteId
+      ) {
+        setActiveNote({
+          ...note,
+        });
+      }
+    } catch (error) {
+      console.error(
+        "移動筆記失敗:",
+        error
+      );
+
+      notify(
+        "error",
+        "移動筆記失敗"
+      );
+    }
+  }
+
+  async function handleMoveFolder(
+    sourceFolder: string,
+    targetParent: string
+  ) {
+    const source =
+      normalizeFolderPath(
+        sourceFolder
+      );
+
+    const target =
+      normalizeFolderPath(
+        targetParent
+      );
+
+    if (!source) {
+      return;
+    }
+
+    if (
+      target ===
+        source ||
+      target.startsWith(
+        `${source}/`
+      )
+    ) {
+      notify(
+        "error",
+        "資料夾不能移入自己或自己的子資料夾"
+      );
+
+      return;
+    }
+
+    const folderName =
+      source
+        .split("/")
+        .pop() || "";
+
+    const newPath =
+      normalizeFolderPath(
+        target
+          ? `${target}/${folderName}`
+          : folderName
+      );
+
+    if (
+      newPath ===
+      source
+    ) {
+      return;
+    }
+
+    const knownFolders =
+      new Set<string>(
+        getCustomFolders().map(
+          normalizeFolderPath
+        )
+      );
+
+    for (const meta of notesMeta) {
+      if (
+        meta.folder
+      ) {
+        knownFolders.add(
+          normalizeFolderPath(
+            meta.folder
+          )
+        );
+      }
+    }
+
+    if (
+      knownFolders.has(
+        newPath
+      )
+    ) {
+      notify(
+        "error",
+        "移動失敗：目標位置已存在同名資料夾"
+      );
+
+      return;
+    }
+
+    try {
+      const custom =
+        getCustomFolders();
+
+      const nextCustom =
+        custom.map(
+          (folder) => {
+            if (
+              folder ===
+              source
+            ) {
+              return newPath;
+            }
+
+            if (
+              folder.startsWith(
+                `${source}/`
+              )
+            ) {
+              return (
+                newPath +
+                folder.slice(
+                  source.length
+                )
+              );
+            }
+
+            return folder;
+          }
+        );
+
+      saveCustomFolders(
+        nextCustom
+      );
+
+      const allNotes =
+        await getAllNotesFromDB();
+
+      for (const note of allNotes) {
+        let changed =
+          false;
+
+        if (
+          note.folder ===
+          source
+        ) {
+          note.folder =
+            newPath;
+
+          changed =
+            true;
+        } else if (
+          note.folder?.startsWith(
+            `${source}/`
+          )
+        ) {
+          note.folder =
+            newPath +
+            note.folder.slice(
+              source.length
+            );
+
+          changed =
+            true;
+        }
+
+        if (
+          changed
+        ) {
+          note.updatedAt =
+            new Date().toISOString();
+
+          await saveNoteToDB(
+            note
+          );
+        }
+      }
+
+      const refreshed =
+        await getAllNoteMetadata();
+
+      setNotesMeta(
+        refreshed
+      );
+
+      if (
+        activeNoteId
+      ) {
+        const latest =
+          await getNoteContent(
+            activeNoteId
+          );
+
+        setActiveNote(
+          latest
+        );
+      }
+    } catch (error) {
+      console.error(
+        "移動資料夾失敗:",
+        error
+      );
+
+      notify(
+        "error",
+        "移動資料夾失敗"
+      );
+    }
+  }
+
+  async function handleRenameNote(
+    noteId: string,
+    newTitle: string
+  ) {
+    const cleanTitle =
+      newTitle.trim();
+
+    if (!cleanTitle) {
+      notify(
+        "error",
+        "筆記名稱不能為空"
+      );
+
+      return;
+    }
+
+    const target =
+      notesMeta.find(
+        (note) =>
+          note.id ===
+          noteId
+      );
+
+    if (!target) {
+      return;
+    }
+
+    if (
+      notesMeta.some(
+        (note) =>
+          note.id !==
+            noteId &&
+          note.title
+            .trim()
+            .toLowerCase() ===
+            cleanTitle.toLowerCase()
+      )
+    ) {
+      notify(
+        "error",
+        "已存在同名筆記"
+      );
+
+      return;
+    }
+
+    const oldTitle =
+      target.title;
+
+    if (
+      oldTitle ===
+      cleanTitle
+    ) {
+      return;
+    }
+
+    try {
+      const allNotes =
+        await getAllNotesFromDB();
+
+      const safeOld =
+        escapeRegex(
+          oldTitle
+        );
+
+      /**
+       * 同時支援：
+       * [[Old]]
+       * [[Old|Alias]]
+       * [[Old#Heading]]
+       * [[Old#Heading|Alias]]
+       */
+      const linkRegex =
+        new RegExp(
+          `\\[\\[${safeOld}((?:#[^|\\]]+)?(?:\\|[^\\]]+)?)\\]\\]`,
+          "gi"
+        );
+
+      for (const note of allNotes) {
+        let changed =
+          false;
+
+        if (
+          note.id ===
+          noteId
+        ) {
+          note.title =
+            cleanTitle;
+
+          changed =
+            true;
+        }
+
+        const nextContent =
+          note.content.replace(
+            linkRegex,
+            (
+              _match,
+              suffix
+            ) =>
+              `[[${cleanTitle}${
+                suffix ||
+                ""
+              }]]`
+          );
+
+        if (
+          nextContent !==
+          note.content
+        ) {
+          note.content =
+            nextContent;
+
+          changed =
+            true;
+        }
+
+        if (
+          changed
+        ) {
+          const parsed =
+            parseLinksAndTags(
+              note.content
+            );
+
+          note.tags =
+            parsed.tags;
+
+          note.outlinks =
+            parsed.outgoingLinks;
+
+          note.updatedAt =
+            new Date().toISOString();
+
+          await saveNoteToDB(
+            note
+          );
+        }
+      }
+
+      const refreshed =
+        await getAllNoteMetadata();
+
+      setNotesMeta(
+        refreshed
+      );
+
+      if (
+        activeNoteId
+      ) {
+        setActiveNote(
+          await getNoteContent(
+            activeNoteId
+          )
+        );
+      }
+
+      notify(
+        "success",
+        `筆記已更名為「${cleanTitle}」，雙向連結已同步更新`
+      );
+    } catch (error: any) {
+      notify(
+        "error",
+        `重新命名失敗：${
+          error?.message ||
+          error
+        }`
+      );
+    }
+  }
+
+  async function resolveMediaIds(
+    refs: string[]
+  ): Promise<Set<string>> {
+    const result =
+      new Set<string>();
+
+    for (const ref of refs) {
+      try {
+        const record =
+          await getMediaDetails(
+            ref
+          );
+
+        result.add(
+          record?.id ||
+            ref
+        );
+      } catch {
+        result.add(
+          ref
+        );
+      }
+    }
+
+    return result;
+  }
+
+  async function handleDeleteNote(
+    noteId: string
+  ) {
+    const deletedMeta =
+      notesMeta.find(
+        (note) =>
+          note.id ===
+          noteId
+      );
+
+    try {
+      const deletedNote =
+        await getNoteContent(
+          noteId
+        );
+
+      const deletedRefs =
+        deletedNote
+          ? extractMediaReferences(
+              deletedNote.content
+            )
+          : [];
+
+      await deleteNoteFromDB(
+        noteId
+      );
+
+      /**
+       * 清理只被這篇筆記使用的附件，
+       * 避免 IndexedDB 留下 orphan Blob。
+       */
+      if (
+        deletedRefs.length >
+        0
+      ) {
+        const remainingNotes =
+          await getAllNotesFromDB();
+
+        const remainingRefs =
+          remainingNotes.flatMap(
+            (note) =>
+              extractMediaReferences(
+                note.content
+              )
+          );
+
+        const [
+          deletedIds,
+          remainingIds,
+        ] =
+          await Promise.all([
+            resolveMediaIds(
+              deletedRefs
+            ),
+            resolveMediaIds(
+              remainingRefs
+            ),
+          ]);
+
+        for (const ref of deletedRefs) {
+          const record =
+            await getMediaDetails(
+              ref
+            );
+
+          const resolvedId =
+            record?.id ||
+            ref;
+
+          if (
+            deletedIds.has(
+              resolvedId
+            ) &&
+            !remainingIds.has(
+              resolvedId
+            )
+          ) {
+            await deleteSavedMedia(
+              ref
+            );
+          }
+        }
+      }
+
+      const refreshed =
+        await getAllNoteMetadata();
+
+      setNotesMeta(
+        refreshed
+      );
+
+      if (
+        activeNoteId ===
+        noteId
+      ) {
+        if (
+          refreshed.length >
+          0
+        ) {
+          await selectNoteById(
+            refreshed[0].id
+          );
+        } else {
+          setActiveNoteId(
+            null
+          );
+
+          setActiveNote(
+            null
+          );
+
+          revokeAllActiveMediaUrls();
+        }
+      }
+
+      notify(
+        "info",
+        `已刪除筆記「${
+          deletedMeta?.title ||
+          ""
+        }」`
+      );
+    } catch (error: any) {
+      notify(
+        "error",
+        `刪除筆記失敗：${
+          error?.message ||
+          error
+        }`
+      );
+    }
+  }
+
+  function handleUpdateContent(
+    newContent: string
+  ) {
+    if (
+      !activeNote
+    ) {
+      return;
+    }
+
+    const parsed =
+      parseLinksAndTags(
+        newContent
+      );
+
+    const updated:
+      Note =
+      {
+        ...activeNote,
+        content:
+          newContent,
+        tags:
+          parsed.tags,
+        outlinks:
+          parsed.outgoingLinks,
+        updatedAt:
+          new Date().toISOString(),
+      };
+
+    setActiveNote(
+      updated
     );
 
-  transform:
-    skewX(-7deg);
-}
-
-
-/* ============================================================
-   H2
-   ============================================================ */
-
-.obsidian-preview-container h2 {
-  position:
-    relative;
-
-  margin:
-    2.25rem 0 1rem;
-
-  padding-left:
-    0.95rem;
-
-  font-family:
-    var(--font-serif);
-
-  font-size:
-    1.44rem;
-
-  font-weight:
-    600;
-
-  letter-spacing:
-    0.03em;
-
-  color:
-    #e8e3d8;
-}
-
-
-/*
- * H2 左側筆觸。
- */
-.obsidian-preview-container h2::before {
-  content: "";
-
-  position:
-    absolute;
-
-  left:
-    0;
-
-  top:
-    8%;
-
-  width:
-    3px;
-
-  height:
-    84%;
-
-  background:
-    linear-gradient(
-      180deg,
-      transparent,
-      rgba(161, 185, 179, 0.88) 15%,
-      rgba(120, 153, 145, 0.64) 68%,
-      transparent
+    setNotesMeta(
+      (previous) =>
+        previous.map(
+          (meta) =>
+            meta.id ===
+            updated.id
+              ? {
+                  ...meta,
+                  tags:
+                    updated.tags,
+                  outlinks:
+                    updated.outlinks,
+                  charCount:
+                    updated
+                      .content
+                      .length,
+                  updatedAt:
+                    updated.updatedAt,
+                }
+              : meta
+        )
     );
-}
 
-
-/* ============================================================
-   H3
-   ============================================================ */
-
-.obsidian-preview-container h3 {
-  margin:
-    1.75rem 0 0.75rem;
-
-  font-family:
-    var(--font-serif);
-
-  font-size:
-    1.16rem;
-
-  font-weight:
-    600;
-
-  color:
-    #ddd8cd;
-}
-
-
-/* ============================================================
-   Paragraph
-   ============================================================ */
-
-.obsidian-preview-container p {
-  margin-bottom:
-    1.15rem;
-}
-
-.obsidian-preview-container strong {
-  color:
-    #eee9de;
-
-  font-weight:
-    600;
-}
-
-
-/* ============================================================
-   Wikilink
-   ============================================================ */
-
-.obsidian-wikilink {
-  padding:
-    0 !important;
-
-  border-radius:
-    0 !important;
-
-  background:
-    transparent !important;
-
-  color:
-    #91aaa4 !important;
-
-  text-decoration:
-    none;
-
-  border-bottom:
-    1px solid
-    rgba(145, 170, 164, 0.34);
-
-  box-shadow:
-    none !important;
-}
-
-.obsidian-wikilink:hover {
-  color:
-    #bfcec9 !important;
-
-  background:
-    linear-gradient(
-      180deg,
-      transparent 40%,
-      rgba(120, 153, 145, 0.09)
-    ) !important;
-}
-
-
-/* ============================================================
-   Tag / Seal
-   ============================================================ */
-
-.obsidian-tag,
-.obsidian-tag-seal {
-  display:
-    inline-flex;
-
-  align-items:
-    center;
-
-  padding:
-    0.13rem 0.42rem !important;
-
-  border-radius:
-    2px !important;
-
-  background:
-    rgba(238, 233, 222, 0.055) !important;
-
-  border:
-    1px solid
-    rgba(238, 233, 222, 0.09) !important;
-
-  color:
-    #bab7ae !important;
-
-  font-size:
-    0.72rem;
-
-  font-family:
-    var(--font-mono);
-
-  box-shadow:
-    none !important;
-}
-
-.obsidian-tag:hover,
-.obsidian-tag-seal:hover {
-  background:
-    rgba(120, 153, 145, 0.10) !important;
-
-  border-color:
-    rgba(120, 153, 145, 0.28) !important;
-
-  color:
-    #e0dbd1 !important;
-}
-
-.obsidian-tag-seal-active {
-  background:
-    var(--cinnabar-wash) !important;
-
-  border-color:
-    rgba(168, 79, 67, 0.66) !important;
-
-  color:
-    #dd9586 !important;
-}
-
-
-/* ============================================================
-   Quote
-   ============================================================ */
-
-.obsidian-preview-container blockquote {
-  position:
-    relative;
-
-  margin:
-    1.45rem 0;
-
-  padding:
-    0.7rem 1rem 0.7rem 1.25rem;
-
-  border:
-    0;
-
-  background:
-    rgba(6, 8, 9, 0.20);
-
-  color:
-    #aaa69e;
-
-  font-style:
-    normal;
-}
-
-.obsidian-preview-container blockquote::before {
-  content: "";
-
-  position:
-    absolute;
-
-  left:
-    0;
-
-  top:
-    0.1rem;
-
-  width:
-    2px;
-
-  height:
-    calc(100% - 0.2rem);
-
-  background:
-    linear-gradient(
-      180deg,
-      transparent,
-      rgba(120, 153, 145, 0.62) 15%,
-      rgba(120, 153, 145, 0.25) 82%,
-      transparent
-    );
-}
-
-
-/* ============================================================
-   Lists
-   ============================================================ */
-
-.obsidian-preview-container ul,
-.obsidian-preview-container ol {
-  margin-bottom:
-    1.1rem;
-
-  padding-left:
-    1.55rem;
-}
-
-.obsidian-preview-container li {
-  margin-bottom:
-    0.42rem;
-}
-
-.obsidian-preview-container li::marker {
-  color:
-    var(--jade);
-}
-
-
-/* ============================================================
-   Inline Code
-   ============================================================ */
-
-.obsidian-preview-container code:not(pre code) {
-  padding:
-    0.14rem 0.34rem;
-
-  border-radius:
-    2px;
-
-  background:
-    rgba(238, 233, 222, 0.06);
-
-  color:
-    #ddd8cd;
-
-  font-family:
-    var(--font-mono);
-
-  font-size:
-    0.84em;
-}
-
-
-/* ============================================================
-   Code Block
-   ============================================================ */
-
-.obsidian-preview-container pre {
-  margin:
-    1.35rem 0;
-
-  padding:
-    1.1rem;
-
-  border:
-    1px solid
-    rgba(238, 233, 222, 0.055);
-
-  border-radius:
-    2px;
-
-  background:
-    rgba(8, 10, 11, 0.67) !important;
-
-  color:
-    #cbc7be;
-
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-
-/* ============================================================
-   Media
-   ============================================================ */
-
-.obsidian-media-container {
-  border-radius:
-    3px !important;
-
-  border:
-    1px solid
-    rgba(238, 233, 222, 0.075) !important;
-
-  background:
-    rgba(5, 7, 8, 0.42) !important;
-
-  box-shadow:
-    0 18px 50px
-    rgba(0, 0, 0, 0.18);
-}
-
-.obsidian-media-container img,
-.obsidian-media-container video {
-  border-radius:
-    2px !important;
-}
-
-
-/* ============================================================
-   RIGHT PANEL
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen > aside.w-72 {
-  position: relative !important;
-  isolation: isolate !important;
-  overflow: hidden !important;
-
-  background: #0a0b0c !important;
-  background-image: none !important;
-
-  border-left-color:
-    rgba(238, 233, 222, 0.08) !important;
-}
-
-
-/* ============================================================
-   梅花圖片獨立一層
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen > aside.w-72::before {
-  content: "";
-
-  position: absolute;
-  inset: 0;
-
-  z-index: 0;
-
-  pointer-events: none;
-
-  background-image:
-    url("/ink/right-plum-large.png");
-
-  background-repeat:
-    no-repeat;
-
-  background-position:
-    center bottom;
-
-  background-size:
-    cover;
-
-  /*
-   * 跟竹林一樣，只用 opacity 控制圖片強弱
-   */
-  opacity: 0.32;
-}
-
-
-/* ============================================================
-   右側所有 UI 放在梅花上面
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen
-  > aside.w-72
-  > * {
-  position: relative;
-
-  z-index: 1;
-}
-
-
-/* ============================================================
-   右側內容背景
-   只加一點透明黑，確保文字可讀
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen
-  > aside.w-72
-  > div:last-child {
-  background:
-    rgba(6, 8, 9, 0.28) !important;
-
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-
-/* ============================================================
-   Header
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen
-  > aside.w-72
-  > div:first-child {
-  background:
-    rgba(6, 8, 9, 0.34) !important;
-
-  border-bottom-color:
-    rgba(238, 233, 222, 0.08) !important;
-
-  color:
-    #eee9de !important;
-
-  backdrop-filter:
-    none !important;
-
-  -webkit-backdrop-filter:
-    none !important;
-}
-
-
-/* ============================================================
-   右欄標題
-   ============================================================ */
-
-.ink-section-title {
-  color:
-    #eee9de !important;
-}
-
-
-/* ============================================================
-   一般文字
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen
-  > aside.w-72 {
-  color:
-    #d8d3c8 !important;
-}
-
-
-/* ============================================================
-   反向 / 出向連結
-   ============================================================ */
-
-.ink-link-row {
-  color:
-    #d4d0c7 !important;
-}
-
-.ink-link-row:hover {
-  color:
-    #ffffff !important;
-
-  background:
-    rgba(120, 153, 145, 0.08) !important;
-
-  border-left-color:
-    rgba(120, 153, 145, 0.65) !important;
-}
-
-
-/* ============================================================
-   Tag
-   ============================================================ */
-
-body > div.flex.h-screen.w-screen
-  > aside.w-72
-  .obsidian-tag-seal {
-  background:
-    rgba(8, 10, 11, 0.35) !important;
-
-  color:
-    #ddd8ce !important;
-
-  border-color:
-    rgba(238, 233, 222, 0.12) !important;
-}
-/* ============================================================
-   Backlinks
-   ============================================================ */
-
-.ink-side-section {
-  position:
-    relative;
-
-  margin-bottom:
-    1.45rem;
-
-  padding-bottom:
-    1.4rem;
-}
-
-.ink-side-section::after {
-  content: "";
-
-  position:
-    absolute;
-
-  left:
-    0;
-
-  right:
-    15%;
-
-  bottom:
-    0;
-
-  height:
-    2px;
-
-  background:
-    linear-gradient(
-      90deg,
-      rgba(232, 226, 212, 0.28),
-      rgba(232, 226, 212, 0.08) 48%,
-      transparent
-    );
-}
-
-.ink-section-title {
-  display:
-    flex;
-
-  align-items:
-    baseline;
-
-  gap:
-    0.55rem;
-
-  margin-bottom:
-    0.82rem;
-
-  color:
-    #e0dbd0;
-
-  font-family:
-    var(--font-serif);
-
-  font-size:
-    1rem;
-
-  font-weight:
-    600;
-
-  letter-spacing:
-    0.04em;
-}
-
-.ink-count {
-  color:
-    #777c77;
-
-  font-family:
-    var(--font-mono);
-
-  font-size:
-    0.7rem;
-
-  font-weight:
-    400;
-}
-
-.ink-link-row {
-  width:
-    100%;
-
-  padding:
-    0.58rem 0.2rem 0.58rem 0.65rem;
-
-  text-align:
-    left;
-
-  border:
-    0;
-
-  border-left:
-    1px solid
-    transparent;
-
-  border-radius:
-    0 !important;
-
-  background:
-    transparent;
-
-  color:
-    #c6c2b8;
-
-  cursor:
-    pointer;
-}
-
-.ink-link-row:hover {
-  background:
-    linear-gradient(
-      90deg,
-      rgba(120, 153, 145, 0.085),
-      transparent 82%
-    ) !important;
-
-  border-left-color:
-    rgba(120, 153, 145, 0.62);
-}
-
-
-/* ============================================================
-   Drag State
-   ============================================================ */
-
-[class*="ring-cyan-500"] {
-  --tw-ring-color:
-    rgba(120, 153, 145, 0.52) !important;
-}
-
-[class*="border-dashed"][class*="border-cyan"] {
-  border-color:
-    rgba(120, 153, 145, 0.52) !important;
-}
-
-
-/* ============================================================
-   Modal
-   ============================================================ */
-
-/*
- * Modal 可以 Blur。
- * 這個 Blur 只作用 Modal，
- * 不會再模糊主畫面的竹林。
- */
-.fixed.inset-0 {
-  backdrop-filter:
-    blur(4px);
-
-  -webkit-backdrop-filter:
-    blur(4px);
-}
-
-
-/* ============================================================
-   Toast
-   ============================================================ */
-
-.fixed.bottom-5.right-5 {
-  border-radius:
-    2px !important;
-
-  background:
-    rgba(15, 17, 18, 0.94) !important;
-
-  border-color:
-    rgba(120, 153, 145, 0.24) !important;
+    if (
+      saveTimeoutRef.current
+    ) {
+      clearTimeout(
+        saveTimeoutRef.current
+      );
+    }
+
+    saveTimeoutRef.current =
+      setTimeout(
+        async () => {
+          try {
+            await saveNoteToDB(
+              updated
+            );
+          } catch (error) {
+            console.error(
+              "儲存筆記失敗:",
+              error
+            );
+
+            notify(
+              "error",
+              "自動儲存失敗"
+            );
+          }
+        },
+        300
+      );
+  }
+
+  function handleNavigateToNoteTitle(
+    title: string,
+    headingSlug?: string
+  ) {
+    if (
+      headingSlug
+    ) {
+      setTargetHeadingSlug(
+        headingSlug
+      );
+    }
+
+    const cleanTitle =
+      title.trim();
+
+    const existing =
+      notesMeta.find(
+        (note) =>
+          note.title
+            .toLowerCase() ===
+          cleanTitle.toLowerCase()
+      );
+
+    if (
+      existing
+    ) {
+      void selectNoteById(
+        existing.id
+      );
+
+      setMainView(
+        "editor"
+      );
+
+      setShowGraphView(
+        false
+      );
+
+      return;
+    }
+
+    if (
+      window.confirm(
+        `筆記「${cleanTitle}」尚未建立，是否立即新增？`
+      )
+    ) {
+      void handleCreateNote(
+        cleanTitle
+      );
+    }
+  }
+
+  async function handleExportVault() {
+    try {
+      await exportVaultJson(
+        "Markdown-Vault"
+      );
+
+      notify(
+        "success",
+        "已成功匯出完整知識庫備份"
+      );
+    } catch (error: any) {
+      notify(
+        "error",
+        `匯出失敗：${
+          error?.message ||
+          error
+        }`
+      );
+    }
+  }
+
+  async function handleImportVault(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file =
+      event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        "還原備份會以備份檔內容取代目前筆記、資料夾與附件。\n\n確定繼續嗎？"
+      );
+
+    if (
+      !confirmed
+    ) {
+      event.target.value =
+        "";
+      return;
+    }
+
+    try {
+      const text =
+        await file.text();
+
+      const result =
+        await parseAndRestoreVaultBackup(
+          text
+        );
+
+      revokeAllActiveMediaUrls();
+
+      const refreshed =
+        await getAllNoteMetadata();
+
+      setNotesMeta(
+        refreshed
+      );
+
+      setSelectedTag(
+        null
+      );
+
+      setShowBackupModal(
+        false
+      );
+
+      if (
+        refreshed.length >
+        0
+      ) {
+        await selectNoteById(
+          refreshed[0].id
+        );
+      } else {
+        setActiveNoteId(
+          null
+        );
+
+        setActiveNote(
+          null
+        );
+      }
+
+      notify(
+        "success",
+        `已還原 ${result.notes.length} 篇筆記、${result.folderCount} 個資料夾、${result.mediaCount} 個附件`
+      );
+    } catch (error: any) {
+      notify(
+        "error",
+        `匯入失敗：${
+          error?.message ||
+          "檔案格式不符"
+        }`
+      );
+    } finally {
+      if (
+        fileInputRef.current
+      ) {
+        fileInputRef.current.value =
+          "";
+      }
+    }
+  }
+
+  return (
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
+      {notification && (
+        <div
+          className={`fixed bottom-5 right-5 z-[14000] flex items-center gap-2 border px-3.5 py-2 text-xs shadow-2xl ${
+            notification.type ===
+            "error"
+              ? "border-red-500/20 bg-[#1a1111]/95 text-red-200"
+              : "border-cyan-700/20 bg-[#121415]/95 text-slate-200"
+          }`}
+        >
+          <span className="font-serif">
+            {notification.type ===
+            "error"
+              ? "!"
+              : "✓"}
+          </span>
+
+          <span>
+            {
+              notification.message
+            }
+          </span>
+        </div>
+      )}
+
+      <aside className="flex h-full w-64 shrink-0 flex-col border-r border-slate-800 bg-slate-900/50">
+        <FileTree
+          notes={
+            notesMeta
+          }
+          activeNoteId={
+            activeNoteId
+          }
+          onSelectNote={(
+            id
+          ) =>
+            void selectNoteById(
+              id
+            )
+          }
+          onCreateNote={
+            handleCreateNote
+          }
+          onDeleteNote={(
+            id
+          ) =>
+            void handleDeleteNote(
+              id
+            )
+          }
+          onRenameNote={(
+            id,
+            title
+          ) =>
+            void handleRenameNote(
+              id,
+              title
+            )
+          }
+          onMoveNoteFolder={(
+            id,
+            folder
+          ) =>
+            void handleMoveNoteFolder(
+              id,
+              folder
+            )
+          }
+          onMoveFolder={(
+            source,
+            parent
+          ) =>
+            void handleMoveFolder(
+              source,
+              parent
+            )
+          }
+          selectedTag={
+            selectedTag
+          }
+          onClearTagFilter={() =>
+            setSelectedTag(
+              null
+            )
+          }
+        />
+
+        <div className="flex items-center justify-between border-t border-white/5 bg-black/20 p-2 text-[11px] text-slate-500">
+          <button
+            type="button"
+            onClick={() =>
+              setShowBackupModal(
+                true
+              )
+            }
+            className="px-2 py-1 hover:text-slate-200"
+          >
+            備份 / 還原
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setMainView(
+                mainView ===
+                  "editor"
+                  ? "graph"
+                  : "editor"
+              )
+            }
+            className={`px-2 py-1 ${
+              mainView ===
+              "graph"
+                ? "text-cyan-200"
+                : "hover:text-slate-200"
+            }`}
+          >
+            圖譜視圖
+          </button>
+        </div>
+      </aside>
+
+      <main className="relative flex h-full min-w-0 flex-1 flex-col bg-[#0d0f12]">
+        {mainView ===
+        "graph" ? (
+          <div className="relative flex h-full flex-1 flex-col overflow-hidden">
+            <div className="z-20 flex items-center justify-between border-b border-white/5 bg-black/25 px-5 py-2.5">
+              <button
+                type="button"
+                onClick={() =>
+                  setMainView(
+                    "editor"
+                  )
+                }
+                className="text-xs text-slate-400 hover:text-slate-100"
+              >
+                ← 返回編輯
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setShowGraphView(
+                    true
+                  )
+                }
+                className="text-xs text-slate-500 hover:text-slate-200"
+              >
+                全螢幕
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1">
+              <GraphView
+                notes={
+                  notesMeta
+                }
+                activeNoteId={
+                  activeNoteId
+                }
+                onSelectNote={(
+                  id
+                ) => {
+                  void selectNoteById(
+                    id
+                  );
+
+                  setMainView(
+                    "editor"
+                  );
+                }}
+              />
+            </div>
+          </div>
+        ) : isLoadingNote ? (
+          <div className="flex flex-1 items-center justify-center text-xs text-slate-500">
+            正在載入篇章…
+          </div>
+        ) : (
+          <MarkdownEditor
+            note={
+              activeNote
+            }
+            existingTitles={
+              existingTitles
+            }
+            targetHeadingSlug={
+              targetHeadingSlug
+            }
+            onClearTargetHeadingSlug={() =>
+              setTargetHeadingSlug(
+                null
+              )
+            }
+            onUpdateContent={
+              handleUpdateContent
+            }
+            onNavigateToNoteTitle={
+              handleNavigateToNoteTitle
+            }
+            onDownloadMarkdown={
+              exportNoteMarkdown
+            }
+            onOpenGraphView={() =>
+              setMainView(
+                "graph"
+              )
+            }
+            onSelectTag={(
+              tag
+            ) =>
+              setSelectedTag(
+                tag
+              )
+            }
+          />
+        )}
+      </main>
+
+      {showRightPanel ? (
+        <aside className="flex h-full w-72 shrink-0 flex-col border-l border-white/5 bg-[#121418]">
+          <div className="flex items-center justify-between border-b border-white/5 px-3 py-2.5 text-xs text-slate-400">
+            <span>
+              關聯資訊
+            </span>
+
+            <button
+              type="button"
+              onClick={() =>
+                setShowRightPanel(
+                  false
+                )
+              }
+              className="text-slate-500 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-3">
+              <BacklinksPanel
+                activeNote={
+                  activeNote
+                }
+                backlinks={
+                  backlinks
+                }
+                allNotes={
+                  notesMeta
+                }
+                onSelectNote={(
+                  id
+                ) =>
+                  void selectNoteById(
+                    id
+                  )
+                }
+                onNavigateToNoteTitle={
+                  handleNavigateToNoteTitle
+                }
+              />
+            </div>
+
+            <div className="border-t border-white/5 p-3">
+              <TagList
+                tagsWithCounts={
+                  tagsWithCounts
+                }
+                selectedTag={
+                  selectedTag
+                }
+                onSelectTag={(
+                  tag
+                ) =>
+                  setSelectedTag(
+                    tag
+                  )
+                }
+              />
+            </div>
+          </div>
+        </aside>
+      ) : (
+        <button
+          type="button"
+          onClick={() =>
+            setShowRightPanel(
+              true
+            )
+          }
+          className="absolute right-0 top-12 z-20 border border-r-0 border-white/10 bg-[#111416] px-1.5 py-2 text-xs text-slate-500 hover:text-cyan-300"
+        >
+          ◀
+        </button>
+      )}
+
+      {showGraphView && (
+        <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="h-[86vh] w-full max-w-6xl overflow-hidden border border-white/10 bg-[#0c0d10] shadow-2xl">
+            <GraphView
+              notes={
+                notesMeta
+              }
+              activeNoteId={
+                activeNoteId
+              }
+              onSelectNote={(
+                id
+              ) => {
+                void selectNoteById(
+                  id
+                );
+
+                setShowGraphView(
+                  false
+                );
+
+                setMainView(
+                  "editor"
+                );
+              }}
+              onClose={() =>
+                setShowGraphView(
+                  false
+                )
+              }
+            />
+          </div>
+        </div>
+      )}
+
+      {showBackupModal && (
+        <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md border border-white/10 bg-[#111416]/98 p-5 text-slate-200 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="font-serif text-sm text-white">
+                本機知識庫備份與管理
+              </h3>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setShowBackupModal(
+                    false
+                  )
+                }
+                className="text-slate-500 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 py-4 text-xs text-slate-400">
+              <div className="flex justify-between">
+                <span>
+                  筆記
+                </span>
+
+                <span className="font-mono">
+                  {
+                    notesMeta.length
+                  }
+                </span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>
+                  標籤
+                </span>
+
+                <span className="font-mono">
+                  {
+                    tagsWithCounts.length
+                  }
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  void handleExportVault()
+                }
+                className="w-full border border-cyan-700/30 py-2 text-cyan-200 hover:bg-cyan-950/20"
+              >
+                匯出完整 JSON 備份
+              </button>
+
+              <label className="block w-full cursor-pointer border border-white/10 py-2 text-center text-slate-300 hover:bg-white/[0.03]">
+                還原 / 匯入備份
+                <input
+                  ref={
+                    fileInputRef
+                  }
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={(
+                    event
+                  ) =>
+                    void handleImportVault(
+                      event
+                    )
+                  }
+                />
+              </label>
+
+              <p className="text-[10px] leading-relaxed text-slate-600">
+                還原會完整取代目前的筆記、資料夾與附件。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
