@@ -61,11 +61,22 @@ export interface GraphData {
   links: GraphLink[];
 }
 
+export interface SerializedMediaAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  dataUrl: string;
+  createdAt: string;
+}
+
 export interface VaultBackup {
-  version: 1;
+  version: 1 | 2;
   exportedAt: string;
   vaultName: string;
   notes: Note[];
+  customFolders?: string[];
+  media?: SerializedMediaAttachment[];
 }
 
 export type ViewMode = "edit" | "preview" | "split" | "graph";
