@@ -527,17 +527,17 @@ export default function FileTree({
             }}
             className={`group flex items-center justify-between py-1.5 pr-2 rounded-xl text-xs transition cursor-grab active:cursor-grabbing mb-0.5 border ${
               isTarget
-                ? "bg-purple-900/90 border-purple-400 ring-2 ring-purple-400/60 text-white font-semibold shadow-lg shadow-purple-900/40"
+                ? "bg-blue-900/80 border-blue-400 ring-2 ring-blue-400/60 text-white font-semibold shadow-lg shadow-blue-950/60"
                 : "border-transparent text-slate-300 hover:bg-slate-800/80 hover:text-white"
             }`}
             title={`資料夾：${folder.path}（按住可拖曳移動，或釋放筆記至此）`}
           >
             <div className="flex items-center space-x-1.5 overflow-hidden pr-1 pointer-events-none">
-              <span className="text-[10px] text-slate-400 group-hover:text-purple-400 transition-transform">
+              <span className="text-[10px] text-slate-400 group-hover:text-cyan-400 transition-transform">
                 {isExpanded ? "▼" : "▶"}
               </span>
               <span className="text-sm">📁</span>
-              <span className="truncate font-medium text-slate-200 group-hover:text-purple-300">
+              <span className="truncate font-medium text-slate-200 group-hover:text-cyan-300">
                 {folder.name}
               </span>
               <span className="text-[10px] text-slate-500">
@@ -554,7 +554,7 @@ export default function FileTree({
                 type="button"
                 onClick={() => onCreateNote(undefined, folder.path)}
                 title={`在「${folder.name}」中建立筆記`}
-                className="w-5 h-5 flex items-center justify-center rounded-md text-slate-400 hover:text-white hover:bg-purple-700/60 transition"
+                className="w-5 h-5 flex items-center justify-center rounded-md text-slate-400 hover:text-white hover:bg-blue-700/60 transition"
               >
                 +
               </button>
@@ -642,10 +642,10 @@ export default function FileTree({
                   }}
                   className={`group relative flex items-center justify-between py-1.5 pr-2 rounded-xl text-xs transition cursor-grab active:cursor-grabbing mb-0.5 border ${
                     isActive
-                      ? "bg-purple-900/60 text-white font-medium border-l-2 border-purple-400 border-t-transparent border-r-transparent border-b-transparent"
+                      ? "bg-cyan-950/35 text-cyan-200 font-medium border-l-2 border-cyan-500 border-t-transparent border-r-transparent border-b-transparent"
                       : isNoteTarget && isDragging
-                      ? "bg-purple-950/60 border-purple-400/80 text-purple-200"
-                      : "border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+                      ? "bg-cyan-950/60 border-cyan-400/80 text-cyan-200"
+                      : "border-transparent text-slate-400 hover:bg-white/4 hover:text-slate-200"
                   }`}
                   title={`${note.title}（按住拖曳可歸入任意資料夾）`}
                 >
@@ -663,7 +663,7 @@ export default function FileTree({
                         }}
                         autoFocus
                         onClick={(e) => e.stopPropagation()}
-                        className="bg-slate-900 border border-purple-500 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none w-36 pointer-events-auto"
+                        className="bg-slate-900 border border-blue-500 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none w-36 pointer-events-auto"
                       />
                     ) : (
                       <span className="truncate">{note.title}</span>
@@ -679,7 +679,7 @@ export default function FileTree({
                       type="button"
                       onClick={(e) => handleStartRenameNote(note, e)}
                       title="重新命名"
-                      className="p-1 hover:text-purple-300 transition"
+                      className="p-1 hover:text-cyan-300 transition"
                     >
                       ✏️
                     </button>
@@ -705,33 +705,31 @@ export default function FileTree({
   };
 
   return (
-    <aside className="w-64 h-full bg-slate-900/90 border-r border-slate-800 flex flex-col backdrop-blur-md">
+    <aside className="w-64 h-full bg-[#111317] border-r border-white/6 flex flex-col select-none">
       {/* 頂部控制列 */}
-      <div className="p-3 border-b border-slate-800 flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          {/* 根目錄放置目標 */}
+      <div className="p-3 border-b border-white/6 flex flex-col gap-2.5">
+        {/* 頂部操作按鈕列 (已移除左上角名字) */}
+        <div className="flex items-center justify-between px-1 pt-0.5">
           <div
             data-drop-root="true"
             onDragOver={(e) => handleHtml5DragOver(e, "")}
             onDrop={(e) => handleHtml5Drop(e, "")}
-            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-xl transition-all cursor-pointer border ${
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors cursor-pointer ${
               dragOverPath === ""
-                ? "bg-purple-900/80 border-purple-400 ring-2 ring-purple-400/60 text-purple-200 shadow-md"
-                : "border-transparent text-slate-400 hover:text-slate-200"
+                ? "bg-cyan-950/60 text-cyan-200"
+                : "text-slate-400 hover:text-slate-200"
             }`}
-            title="檔案庫最外層（拖曳至此處可移出至根目錄）"
+            title="拖曳至此處可將筆記移至最外層"
           >
-            <span className="font-semibold text-xs tracking-wider uppercase text-slate-200">
+            <span className="font-medium text-xs tracking-wider uppercase text-slate-400">
               檔案庫
             </span>
             {dragOverPath === "" && (
-              <span className="text-[10px] text-purple-300 font-normal">
-                (釋放至根目錄)
-              </span>
+              <span className="text-[10px] text-cyan-400 font-normal">釋放至此</span>
             )}
           </div>
 
-          <div className="flex items-center space-x-1">
+          <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => {
@@ -741,18 +739,22 @@ export default function FileTree({
                 setShowCreateFolderModal(true);
               }}
               title="新增資料夾"
-              className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-purple-300 transition text-xs flex items-center gap-1"
+              className="p-1 hover:bg-white/6 rounded-md text-slate-400 hover:text-slate-200 transition-colors text-xs"
             >
-              <span>📁+</span>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+              </svg>
             </button>
 
             <button
               type="button"
               onClick={() => onCreateNote()}
               title="新增筆記"
-              className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-purple-400 transition text-xs"
+              className="p-1 hover:bg-white/6 rounded-md text-slate-400 hover:text-cyan-300 transition-colors text-xs"
             >
-              ➕
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4v16m8-8H4" />
+              </svg>
             </button>
           </div>
         </div>
@@ -764,7 +766,7 @@ export default function FileTree({
             placeholder="搜尋筆記或標籤..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-slate-800/80 border border-slate-700/60 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+            className="w-full bg-white/4 border border-white/8 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-600/60 transition-colors"
           />
           {search && (
             <button
@@ -779,7 +781,7 @@ export default function FileTree({
 
         {/* 標籤過濾提示 */}
         {selectedTag && (
-          <div className="flex items-center justify-between bg-purple-950/60 border border-purple-800/50 rounded-lg px-2 py-1 text-[11px] text-purple-300">
+          <div className="flex items-center justify-between bg-blue-950/70 border border-blue-800/50 rounded-lg px-2 py-1 text-[11px] text-blue-300">
             <span className="truncate">標籤：#{selectedTag}</span>
             <button
               type="button"
@@ -845,7 +847,7 @@ export default function FileTree({
                 if (e.key === "Escape") setShowCreateFolderModal(false);
               }}
               autoFocus
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 mb-2"
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 mb-2"
             />
 
             {folderError && (
@@ -863,7 +865,7 @@ export default function FileTree({
               <button
                 type="button"
                 onClick={handleCreateFolder}
-                className="px-4 py-1.5 rounded-xl text-xs font-medium bg-purple-600 hover:bg-purple-500 text-white transition shadow-lg shadow-purple-600/30"
+                className="px-4 py-1.5 rounded-xl text-xs font-medium bg-rose-700 hover:bg-rose-600 shadow-sm shadow-rose-950/50 text-white text-white transition shadow-lg shadow-blue-600/30"
               >
                 建立
               </button>
@@ -890,7 +892,7 @@ export default function FileTree({
                 if (e.key === "Escape") setRenamingFolder(null);
               }}
               autoFocus
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 mb-3"
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 mb-3"
             />
 
             <div className="flex items-center justify-end space-x-2">
@@ -904,7 +906,7 @@ export default function FileTree({
               <button
                 type="button"
                 onClick={handleRenameFolder}
-                className="px-4 py-1.5 rounded-xl text-xs font-medium bg-purple-600 hover:bg-purple-500 text-white transition shadow-lg shadow-purple-600/30"
+                className="px-4 py-1.5 rounded-xl text-xs font-medium bg-rose-700 hover:bg-rose-600 shadow-sm shadow-rose-950/50 text-white text-white transition shadow-lg shadow-blue-600/30"
               >
                 儲存
               </button>
@@ -921,7 +923,7 @@ export default function FileTree({
             <p className="text-xs text-slate-300 mb-3">
               確定要刪除「{deletingFolder.path}」嗎？
               {deletingFolder.count > 0 && (
-                <span className="block mt-1 text-purple-300">
+                <span className="block mt-1 text-blue-300">
                   內部包含 {deletingFolder.count} 篇筆記，將自動移回根目錄安全保存。
                 </span>
               )}
