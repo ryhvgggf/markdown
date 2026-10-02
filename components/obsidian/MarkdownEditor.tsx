@@ -731,7 +731,7 @@ export function MarkdownEditor({
               onDownloadMarkdown(note)
             }
             className="px-2 py-1 text-xs text-slate-400 hover:text-slate-100"
-            title="下載 Markdown"
+            title="下載此筆記"
           >
             ↓
           </button>
