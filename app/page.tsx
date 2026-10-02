@@ -12,8 +12,9 @@ import { BacklinksPanel } from "@/components/obsidian/BacklinksPanel";
 import FileTree from "@/components/obsidian/FileTree";
 import { GraphView } from "@/components/obsidian/GraphView";
 import { MarkdownEditor } from "@/components/obsidian/MarkdownEditor";
-import { TagList } from "@/components/obsidian/TagList";
 import { MobileBottomBar } from "@/components/obsidian/MobileBottomBar";
+import { TagList } from "@/components/obsidian/TagList";
+import { VaultTransferPanel } from "@/components/obsidian/VaultTransferPanel";
 
 import {
   deleteNoteFromDB,
@@ -31,21 +32,19 @@ import {
 } from "@/lib/obsidian/links";
 
 import {
-  extractMediaReferences,
-  parseLinksAndTags,
-} from "@/lib/obsidian/parser";
-
-import {
   deleteSavedMedia,
   getMediaDetails,
   revokeAllActiveMediaUrls,
 } from "@/lib/obsidian/media";
 
 import {
+  extractMediaReferences,
+  parseLinksAndTags,
+} from "@/lib/obsidian/parser";
+
+import {
   exportNoteMarkdown,
-  exportVaultJson,
   initVaultStorage,
-  parseAndRestoreVaultBackup,
 } from "@/lib/obsidian/storage";
 
 import {
@@ -60,7 +59,9 @@ function escapeRegex(text: string): string {
   );
 }
 
-function normalizeFolderPath(path: string): string {
+function normalizeFolderPath(
+  path: string
+): string {
   return path
     .split("/")
     .map((part) => part.trim())
@@ -77,12 +78,16 @@ export default function MarkdownVaultPage() {
   const [
     activeNoteId,
     setActiveNoteId,
-  ] = useState<string | null>(null);
+  ] = useState<string | null>(
+    null
+  );
 
   const [
     activeNote,
     setActiveNote,
-  ] = useState<Note | null>(null);
+  ] = useState<Note | null>(
+    null
+  );
 
   const [
     isLoadingNote,
@@ -92,12 +97,16 @@ export default function MarkdownVaultPage() {
   const [
     targetHeadingSlug,
     setTargetHeadingSlug,
-  ] = useState<string | null>(null);
+  ] = useState<string | null>(
+    null
+  );
 
   const [
     selectedTag,
     setSelectedTag,
-  ] = useState<string | null>(null);
+  ] = useState<string | null>(
+    null
+  );
 
   const [
     showRightPanel,
@@ -105,23 +114,14 @@ export default function MarkdownVaultPage() {
   ] = useState(true);
 
   const [
-    showBackupModal,
-    setShowBackupModal,
-  ] = useState(false);
-
-  const [
     mainView,
     setMainView,
-  ] = useState<"editor" | "graph">("editor");
+  ] = useState<
+    "editor" | "graph"
+  >("editor");
 
   /*
    * 手機 UI
-   *
-   * showMobileNotes
-   *   = 左側筆記 Drawer
-   *
-   * showMobileRelations
-   *   = 底部關聯資訊 Drawer
    */
   const [
     showMobileNotes,
@@ -144,12 +144,11 @@ export default function MarkdownVaultPage() {
     message: string;
   } | null>(null);
 
-  const fileInputRef =
-    useRef<HTMLInputElement>(null);
-
   const saveTimeoutRef =
     useRef<
-      ReturnType<typeof setTimeout> | null
+      ReturnType<
+        typeof setTimeout
+      > | null
     >(null);
 
   const notify = useCallback(
@@ -165,13 +164,18 @@ export default function MarkdownVaultPage() {
         message,
       });
 
-      window.setTimeout(() => {
-        setNotification((current) =>
-          current?.message === message
-            ? null
-            : current
-        );
-      }, 3600);
+      window.setTimeout(
+        () => {
+          setNotification(
+            (current) =>
+              current?.message ===
+              message
+                ? null
+                : current
+          );
+        },
+        3600
+      );
     },
     []
   );
@@ -181,17 +185,28 @@ export default function MarkdownVaultPage() {
    */
   const selectNoteById =
     useCallback(
-      async (noteId: string) => {
+      async (
+        noteId: string
+      ) => {
         revokeAllActiveMediaUrls();
 
-        setActiveNoteId(noteId);
-        setIsLoadingNote(true);
+        setActiveNoteId(
+          noteId
+        );
+
+        setIsLoadingNote(
+          true
+        );
 
         try {
           const full =
-            await getNoteContent(noteId);
+            await getNoteContent(
+              noteId
+            );
 
-          setActiveNote(full);
+          setActiveNote(
+            full
+          );
         } catch (error) {
           console.error(
             "讀取筆記失敗:",
@@ -203,7 +218,9 @@ export default function MarkdownVaultPage() {
             "讀取筆記失敗"
           );
         } finally {
-          setIsLoadingNote(false);
+          setIsLoadingNote(
+            false
+          );
         }
       },
       [notify]
@@ -213,57 +230,73 @@ export default function MarkdownVaultPage() {
    * 初始化 Vault
    */
   useEffect(() => {
-    let mounted = true;
+    let mounted =
+      true;
 
-    const init = async () => {
-      try {
-        const initResult =
-          await initVaultStorage();
+    const init =
+      async () => {
+        try {
+          const initResult =
+            await initVaultStorage();
 
-        const meta =
-          await getAllNoteMetadata();
+          const meta =
+            await getAllNoteMetadata();
 
-        if (!mounted) {
-          return;
-        }
+          if (
+            !mounted
+          ) {
+            return;
+          }
 
-        setNotesMeta(meta);
+          setNotesMeta(
+            meta
+          );
 
-        if (
-          initResult.migratedCount > 0
+          if (
+            initResult.migratedCount >
+            0
+          ) {
+            notify(
+              "success",
+              `已將 ${initResult.migratedCount} 篇舊筆記遷移至 IndexedDB`
+            );
+          }
+
+          if (
+            meta.length >
+            0
+          ) {
+            await selectNoteById(
+              meta[0].id
+            );
+          }
+        } catch (
+          error: any
         ) {
+          console.error(
+            "初始化知識庫失敗:",
+            error
+          );
+
           notify(
-            "success",
-            `已將 ${initResult.migratedCount} 篇舊筆記遷移至 IndexedDB`
+            "error",
+            `載入知識庫失敗：${
+              error?.message ||
+              error
+            }`
           );
         }
-
-        if (meta.length > 0) {
-          await selectNoteById(
-            meta[0].id
-          );
-        }
-      } catch (error: any) {
-        console.error(
-          "初始化知識庫失敗:",
-          error
-        );
-
-        notify(
-          "error",
-          `載入知識庫失敗：${
-            error?.message || error
-          }`
-        );
-      }
-    };
+      };
 
     void init();
 
     return () => {
-      mounted = false;
+      mounted =
+        false;
 
-      if (saveTimeoutRef.current) {
+      if (
+        saveTimeoutRef.current
+      ) {
         clearTimeout(
           saveTimeoutRef.current
         );
@@ -280,7 +313,8 @@ export default function MarkdownVaultPage() {
     useMemo(
       () =>
         notesMeta.map(
-          (note) => note.title
+          (note) =>
+            note.title
         ),
       [notesMeta]
     );
@@ -320,7 +354,8 @@ export default function MarkdownVaultPage() {
       initialTitle?.trim();
 
     if (!title) {
-      let counter = 1;
+      let counter =
+        1;
 
       title =
         `未命名筆記 ${counter}`;
@@ -333,7 +368,8 @@ export default function MarkdownVaultPage() {
             title?.toLowerCase()
         )
       ) {
-        counter += 1;
+        counter +=
+          1;
 
         title =
           `未命名筆記 ${counter}`;
@@ -347,12 +383,20 @@ export default function MarkdownVaultPage() {
             title?.toLowerCase()
         );
 
-      if (existing) {
+      if (
+        existing
+      ) {
         await selectNoteById(
           existing.id
         );
 
-        setMainView("editor");
+        setMainView(
+          "editor"
+        );
+
+        setShowMobileNotes(
+          false
+        );
 
         return;
       }
@@ -361,29 +405,33 @@ export default function MarkdownVaultPage() {
     const now =
       new Date().toISOString();
 
-    const newNote: Note = {
-      id:
-        `note-${Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2, 8)}`,
+    const newNote: Note =
+      {
+        id:
+          `note-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
 
-      title,
+        title,
 
-      folder:
-        normalizeFolderPath(
-          folder || ""
-        ),
+        folder:
+          normalizeFolderPath(
+            folder || ""
+          ),
 
-      content:
-        `# ${title}\n\n` +
-        "在此開始撰寫筆記內容...\n",
+        content:
+          `# ${title}\n\n` +
+          "在此開始撰寫筆記內容...\n",
 
-      tags: [],
-      outlinks: [],
+        tags: [],
+        outlinks: [],
 
-      createdAt: now,
-      updatedAt: now,
-    };
+        createdAt:
+          now,
+
+        updatedAt:
+          now,
+      };
 
     try {
       await saveNoteToDB(
@@ -393,21 +441,42 @@ export default function MarkdownVaultPage() {
       const meta =
         await getAllNoteMetadata();
 
-      setNotesMeta(meta);
-      setActiveNote(newNote);
-      setActiveNoteId(newNote.id);
+      setNotesMeta(
+        meta
+      );
 
-      setMainView("editor");
+      setActiveNote(
+        newNote
+      );
+
+      setActiveNoteId(
+        newNote.id
+      );
+
+      setMainView(
+        "editor"
+      );
+
+      setShowMobileNotes(
+        false
+      );
+
+      setShowMobileRelations(
+        false
+      );
 
       notify(
         "success",
         `已建立筆記「${title}」`
       );
-    } catch (error: any) {
+    } catch (
+      error: any
+    ) {
       notify(
         "error",
         `建立筆記失敗：${
-          error?.message || error
+          error?.message ||
+          error
         }`
       );
     }
@@ -435,20 +504,26 @@ export default function MarkdownVaultPage() {
         return;
       }
 
-      note.folder = target;
+      note.folder =
+        target;
+
       note.updatedAt =
         new Date().toISOString();
 
-      await saveNoteToDB(note);
+      await saveNoteToDB(
+        note
+      );
 
       setNotesMeta(
         (previous) =>
           previous.map(
             (meta) =>
-              meta.id === noteId
+              meta.id ===
+              noteId
                 ? {
                     ...meta,
-                    folder: target,
+                    folder:
+                      target,
                     updatedAt:
                       note.updatedAt,
                   }
@@ -457,13 +532,16 @@ export default function MarkdownVaultPage() {
       );
 
       if (
-        activeNoteId === noteId
+        activeNoteId ===
+        noteId
       ) {
         setActiveNote({
           ...note,
         });
       }
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
         "移動筆記失敗:",
         error
@@ -498,7 +576,8 @@ export default function MarkdownVaultPage() {
     }
 
     if (
-      target === source ||
+      target ===
+        source ||
       target.startsWith(
         `${source}/`
       )
@@ -514,7 +593,8 @@ export default function MarkdownVaultPage() {
     const folderName =
       source
         .split("/")
-        .pop() || "";
+        .pop() ||
+      "";
 
     const newPath =
       normalizeFolderPath(
@@ -523,7 +603,10 @@ export default function MarkdownVaultPage() {
           : folderName
       );
 
-    if (newPath === source) {
+    if (
+      newPath ===
+      source
+    ) {
       return;
     }
 
@@ -534,8 +617,13 @@ export default function MarkdownVaultPage() {
         )
       );
 
-    for (const meta of notesMeta) {
-      if (meta.folder) {
+    for (
+      const meta of
+      notesMeta
+    ) {
+      if (
+        meta.folder
+      ) {
         knownFolders.add(
           normalizeFolderPath(
             meta.folder
@@ -545,7 +633,9 @@ export default function MarkdownVaultPage() {
     }
 
     if (
-      knownFolders.has(newPath)
+      knownFolders.has(
+        newPath
+      )
     ) {
       notify(
         "error",
@@ -560,28 +650,31 @@ export default function MarkdownVaultPage() {
         getCustomFolders();
 
       const nextCustom =
-        custom.map((folder) => {
-          if (
-            folder === source
-          ) {
-            return newPath;
-          }
+        custom.map(
+          (folder) => {
+            if (
+              folder ===
+              source
+            ) {
+              return newPath;
+            }
 
-          if (
-            folder.startsWith(
-              `${source}/`
-            )
-          ) {
-            return (
-              newPath +
-              folder.slice(
-                source.length
+            if (
+              folder.startsWith(
+                `${source}/`
               )
-            );
-          }
+            ) {
+              return (
+                newPath +
+                folder.slice(
+                  source.length
+                )
+              );
+            }
 
-          return folder;
-        });
+            return folder;
+          }
+        );
 
       saveCustomFolders(
         nextCustom
@@ -590,14 +683,22 @@ export default function MarkdownVaultPage() {
       const allNotes =
         await getAllNotesFromDB();
 
-      for (const note of allNotes) {
-        let changed = false;
+      for (
+        const note of
+        allNotes
+      ) {
+        let changed =
+          false;
 
         if (
-          note.folder === source
+          note.folder ===
+          source
         ) {
-          note.folder = newPath;
-          changed = true;
+          note.folder =
+            newPath;
+
+          changed =
+            true;
         } else if (
           note.folder?.startsWith(
             `${source}/`
@@ -609,31 +710,44 @@ export default function MarkdownVaultPage() {
               source.length
             );
 
-          changed = true;
+          changed =
+            true;
         }
 
-        if (changed) {
+        if (
+          changed
+        ) {
           note.updatedAt =
             new Date().toISOString();
 
-          await saveNoteToDB(note);
+          await saveNoteToDB(
+            note
+          );
         }
       }
 
       const refreshed =
         await getAllNoteMetadata();
 
-      setNotesMeta(refreshed);
+      setNotesMeta(
+        refreshed
+      );
 
-      if (activeNoteId) {
+      if (
+        activeNoteId
+      ) {
         const latest =
           await getNoteContent(
             activeNoteId
           );
 
-        setActiveNote(latest);
+        setActiveNote(
+          latest
+        );
       }
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
         "移動資料夾失敗:",
         error
@@ -649,7 +763,7 @@ export default function MarkdownVaultPage() {
   /*
    * 重新命名筆記
    *
-   * 同時更新其他筆記裡的：
+   * 同時更新：
    * [[Old]]
    * [[Old|Alias]]
    * [[Old#Heading]]
@@ -662,7 +776,9 @@ export default function MarkdownVaultPage() {
     const cleanTitle =
       newTitle.trim();
 
-    if (!cleanTitle) {
+    if (
+      !cleanTitle
+    ) {
       notify(
         "error",
         "筆記名稱不能為空"
@@ -674,7 +790,8 @@ export default function MarkdownVaultPage() {
     const target =
       notesMeta.find(
         (note) =>
-          note.id === noteId
+          note.id ===
+          noteId
       );
 
     if (!target) {
@@ -684,7 +801,8 @@ export default function MarkdownVaultPage() {
     if (
       notesMeta.some(
         (note) =>
-          note.id !== noteId &&
+          note.id !==
+            noteId &&
           note.title
             .trim()
             .toLowerCase() ===
@@ -703,7 +821,8 @@ export default function MarkdownVaultPage() {
       target.title;
 
     if (
-      oldTitle === cleanTitle
+      oldTitle ===
+      cleanTitle
     ) {
       return;
     }
@@ -713,7 +832,9 @@ export default function MarkdownVaultPage() {
         await getAllNotesFromDB();
 
       const safeOld =
-        escapeRegex(oldTitle);
+        escapeRegex(
+          oldTitle
+        );
 
       const linkRegex =
         new RegExp(
@@ -721,16 +842,22 @@ export default function MarkdownVaultPage() {
           "gi"
         );
 
-      for (const note of allNotes) {
-        let changed = false;
+      for (
+        const note of
+        allNotes
+      ) {
+        let changed =
+          false;
 
         if (
-          note.id === noteId
+          note.id ===
+          noteId
         ) {
           note.title =
             cleanTitle;
 
-          changed = true;
+          changed =
+            true;
         }
 
         const nextContent =
@@ -741,7 +868,8 @@ export default function MarkdownVaultPage() {
               suffix
             ) =>
               `[[${cleanTitle}${
-                suffix || ""
+                suffix ||
+                ""
               }]]`
           );
 
@@ -752,10 +880,13 @@ export default function MarkdownVaultPage() {
           note.content =
             nextContent;
 
-          changed = true;
+          changed =
+            true;
         }
 
-        if (changed) {
+        if (
+          changed
+        ) {
           const parsed =
             parseLinksAndTags(
               note.content
@@ -779,9 +910,13 @@ export default function MarkdownVaultPage() {
       const refreshed =
         await getAllNoteMetadata();
 
-      setNotesMeta(refreshed);
+      setNotesMeta(
+        refreshed
+      );
 
-      if (activeNoteId) {
+      if (
+        activeNoteId
+      ) {
         setActiveNote(
           await getNoteContent(
             activeNoteId
@@ -793,11 +928,14 @@ export default function MarkdownVaultPage() {
         "success",
         `筆記已更名為「${cleanTitle}」，雙向連結已同步更新`
       );
-    } catch (error: any) {
+    } catch (
+      error: any
+    ) {
       notify(
         "error",
         `重新命名失敗：${
-          error?.message || error
+          error?.message ||
+          error
         }`
       );
     }
@@ -808,11 +946,16 @@ export default function MarkdownVaultPage() {
    */
   async function resolveMediaIds(
     refs: string[]
-  ): Promise<Set<string>> {
+  ): Promise<
+    Set<string>
+  > {
     const result =
       new Set<string>();
 
-    for (const ref of refs) {
+    for (
+      const ref of
+      refs
+    ) {
       try {
         const record =
           await getMediaDetails(
@@ -820,10 +963,13 @@ export default function MarkdownVaultPage() {
           );
 
         result.add(
-          record?.id || ref
+          record?.id ||
+            ref
         );
       } catch {
-        result.add(ref);
+        result.add(
+          ref
+        );
       }
     }
 
@@ -841,7 +987,8 @@ export default function MarkdownVaultPage() {
     const deletedMeta =
       notesMeta.find(
         (note) =>
-          note.id === noteId
+          note.id ===
+          noteId
       );
 
     try {
@@ -862,7 +1009,8 @@ export default function MarkdownVaultPage() {
       );
 
       if (
-        deletedRefs.length > 0
+        deletedRefs.length >
+        0
       ) {
         const remainingNotes =
           await getAllNotesFromDB();
@@ -888,14 +1036,18 @@ export default function MarkdownVaultPage() {
             ),
           ]);
 
-        for (const ref of deletedRefs) {
+        for (
+          const ref of
+          deletedRefs
+        ) {
           const record =
             await getMediaDetails(
               ref
             );
 
           const resolvedId =
-            record?.id || ref;
+            record?.id ||
+            ref;
 
           if (
             deletedIds.has(
@@ -915,20 +1067,30 @@ export default function MarkdownVaultPage() {
       const refreshed =
         await getAllNoteMetadata();
 
-      setNotesMeta(refreshed);
+      setNotesMeta(
+        refreshed
+      );
 
       if (
-        activeNoteId === noteId
+        activeNoteId ===
+        noteId
       ) {
         if (
-          refreshed.length > 0
+          refreshed.length >
+          0
         ) {
           await selectNoteById(
             refreshed[0].id
           );
         } else {
-          setActiveNoteId(null);
-          setActiveNote(null);
+          setActiveNoteId(
+            null
+          );
+
+          setActiveNote(
+            null
+          );
+
           revokeAllActiveMediaUrls();
         }
       }
@@ -936,14 +1098,18 @@ export default function MarkdownVaultPage() {
       notify(
         "info",
         `已刪除筆記「${
-          deletedMeta?.title || ""
+          deletedMeta?.title ||
+          ""
         }」`
       );
-    } catch (error: any) {
+    } catch (
+      error: any
+    ) {
       notify(
         "error",
         `刪除筆記失敗：${
-          error?.message || error
+          error?.message ||
+          error
         }`
       );
     }
@@ -955,7 +1121,9 @@ export default function MarkdownVaultPage() {
   function handleUpdateContent(
     newContent: string
   ) {
-    if (!activeNote) {
+    if (
+      !activeNote
+    ) {
       return;
     }
 
@@ -964,21 +1132,26 @@ export default function MarkdownVaultPage() {
         newContent
       );
 
-    const updated: Note = {
-      ...activeNote,
+    const updated: Note =
+      {
+        ...activeNote,
 
-      content: newContent,
+        content:
+          newContent,
 
-      tags: parsed.tags,
+        tags:
+          parsed.tags,
 
-      outlinks:
-        parsed.outgoingLinks,
+        outlinks:
+          parsed.outgoingLinks,
 
-      updatedAt:
-        new Date().toISOString(),
-    };
+        updatedAt:
+          new Date().toISOString(),
+      };
 
-    setActiveNote(updated);
+    setActiveNote(
+      updated
+    );
 
     setNotesMeta(
       (previous) =>
@@ -988,14 +1161,18 @@ export default function MarkdownVaultPage() {
             updated.id
               ? {
                   ...meta,
+
                   tags:
                     updated.tags,
+
                   outlinks:
                     updated.outlinks,
+
                   charCount:
                     updated
                       .content
                       .length,
+
                   updatedAt:
                     updated.updatedAt,
                 }
@@ -1018,7 +1195,9 @@ export default function MarkdownVaultPage() {
             await saveNoteToDB(
               updated
             );
-          } catch (error) {
+          } catch (
+            error
+          ) {
             console.error(
               "儲存筆記失敗:",
               error
@@ -1041,7 +1220,9 @@ export default function MarkdownVaultPage() {
     title: string,
     headingSlug?: string
   ) {
-    if (headingSlug) {
+    if (
+      headingSlug
+    ) {
       setTargetHeadingSlug(
         headingSlug
       );
@@ -1058,12 +1239,20 @@ export default function MarkdownVaultPage() {
           cleanTitle.toLowerCase()
       );
 
-    if (existing) {
+    if (
+      existing
+    ) {
       void selectNoteById(
         existing.id
       );
 
-      setMainView("editor");
+      setMainView(
+        "editor"
+      );
+
+      setShowMobileNotes(
+        false
+      );
 
       setShowMobileRelations(
         false
@@ -1084,104 +1273,73 @@ export default function MarkdownVaultPage() {
   }
 
   /*
-   * 匯出 Vault
+   * 完整還原 / 匯入筆記完成後
+   * 重新整理畫面。
    */
-  async function handleExportVault() {
-    try {
-      await exportVaultJson(
-        "Markdown-Vault"
-      );
-
-      notify(
-        "success",
-        "已成功匯出完整知識庫備份"
-      );
-    } catch (error: any) {
-      notify(
-        "error",
-        `匯出失敗：${
-          error?.message || error
-        }`
-      );
-    }
-  }
-
-  /*
-   * 匯入 Vault
-   */
-  async function handleImportVault(
-    event: React.ChangeEvent<HTMLInputElement>
+  async function handleTransferDataChanged(
+    preferredNoteId?: string
   ) {
-    const file =
-      event.target.files?.[0];
+    revokeAllActiveMediaUrls();
 
-    if (!file) {
-      return;
-    }
+    const refreshed =
+      await getAllNoteMetadata();
 
-    const confirmed =
-      window.confirm(
-        "還原備份會以備份檔內容取代目前筆記、資料夾與附件。\n\n確定繼續嗎？"
-      );
+    setNotesMeta(
+      refreshed
+    );
 
-    if (!confirmed) {
-      event.target.value = "";
-      return;
-    }
+    setSelectedTag(
+      null
+    );
 
-    try {
-      const text =
-        await file.text();
+    setShowMobileNotes(
+      false
+    );
 
-      const result =
-        await parseAndRestoreVaultBackup(
-          text
+    setShowMobileRelations(
+      false
+    );
+
+    setMainView(
+      "editor"
+    );
+
+    if (
+      preferredNoteId
+    ) {
+      const exists =
+        refreshed.some(
+          (note) =>
+            note.id ===
+            preferredNoteId
         );
 
-      revokeAllActiveMediaUrls();
-
-      const refreshed =
-        await getAllNoteMetadata();
-
-      setNotesMeta(refreshed);
-
-      setSelectedTag(null);
-
-      setShowBackupModal(false);
-
-      setShowMobileNotes(false);
-      setShowMobileRelations(false);
-
       if (
-        refreshed.length > 0
+        exists
       ) {
         await selectNoteById(
-          refreshed[0].id
+          preferredNoteId
         );
-      } else {
-        setActiveNoteId(null);
-        setActiveNote(null);
-      }
 
-      notify(
-        "success",
-        `已還原 ${result.notes.length} 篇筆記、${result.folderCount} 個資料夾、${result.mediaCount} 個附件`
-      );
-    } catch (error: any) {
-      notify(
-        "error",
-        `匯入失敗：${
-          error?.message ||
-          "檔案格式不符"
-        }`
-      );
-    } finally {
-      if (
-        fileInputRef.current
-      ) {
-        fileInputRef.current.value =
-          "";
+        return;
       }
+    }
+
+    if (
+      refreshed.length >
+      0
+    ) {
+      await selectNoteById(
+        refreshed[0].id
+      );
+    } else {
+      setActiveNoteId(
+        null
+      );
+
+      setActiveNote(
+        null
+      );
     }
   }
 
@@ -1190,7 +1348,9 @@ export default function MarkdownVaultPage() {
    */
   const handleMobileSelectNote =
     useCallback(
-      (id: string) => {
+      (
+        id: string
+      ) => {
         setShowMobileNotes(
           false
         );
@@ -1199,66 +1359,85 @@ export default function MarkdownVaultPage() {
           false
         );
 
-        setMainView("editor");
+        setMainView(
+          "editor"
+        );
 
-        void selectNoteById(id);
+        void selectNoteById(
+          id
+        );
       },
-      [selectNoteById]
+      [
+        selectNoteById,
+      ]
     );
 
   /*
    * 手機：新增筆記
    */
-  const handleMobileCreateNote =
-    useCallback(() => {
-      setShowMobileNotes(false);
-      setShowMobileRelations(false);
+  function handleMobileCreateNote() {
+    setShowMobileNotes(
+      false
+    );
 
-      setMainView("editor");
+    setShowMobileRelations(
+      false
+    );
 
-      void handleCreateNote();
-    }, [notesMeta]);
+    setMainView(
+      "editor"
+    );
 
- /*
- * 開啟筆記時，同時收起關聯資訊。
- */
-function openMobileNotes() {
-  setShowMobileRelations(false);
+    void handleCreateNote();
+  }
 
-  setShowMobileNotes(
-    (previous) => !previous
-  );
-}
+  /*
+   * 手機：切換筆記 Drawer
+   */
+  function openMobileNotes() {
+    setShowMobileRelations(
+      false
+    );
+
+    setShowMobileNotes(
+      (previous) =>
+        !previous
+    );
+  }
 
   /*
    * 手機：開啟 Graph
    */
   function openMobileGraph() {
-    setShowMobileNotes(false);
-    setShowMobileRelations(false);
+    setShowMobileNotes(
+      false
+    );
 
-    setMainView("graph");
+    setShowMobileRelations(
+      false
+    );
+
+    setMainView(
+      "graph"
+    );
   }
 
- /*
- * 開啟關聯時，同時收起筆記 Drawer。
- */
-function openMobileRelations() {
-  setShowMobileNotes(false);
-
-  setShowRightPanel(true);
-
-  setShowMobileRelations(
-    (previous) => !previous
-  );
-}
-  
   /*
-   * 關閉所有手機 Drawer
+   * 手機：切換關聯 Bottom Sheet
    */
-  function closeMobileDrawers() {
-    setShowMobileNotes(false);
-    setShowMobileRelations(false);
+  function openMobileRelations() {
+    setShowMobileNotes(
+      false
+    );
+
+    setShowRightPanel(
+      true
+    );
+
+    setShowMobileRelations(
+      (previous) =>
+        !previous
+    );
   }
 
   return (
@@ -1302,7 +1481,9 @@ function openMobileRelations() {
           aria-label="關閉檔案庫"
           className="mobile-drawer-overlay"
           onClick={() =>
-            setShowMobileNotes(false)
+            setShowMobileNotes(
+              false
+            )
           }
         />
       )}
@@ -1332,7 +1513,10 @@ function openMobileRelations() {
         }`}
       >
         <FileTree
-          notes={notesMeta}
+          notes={
+            notesMeta
+          }
+
           activeNoteId={
             activeNoteId
           }
@@ -1345,8 +1529,12 @@ function openMobileRelations() {
             handleCreateNote
           }
 
-          onDeleteNote={(id) =>
-            void handleDeleteNote(id)
+          onDeleteNote={(
+            id
+          ) =>
+            void handleDeleteNote(
+              id
+            )
           }
 
           onRenameNote={(
@@ -1384,11 +1572,13 @@ function openMobileRelations() {
           }
 
           onClearTagFilter={() =>
-            setSelectedTag(null)
+            setSelectedTag(
+              null
+            )
           }
         />
 
-        {/* 手機 Drawer 頂部關閉按鈕 */}
+        {/* 手機 Drawer 關閉 */}
         <div className="mobile-sidebar-header">
           <button
             type="button"
@@ -1403,40 +1593,31 @@ function openMobileRelations() {
         </div>
 
         {/* =================================================
-            Desktop sidebar bottom
+            ZIP 備份 / 匯入 / 圖譜
             ================================================= */}
 
-        <div className="flex items-center justify-between border-t border-white/5 bg-black/20 p-2 text-[11px] text-slate-500">
-          <button
-            type="button"
-            onClick={() =>
-              setShowBackupModal(
-                true
-              )
-            }
-            className="px-2 py-1 hover:text-slate-200"
-          >
-            備份 / 還原
-          </button>
+        <VaultTransferPanel
+          notesMeta={
+            notesMeta
+          }
 
-          <button
-            type="button"
-            onClick={() =>
-              setMainView(
-                mainView === "editor"
-                  ? "graph"
-                  : "editor"
-              )
-            }
-            className={`px-2 py-1 ${
-              mainView === "graph"
-                ? "text-cyan-200"
-                : "hover:text-slate-200"
-            }`}
-          >
-            圖譜視圖
-          </button>
-        </div>
+          mainView={
+            mainView
+          }
+
+          onToggleGraph={() =>
+            setMainView(
+              mainView ===
+              "editor"
+                ? "graph"
+                : "editor"
+            )
+          }
+
+          onDataChanged={
+            handleTransferDataChanged
+          }
+        />
       </aside>
 
       {/* =====================================================
@@ -1445,7 +1626,8 @@ function openMobileRelations() {
 
       <main className="app-main relative flex h-full min-w-0 flex-1 flex-col bg-[#0d0f12]">
 
-        {mainView === "graph" ? (
+        {mainView ===
+        "graph" ? (
           <div className="relative flex h-full flex-1 flex-col overflow-hidden">
 
             <div className="z-20 flex items-center border-b border-white/5 bg-black/25 px-5 py-2.5">
@@ -1464,11 +1646,17 @@ function openMobileRelations() {
 
             <div className="min-h-0 flex-1">
               <GraphView
-                notes={notesMeta}
+                notes={
+                  notesMeta
+                }
+
                 activeNoteId={
                   activeNoteId
                 }
-                onSelectNote={(id) => {
+
+                onSelectNote={(
+                  id
+                ) => {
                   setShowMobileNotes(
                     false
                   );
@@ -1494,32 +1682,48 @@ function openMobileRelations() {
           </div>
         ) : (
           <MarkdownEditor
-            note={activeNote}
+            note={
+              activeNote
+            }
+
             existingTitles={
               existingTitles
             }
+
             targetHeadingSlug={
               targetHeadingSlug
             }
+
             onClearTargetHeadingSlug={() =>
               setTargetHeadingSlug(
                 null
               )
             }
+
             onUpdateContent={
               handleUpdateContent
             }
+
             onNavigateToNoteTitle={
               handleNavigateToNoteTitle
             }
+
             onDownloadMarkdown={
               exportNoteMarkdown
             }
+
             onOpenGraphView={() =>
-              setMainView("graph")
+              setMainView(
+                "graph"
+              )
             }
-            onSelectTag={(tag) =>
-              setSelectedTag(tag)
+
+            onSelectTag={(
+              tag
+            ) =>
+              setSelectedTag(
+                tag
+              )
             }
           />
         )}
@@ -1575,13 +1779,19 @@ function openMobileRelations() {
                   notesMeta
                 }
 
-                onSelectNote={(id) => {
+                onSelectNote={(
+                  id
+                ) => {
                   setShowMobileRelations(
                     false
                   );
 
                   setShowMobileNotes(
                     false
+                  );
+
+                  setMainView(
+                    "editor"
                   );
 
                   void selectNoteById(
@@ -1617,14 +1827,6 @@ function openMobileRelations() {
           </div>
         </aside>
       ) : (
-        /*
-         * Desktop：
-         * 右側欄關閉時保留小箭頭。
-         *
-         * Mobile：
-         * CSS 會隱藏這個按鈕，
-         * 改由 MobileBottomBar 開啟。
-         */
         <button
           type="button"
           onClick={() =>
@@ -1643,7 +1845,9 @@ function openMobileRelations() {
           ===================================================== */}
 
       <MobileBottomBar
-        activeView={mainView}
+        activeView={
+          mainView
+        }
 
         onOpenNotes={
           openMobileNotes
@@ -1661,96 +1865,6 @@ function openMobileRelations() {
           openMobileRelations
         }
       />
-
-      {/* =====================================================
-          BACKUP / RESTORE MODAL
-          ===================================================== */}
-
-      {showBackupModal && (
-        <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md border border-white/10 bg-[#111416]/98 p-5 text-slate-200 shadow-2xl">
-
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <h3 className="font-serif text-sm text-white">
-                本機知識庫備份與管理
-              </h3>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setShowBackupModal(
-                    false
-                  )
-                }
-                className="text-slate-500 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-4 py-4 text-xs text-slate-400">
-
-              <div className="flex justify-between">
-                <span>
-                  筆記
-                </span>
-
-                <span className="font-mono">
-                  {
-                    notesMeta.length
-                  }
-                </span>
-              </div>
-
-              <div className="flex justify-between">
-                <span>
-                  標籤
-                </span>
-
-                <span className="font-mono">
-                  {
-                    tagsWithCounts.length
-                  }
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  void handleExportVault()
-                }
-                className="w-full border border-cyan-700/30 py-2 text-cyan-200 hover:bg-cyan-950/20"
-              >
-                匯出完整 JSON 備份
-              </button>
-
-              <label className="block w-full cursor-pointer border border-white/10 py-2 text-center text-slate-300 hover:bg-white/[0.03]">
-                還原 / 匯入備份
-
-                <input
-                  ref={
-                    fileInputRef
-                  }
-                  type="file"
-                  accept=".json"
-                  className="hidden"
-                  onChange={(
-                    event
-                  ) =>
-                    void handleImportVault(
-                      event
-                    )
-                  }
-                />
-              </label>
-
-              <p className="text-[10px] leading-relaxed text-slate-600">
-                還原會完整取代目前的筆記、資料夾與附件。
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
