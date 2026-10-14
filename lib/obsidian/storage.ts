@@ -796,8 +796,36 @@ function rewriteImportedMediaIds(
   return result;
 }
 
+export type ImportMode = "new" | "overwrite";
+
+export interface ImportPreview {
+  titles: string[];
+  matches: string[];
+  additions: string[];
+  mediaCount: number;
+}
+
+function noteTitleKey(title: string): string {
+  return title.trim().toLocaleLowerCase();
+}
+
+export async function previewNotesZip(file: File | Blob): Promise<ImportPreview> {
+  const loaded = await loadZipPackage(file);
+  if (!loaded.notes.length) throw new Error("ZIP 中沒有可匯入的筆記");
+  const existing = await getAllNoteMetadata();
+  const titles = new Set(existing.map(n => noteTitleKey(n.title)));
+  const matches: string[] = [];
+  const additions: string[] = [];
+  for (const note of loaded.notes) {
+    if (titles.has(noteTitleKey(note.title))) matches.push(note.title);
+    else additions.push(note.title);
+  }
+  return { titles: loaded.notes.map(n => n.title), matches, additions, mediaCount: loaded.media.length };
+}
+
 export async function importNotesZip(
-  file: File | Blob
+  file: File | Blob,
+  mode: ImportMode = "new"
 ): Promise<ImportNotesZipResult> {
   const loaded = await loadZipPackage(file);
 
@@ -805,20 +833,25 @@ export async function importNotesZip(
     throw new Error("ZIP 中沒有可匯入的筆記");
   }
 
+  if (mode === "overwrite") {
+    const keys = loaded.notes.map(n => noteTitleKey(n.title));
+    if (new Set(keys).size !== keys.length) {
+      throw new Error("ZIP 中含有重複名稱，無法安全覆蓋；請先調整筆記名稱");
+    }
+  }
+
   const existingNotes = await getAllNotesFromDB();
 
-  const occupiedTitles = new Set(
-    existingNotes.map((note) => note.title.trim().toLowerCase())
-  );
+  const existingByTitle = new Map(existingNotes.map(n => [noteTitleKey(n.title), n]));
+  const occupiedTitles = new Set(existingNotes.map(n => noteTitleKey(n.title)));
 
   const titleMap = new Map<string, string>();
   let renamedCount = 0;
 
   for (const sourceNote of loaded.notes) {
-    const nextTitle = makeUniqueTitle(
-      sourceNote.title,
-      occupiedTitles
-    );
+    const nextTitle = mode === "overwrite" && existingByTitle.has(noteTitleKey(sourceNote.title))
+      ? existingByTitle.get(noteTitleKey(sourceNote.title))!.title
+      : makeUniqueTitle(sourceNote.title, occupiedTitles);
 
     titleMap.set(sourceNote.title, nextTitle);
 
@@ -881,12 +914,16 @@ export async function importNotesZip(
 
     return {
       ...sourceNote,
-      id: createId("note"),
+      id: mode === "overwrite" && existingByTitle.has(noteTitleKey(sourceNote.title))
+        ? existingByTitle.get(noteTitleKey(sourceNote.title))!.id
+        : createId("note"),
       title: renamedTitle,
       content,
       tags: extractTags(content),
       outlinks: extractOutlinks(content),
-      createdAt: sourceNote.createdAt || new Date().toISOString(),
+      createdAt: mode === "overwrite" && existingByTitle.has(noteTitleKey(sourceNote.title))
+        ? existingByTitle.get(noteTitleKey(sourceNote.title))!.createdAt
+        : (sourceNote.createdAt || new Date().toISOString()),
       updatedAt: new Date().toISOString(),
     };
   });
