@@ -12,6 +12,9 @@ import {
   exportSelectedNotesZip,
   exportVaultZip,
   importNotesZip,
+  previewNotesZip,
+  type ImportMode,
+  type ImportPreview,
   parseAndRestoreVaultBackup,
   restoreVaultZip,
 } from "@/lib/obsidian/storage";
@@ -74,6 +77,10 @@ export function VaultTransferPanel({
     type: "success" | "error";
     text: string;
   } | null>(null);
+
+  const [pendingImport, setPendingImport] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [importMode, setImportMode] = useState<ImportMode>("new");
 
   const filteredNotes =
     useMemo(() => {
@@ -345,51 +352,40 @@ export function VaultTransferPanel({
     }
   }
 
-  async function handleImportNotes(
-    event:
-      React.ChangeEvent<HTMLInputElement>
-  ) {
-    const file =
-      event.target
-        .files?.[0];
-
-    if (!file) {
-      return;
-    }
-
-    event.target.value =
-      "";
-
+  async function handleImportNotes(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || busy) return;
     setBusy(true);
-
     try {
-      const result =
-        await importNotesZip(
-          file
-        );
-
-      await onDataChanged(
-        result.notes[0]?.id
-      );
-
-      const renameText =
-        result.renamedCount >
-        0
-          ? `，其中 ${result.renamedCount} 篇因同名已自動重新命名`
-          : "";
-
-      showMessage(
-        "success",
-        `已新增 ${result.notes.length} 篇筆記、${result.mediaCount} 個附件${renameText}`
-      );
+      const preview = await previewNotesZip(file);
+      setPendingImport(file);
+      setImportPreview(preview);
+      setImportMode("new");
     } catch (error: any) {
-      showMessage(
-        "error",
-        `匯入筆記失敗：${
-          error?.message ||
-          "ZIP 格式不符"
-        }`
+      showMessage("error", `讀取匯入檔失敗：${error?.message || error}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmImportNotes() {
+    if (!pendingImport || busy) return;
+    if (importMode === "overwrite" && importPreview?.matches.length) {
+      const ok = window.confirm(
+        `即將覆蓋 ${importPreview.matches.length} 篇同名筆記，原內容會被取代。建議先做完整 ZIP 備份。\n\n確定繼續嗎？`
       );
+      if (!ok) return;
+    }
+    setBusy(true);
+    try {
+      const result = await importNotesZip(pendingImport, importMode);
+      setPendingImport(null);
+      setImportPreview(null);
+      await onDataChanged(result.notes[0]?.id);
+      showMessage("success", `已匯入 ${result.notes.length} 篇筆記、${result.mediaCount} 個附件`);
+    } catch (error: any) {
+      showMessage("error", `匯入筆記失敗：${error?.message || error}`);
     } finally {
       setBusy(false);
     }
@@ -467,7 +463,7 @@ export function VaultTransferPanel({
             importNotesInputRef.current?.click()
           }
           className="whitespace-nowrap px-2 py-1 hover:text-cyan-200 disabled:opacity-40"
-          title="加入 ZIP 內的筆記，不覆蓋目前知識庫"
+          title="匯入 ZIP，可選擇新增或覆蓋同名筆記"
         >
           匯入筆記
         </button>
@@ -502,6 +498,37 @@ export function VaultTransferPanel({
             {message.text}
           </div>
         )}
+
+      {pendingImport && importPreview && modalPortal(
+        <div className="fixed inset-0 z-[14000] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg border border-white/10 bg-[#111416] p-5 text-slate-200 shadow-2xl">
+            <h3 className="mb-3 font-serif text-base text-white">匯入筆記方式</h3>
+            <p className="mb-4 break-all text-xs text-slate-400">{pendingImport.name} · {importPreview.titles.length} 篇 · {importPreview.mediaCount} 個附件</p>
+            <div className="space-y-3 text-sm">
+              <label className="flex cursor-pointer gap-3 border border-white/10 p-3">
+                <input type="radio" checked={importMode === "new"} onChange={() => setImportMode("new")} />
+                <span><strong>建立新的筆記</strong><span className="mt-1 block text-xs text-slate-400">保留現有筆記，同名自動改為（匯入 2）</span></span>
+              </label>
+              <label className="flex cursor-pointer gap-3 border border-white/10 p-3">
+                <input type="radio" checked={importMode === "overwrite"} onChange={() => setImportMode("overwrite")} />
+                <span><strong>覆蓋同名筆記</strong><span className="mt-1 block text-xs text-slate-400">同名更新原筆記，沒有同名則新增</span></span>
+              </label>
+            </div>
+            {importMode === "overwrite" && (
+              <div className="mt-4 max-h-44 overflow-y-auto border border-white/10 p-3 text-xs">
+                <p className="mb-2 text-red-300">將覆蓋 {importPreview.matches.length} 篇：</p>
+                {importPreview.matches.length ? importPreview.matches.map((name, i) => <p key={i} className="py-0.5">{name}</p>) : <p className="text-slate-500">無同名筆記</p>}
+                <p className="mb-2 mt-3 text-cyan-200">將新增 {importPreview.additions.length} 篇：</p>
+                {importPreview.additions.map((name, i) => <p key={i} className="py-0.5">{name}</p>)}
+              </div>
+            )}
+            <div className="mt-5 flex justify-end gap-3 text-xs">
+              <button type="button" disabled={busy} onClick={() => { setPendingImport(null); setImportPreview(null); }} className="border border-white/10 px-4 py-2">取消</button>
+              <button type="button" disabled={busy} onClick={() => void confirmImportNotes()} className="border border-cyan-700/50 px-4 py-2 text-cyan-200 disabled:opacity-40">{busy ? "匯入中…" : "確認匯入"}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showBackupModal &&
         modalPortal(
