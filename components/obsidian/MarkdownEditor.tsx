@@ -9,6 +9,8 @@ import {
   useState,
 } from "react";
 
+import { MediaManagerPanel } from "@/components/obsidian/MediaManagerPanel";
+
 import {
   deleteSavedMedia,
   getMediaDetails,
@@ -580,22 +582,25 @@ export function MarkdownEditor({
   ) => {
     const target = event.target as HTMLElement;
 
-    const deleteButton =
+    const removeButton =
       target.closest<HTMLButtonElement>(
         "[data-media-delete-ref]"
       );
 
-    if (deleteButton) {
+    if (removeButton) {
       event.preventDefault();
 
       const ref =
-        deleteButton.dataset.mediaDeleteRef || "";
+        removeButton.dataset.mediaDeleteRef || "";
 
       const name =
-        deleteButton.dataset.mediaDeleteName || ref;
+        removeButton.dataset.mediaDeleteName || ref;
 
       if (ref) {
-        void handleDeleteMedia(ref, name);
+        void handleDeleteMedia(
+          ref,
+          name
+        );
       }
 
       return;
@@ -716,6 +721,12 @@ export function MarkdownEditor({
           >
             檔案 / 媒體
           </button>
+
+          <MediaManagerPanel
+            note={note}
+            disabled={isUploading}
+            onUpdateContent={onUpdateContent}
+          />
 
           <button
             type="button"
