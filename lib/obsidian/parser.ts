@@ -33,6 +33,7 @@ interface ListMarker {
   indent: number;
   indentChars: number;
   marker: string;
+  style: string;
   ordered: boolean;
   content: string;
   contentIndent: number;
@@ -482,27 +483,43 @@ function countIndent(line: string): { spaces: number; chars: number } {
 }
 
 function getListMarker(line: string): ListMarker | null {
-  const match = /^([ \t]*)([-+*]|\d+[.)])([ \t]+)(.*)$/.exec(line);
-  if (!match) return null;
+  const patterns: Array<{ regex: RegExp; getStyle: (marker: string) => string; ordered: boolean }> = [
+    { regex: /^([ \t]*)([-+*])([ \t]+)(.*)$/, getStyle: () => "unordered", ordered: false },
+    { regex: /^([ \t]*)(\d+\.)([ \t]+)(.*)$/, getStyle: () => "decimal-dot", ordered: true },
+    { regex: /^([ \t]*)(\d+\))([ \t]+)(.*)$/, getStyle: () => "decimal-paren", ordered: true },
+    { regex: /^([ \t]*)([a-z]+\))([ \t]+)(.*)$/i, getStyle: (marker) => marker[0] === marker[0].toUpperCase() ? "upper-alpha-paren" : "lower-alpha-paren", ordered: true },
+    { regex: /^([ \t]*)([ivxlcdm]+\.)([ \t]+)(.*)$/i, getStyle: (marker) => marker[0] === marker[0].toUpperCase() ? "upper-roman" : "lower-roman", ordered: true },
+    { regex: /^([ \t]*)(（[一二三四五六七八九十百千零〇兩两]+）|\([一二三四五六七八九十百千零〇兩两]+\))([ \t]*)(.*)$/, getStyle: () => "cn-parentheses", ordered: true },
+    { regex: /^([ \t]*)([一二三四五六七八九十百千零〇兩两]+[、.])([ \t]*)(.*)$/, getStyle: () => "cn-ideographic", ordered: true },
+    { regex: /^([ \t]*)([甲乙丙丁戊己庚辛壬癸][、.])([ \t]*)(.*)$/, getStyle: () => "cn-heavenly", ordered: true },
+    { regex: /^([ \t]*)([子丑寅卯辰巳午未申酉戌亥][、.])([ \t]*)(.*)$/, getStyle: () => "cn-earthly", ordered: true },
+  ];
 
-  const indentText = match[1];
-  const marker = match[2];
-  const spacing = match[3];
-  const indent = indentText.replace(/\t/g, "    ").length;
-  const markerWidth = marker.length + spacing.replace(/\t/g, "    ").length;
-  const startNumber = /^\d/.test(marker) ? Number.parseInt(marker, 10) : 1;
+  for (const pattern of patterns) {
+    const match = pattern.regex.exec(line);
+    if (!match) continue;
 
-  return {
-    indent,
-    indentChars: indentText.length,
-    marker,
-    ordered: /^\d/.test(marker),
-    content: match[4],
-    contentIndent: indent + markerWidth,
-    startNumber,
-  };
+    const indentText = match[1];
+    const marker = match[2];
+    const spacing = match[3];
+    const indent = indentText.replace(/\t/g, "    ").length;
+    const markerWidth = marker.length + spacing.replace(/\t/g, "    ").length;
+    const startNumber = /^\d/.test(marker) ? Number.parseInt(marker, 10) : 1;
+
+    return {
+      indent,
+      indentChars: indentText.length,
+      marker,
+      style: pattern.getStyle(marker),
+      ordered: pattern.ordered,
+      content: match[4],
+      contentIndent: indent + markerWidth,
+      startNumber,
+    };
+  }
+
+  return null;
 }
-
 function splitTableRow(line: string): string[] {
   let value = line.trim();
   if (value.startsWith("|")) value = value.slice(1);
@@ -619,14 +636,19 @@ function renderList(lines: string[], startIndex: number, context: MarkdownContex
 
   const baseIndent = firstMarker.indent;
   const ordered = firstMarker.ordered;
+  const style = firstMarker.style;
   const listTag = ordered ? "ol" : "ul";
-  const startAttr = ordered && firstMarker.startNumber !== 1 ? ` start="${firstMarker.startNumber}"` : "";
+  const isCustomMarker = style !== "unordered" && style !== "decimal-dot";
+  const startAttr = style === "decimal-dot" && firstMarker.startNumber !== 1
+    ? ` start="${firstMarker.startNumber}"`
+    : "";
+  const classAttr = isCustomMarker ? ` class="obsidian-list obsidian-list--custom obsidian-list--${style}"` : "";
   const items: string[] = [];
   let index = startIndex;
 
   while (index < lines.length) {
     const marker = getListMarker(lines[index]);
-    if (!marker || marker.indent !== baseIndent || marker.ordered !== ordered) break;
+    if (!marker || marker.indent !== baseIndent || marker.style !== style) break;
 
     let firstLine = marker.content;
     let taskState: boolean | null = null;
@@ -650,7 +672,7 @@ function renderList(lines: string[], startIndex: number, context: MarkdownContex
         while (lookahead < lines.length && !lines[lookahead].trim()) lookahead += 1;
         const lookaheadMarker = lookahead < lines.length ? getListMarker(lines[lookahead]) : null;
 
-        if (lookaheadMarker && lookaheadMarker.indent === baseIndent && lookaheadMarker.ordered === ordered) {
+        if (lookaheadMarker && lookaheadMarker.indent === baseIndent && lookaheadMarker.style === style) {
           itemLines.push("");
           index = lookahead;
           break;
@@ -685,21 +707,21 @@ function renderList(lines: string[], startIndex: number, context: MarkdownContex
     }
 
     let itemHtml = renderBlocks(itemLines, context, depth + 1);
+    const customMarkerAttr = isCustomMarker ? ` data-list-marker="${escapeHtml(marker.marker)}"` : "";
     if (taskState !== null) {
       const checkbox = `<input type="checkbox" disabled${taskState ? " checked" : ""} aria-label="待辦事項" />`;
       itemHtml = itemHtml.replace(/^<p>/, `<p>${checkbox} `);
-      items.push(`<li class="task-list-item${taskState ? " is-checked" : ""}">${itemHtml}</li>`);
+      items.push(`<li class="task-list-item${taskState ? " is-checked" : ""}"${customMarkerAttr}>${itemHtml}</li>`);
     } else {
-      items.push(`<li>${itemHtml}</li>`);
+      items.push(`<li${customMarkerAttr}>${itemHtml}</li>`);
     }
   }
 
   return {
-    html: `<${listTag}${startAttr}>${items.join("")}</${listTag}>`,
+    html: `<${listTag}${classAttr}${startAttr}>${items.join("")}</${listTag}>`,
     nextIndex: index,
   };
 }
-
 function renderBlocks(sourceLines: string[], context: MarkdownContext, depth = 0): string {
   if (depth > 12) return `<p>${escapeHtml(sourceLines.join(" "))}</p>`;
 
