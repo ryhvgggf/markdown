@@ -58,6 +58,84 @@ function normalizeFolderPath(path: string): string {
     .join("/");
 }
 
+/* ============================================================
+   筆記排序設定
+   - 只改變左側顯示順序，不修改 IndexedDB 的筆記資料
+   - 設定儲存於目前瀏覽器的 localStorage
+   ============================================================ */
+
+type NoteSortMode =
+  | "updated-desc"
+  | "updated-asc"
+  | "title-asc"
+  | "title-desc"
+  | "created-desc"
+  | "created-asc";
+
+const NOTE_SORT_STORAGE_KEY = "obsidian-note-sort-mode";
+const DEFAULT_NOTE_SORT: NoteSortMode = "updated-desc";
+
+const NOTE_SORT_OPTIONS: Array<{
+  value: NoteSortMode;
+  label: string;
+}> = [
+  { value: "updated-desc", label: "最後修改：新到舊" },
+  { value: "updated-asc", label: "最後修改：舊到新" },
+  { value: "title-asc", label: "名稱：A → Z" },
+  { value: "title-desc", label: "名稱：Z → A" },
+  { value: "created-desc", label: "建立時間：新到舊" },
+  { value: "created-asc", label: "建立時間：舊到新" },
+];
+
+function isNoteSortMode(value: string): value is NoteSortMode {
+  return NOTE_SORT_OPTIONS.some((option) => option.value === value);
+}
+
+function parseSortTime(value?: string): number {
+  const time = Date.parse(value || "");
+  return Number.isFinite(time) ? time : 0;
+}
+
+function compareNotesByMode(
+  a: NoteMetadata,
+  b: NoteMetadata,
+  mode: NoteSortMode
+): number {
+  // numeric:true 讓標題「1、2、10」依自然數字順序排列。
+  const compareTitle = a.title.localeCompare(b.title, "zh-Hant", {
+    numeric: true,
+    sensitivity: "base",
+  });
+
+  switch (mode) {
+    case "title-asc":
+      return compareTitle;
+    case "title-desc":
+      return -compareTitle;
+    case "created-desc":
+      return (
+        parseSortTime(b.createdAt) - parseSortTime(a.createdAt) ||
+        compareTitle
+      );
+    case "created-asc":
+      return (
+        parseSortTime(a.createdAt) - parseSortTime(b.createdAt) ||
+        compareTitle
+      );
+    case "updated-asc":
+      return (
+        parseSortTime(a.updatedAt) - parseSortTime(b.updatedAt) ||
+        compareTitle
+      );
+    case "updated-desc":
+    default:
+      return (
+        parseSortTime(b.updatedAt) - parseSortTime(a.updatedAt) ||
+        compareTitle
+      );
+  }
+}
+
 export default function FileTree({
   notes,
   activeNoteId,
@@ -72,6 +150,39 @@ export default function FileTree({
 }: FileTreeProps) {
   const [search, setSearch] =
     useState("");
+
+  const [
+    noteSortMode,
+    setNoteSortMode,
+  ] = useState<NoteSortMode>(DEFAULT_NOTE_SORT);
+
+  const [
+    showSortSettings,
+    setShowSortSettings,
+  ] = useState(false);
+
+  // 讀取每個瀏覽器各自的排序偏好（SSR 先以預設值渲染）。
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(NOTE_SORT_STORAGE_KEY);
+      if (saved && isNoteSortMode(saved)) {
+        setNoteSortMode(saved);
+      }
+    } catch {
+      // 無痕模式或儲存權限受限時仍可正常排序。
+    }
+  }, []);
+
+  function changeNoteSortMode(next: NoteSortMode) {
+    setNoteSortMode(next);
+    setShowSortSettings(false);
+
+    try {
+      localStorage.setItem(NOTE_SORT_STORAGE_KEY, next);
+    } catch {
+      // 無法保存偏好時僅在本次頁面有效。
+    }
+  }
 
   const [
     editingNoteId,
@@ -1459,7 +1570,12 @@ export default function FileTree({
         }
       }
 
-      for (const note of filteredNotes) {
+      // 僅排序顯示用的副本，不修改父層傳入的 notes 陣列。
+      const orderedNotes = [...filteredNotes].sort((a, b) =>
+        compareNotesByMode(a, b, noteSortMode)
+      );
+
+      for (const note of orderedNotes) {
         const target =
           nodeMap.get(
             note.folder || ""
@@ -1474,6 +1590,7 @@ export default function FileTree({
     }, [
       filteredNotes,
       customFolders,
+      noteSortMode,
     ]);
 
   const handleStartRenameNote =
@@ -2042,6 +2159,24 @@ export default function FileTree({
             <div className="flex items-center gap-1">
               <button
                 type="button"
+                onClick={() => setShowSortSettings((current) => !current)}
+                title={`筆記排序：${
+                  NOTE_SORT_OPTIONS.find((option) => option.value === noteSortMode)?.label ||
+                  "最後修改：新到舊"
+                }`}
+                aria-label="選擇筆記排序方式"
+                aria-expanded={showSortSettings}
+                className={`px-1.5 text-xs ${
+                  showSortSettings
+                    ? "text-cyan-200"
+                    : "text-slate-500 hover:text-cyan-200"
+                }`}
+              >
+                ↕
+              </button>
+
+              <button
+                type="button"
                 onClick={() => {
                   setTargetParentFolder(
                     ""
@@ -2077,6 +2212,37 @@ export default function FileTree({
               </button>
             </div>
           </div>
+
+          {showSortSettings && (
+            <div className="border border-white/10 bg-[#101415]/95 p-2.5">
+              <label
+                htmlFor="obsidian-filetree-note-sort"
+                className="mb-2 block text-[10px] tracking-wide text-slate-400"
+              >
+                筆記排序方式
+              </label>
+              <select
+                id="obsidian-filetree-note-sort"
+                value={noteSortMode}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (isNoteSortMode(next)) {
+                    changeNoteSortMode(next);
+                  }
+                }}
+                className="w-full border border-white/10 bg-[#0e1112] px-2 py-2 text-xs text-slate-200 outline-none focus:border-cyan-700/60"
+              >
+                {NOTE_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-[10px] leading-relaxed text-slate-500">
+                資料夾仍依名稱排列；此設定僅影響資料夾內筆記的順序。
+              </p>
+            </div>
+          )}
 
           <div className="relative">
             <input
