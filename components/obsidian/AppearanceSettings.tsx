@@ -139,6 +139,13 @@ export function AppearanceSettings() {
   const dragStartRef = useRef<DragStart | null>(null);
   const assetUrlsRef = useRef<Partial<Record<BackgroundZone, string>>>({});
 
+  // 開啟入口在編輯器頂部工具列；設定視窗與游標執行程式仍常駐 layout。
+  useEffect(() => {
+    const openFromToolbar = () => setOpen(true);
+    window.addEventListener("obsidian-open-appearance-settings", openFromToolbar);
+    return () => window.removeEventListener("obsidian-open-appearance-settings", openFromToolbar);
+  }, []);
+
   // 首次讀取時：將舊版單張背景搬到中間，並載入各欄原本的設定。
   useEffect(() => {
     let cancelled = false;
@@ -510,18 +517,6 @@ export function AppearanceSettings() {
         aria-label="選擇背景圖片"
         onChange={(event) => void onChooseImage(event)}
       />
-
-      <button
-        type="button"
-        className="appearance-launcher"
-        disabled={!ready || busy}
-        onClick={() => setOpen(true)}
-        aria-label="開啟外觀設定"
-        title="外觀設定：背景圖片與滑鼠游標"
-      >
-        <span aria-hidden="true">⚙</span>
-        <span>外觀設定</span>
-      </button>
 
       {open && typeof document !== "undefined" && createPortal(
         <div

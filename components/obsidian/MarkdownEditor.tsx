@@ -736,6 +736,18 @@ export function MarkdownEditor({
             圖譜
           </button>
 
+          {/* 外觀設定入口搬到頂部工具列，不再遮擋左側檔案清單。 */}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("obsidian-open-appearance-settings"))}
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-1 text-xs text-slate-400 hover:text-slate-100"
+            title="外觀設定：三區背景與自訂滑鼠游標"
+            aria-label="開啟外觀設定"
+          >
+            <span aria-hidden="true">⚙</span>
+            <span className="hidden lg:inline">外觀設定</span>
+          </button>
+
           <button
             type="button"
             onClick={() =>

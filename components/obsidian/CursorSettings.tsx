@@ -5,7 +5,6 @@ import JSZip from "jszip";
 
 import {
   ACCEPTED_CURSOR_EXTENSIONS,
-  CURSOR_PRESETS,
   DEFAULT_CURSOR_PREFERENCES,
   MAX_CURSOR_BYTES,
   MAX_CURSOR_ZIP_BYTES,
@@ -115,7 +114,7 @@ export function CursorSettings() {
 
   function choosePreset(mode: CursorMode) {
     changePrefs({ ...prefs, mode });
-    setMessage(mode === "system" ? "已恢復系統滑鼠游標。" : "已套用內建游標樣式。");
+    setMessage(mode === "system" ? "已恢復系統滑鼠游標。" : "已套用自行上傳的游標。");
   }
 
   async function install(file: File, kind: CursorFileKind) {
@@ -226,31 +225,20 @@ export function CursorSettings() {
         </p>
       </div>
 
-      <div>
-        <h4 className="mb-2 text-xs font-medium text-slate-300">內建樣式（僅保留星芒）</h4>
-        <div className="flex flex-wrap gap-2">
-        {CURSOR_PRESETS.map((preset) => (
-          <button
-            key={preset.mode}
-            type="button"
-            disabled={!ready || busy}
-            aria-pressed={prefs.mode === preset.mode}
-            onClick={() => choosePreset(preset.mode)}
-            className={`flex min-h-24 w-48 max-w-full flex-col items-start border px-3 py-3 text-left transition disabled:opacity-40 ${
-              prefs.mode === preset.mode
-                ? "border-cyan-500/70 bg-cyan-950/25 text-cyan-100"
-                : "border-white/10 text-slate-300 hover:border-white/30"
-            }`}
-          >
-            <span className="mb-2 text-2xl leading-none" aria-hidden="true">{preset.icon}</span>
-            <strong className="text-xs font-medium">{preset.label}</strong>
-            <span className="mt-1 text-[10px] leading-relaxed text-slate-500">{preset.description}</span>
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3 border border-white/10 bg-white/[0.02] p-3">
+        <div>
+          <h4 className="text-xs font-medium text-slate-200">系統預設游標</h4>
+          <p className="mt-1 text-[10px] text-slate-500">不提供內建造型，保留原本的滑鼠游標；也可以上傳自己的游標。</p>
         </div>
-        <p className="mt-2 text-[11px] text-slate-500">
-          其他內建造型已移除。要使用原本滑鼠樣式，可點下方「恢復系統游標與預設設定」。
-        </p>
+        <button
+          type="button"
+          disabled={!ready || busy || prefs.mode === "system"}
+          aria-pressed={prefs.mode === "system"}
+          onClick={() => choosePreset("system")}
+          className="border border-white/15 px-3 py-2 text-xs text-slate-200 hover:bg-white/5 disabled:opacity-40"
+        >
+          {prefs.mode === "system" ? "目前使用系統預設" : "使用系統預設"}
+        </button>
       </div>
 
       <div className={`border p-3 ${customActive ? "border-cyan-500/50 bg-cyan-950/15" : "border-white/10 bg-white/[0.02]"}`}>
@@ -372,7 +360,7 @@ export function CursorSettings() {
         </div>
         <p className="text-[10px] leading-relaxed text-slate-600">
           點擊位置決定圖片的哪一個點跟隨真正滑鼠座標：左上角是 0%／0%，中央是 50%／50%。
-          此設定適用於自行上傳的靜態與動態游標；星芒使用其中心作為點擊位置。
+          此設定適用於自行上傳的靜態與動態游標；系統預設游標不受此設定影響。
         </p>
         <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-400">
           <input type="checkbox" checked={prefs.preserveTextCursor} disabled={busy}

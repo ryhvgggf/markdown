@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   CURSOR_CHANGED_EVENT,
   DEFAULT_CURSOR_PREFERENCES,
   cursorBytesToBuffer,
   getSavedCursor,
-  makeBuiltInCursorCss,
   normalizeIconBytes,
   parseAniCursor,
   readCursorPreferences,
@@ -23,7 +22,7 @@ interface PreparedCursor {
 
 /**
  * 常駐元件：外觀設定視窗關閉後游標依舊有效。
- * 靜態內建樣式使用瀏覽器 CSS cursor；自訂/動態游標使用透明覆蓋層。
+ * 系統預設沿用原生游標；使用者自行上傳的靜態／動態游標使用透明覆蓋層。
  * 覆蓋層不攔截點擊事件，滑鼠按鈕功能不會受到影響。
  */
 export function CursorRuntime() {
@@ -117,19 +116,15 @@ export function CursorRuntime() {
 
   const useOverlay = preferences.mode === "custom" && Boolean(prepared?.frames.length);
 
-  const nativeCursor = useMemo(() => makeBuiltInCursorCss(preferences.mode, preferences.size), [
-    preferences.mode, preferences.size,
-  ]);
-
   useEffect(() => {
     const body = document.body;
-    if (preferences.mode === "system" || (preferences.mode === "custom" && !useOverlay)) {
-      body.removeAttribute("data-obsidian-cursor");
-      body.style.removeProperty("--obsidian-cursor-native");
+    if (useOverlay) {
+      body.setAttribute("data-obsidian-cursor", "overlay");
     } else {
-      body.setAttribute("data-obsidian-cursor", useOverlay ? "overlay" : "preset");
-      body.style.setProperty("--obsidian-cursor-native", nativeCursor);
+      body.removeAttribute("data-obsidian-cursor");
     }
+    // 清除舊版內建游標可能留下的 CSS 變數。
+    body.style.removeProperty("--obsidian-cursor-native");
     body.setAttribute("data-obsidian-cursor-text", preferences.preserveTextCursor ? "true" : "false");
 
     return () => {
@@ -137,7 +132,7 @@ export function CursorRuntime() {
       body.removeAttribute("data-obsidian-cursor-text");
       body.style.removeProperty("--obsidian-cursor-native");
     };
-  }, [preferences.mode, preferences.preserveTextCursor, useOverlay, nativeCursor]);
+  }, [preferences.preserveTextCursor, useOverlay]);
 
   useEffect(() => {
     if (!useOverlay) return;
