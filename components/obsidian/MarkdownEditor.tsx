@@ -436,6 +436,222 @@ export function MarkdownEditor({
     }, 0);
   };
 
+  /** 將選取行或游標所在行套用 Markdown 區塊前綴。 */
+  const applyLinePrefix = (
+    prefix: string | ((line: string, index: number) => string)
+  ) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const value = textarea.value;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+    const effectiveEnd = end > start && value[end - 1] === "\n" ? end - 1 : end;
+    const lineBreak = value.indexOf("\n", effectiveEnd);
+    const lineEnd = lineBreak === -1 ? value.length : lineBreak;
+    const block = value.slice(lineStart, lineEnd);
+    const replacement = block
+      .split("\n")
+      .map((line, index) => {
+        const linePrefix = typeof prefix === "function" ? prefix(line, index) : prefix;
+        return `${linePrefix}${line}`;
+      })
+      .join("\n");
+
+    onUpdateContent(value.slice(0, lineStart) + replacement + value.slice(lineEnd));
+
+    window.setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(lineStart, lineStart + replacement.length);
+    }, 0);
+  };
+
+  /** 插入一般 Markdown 連結，並選取網址方便直接修改。 */
+  const insertLink = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const value = textarea.value;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = value.slice(start, end);
+    const label = selected || "連結文字";
+    const url = "https://example.com";
+    const replacement = `[${label}](${url})`;
+
+    onUpdateContent(value.slice(0, start) + replacement + value.slice(end));
+
+    window.setTimeout(() => {
+      textarea.focus();
+      const urlStart = start + label.length + 3;
+      textarea.setSelectionRange(urlStart, urlStart + url.length);
+    }, 0);
+  };
+
+  /** Markdown 常用快捷鍵、Tab 縮排，以及 Enter 自動延續清單／引用。 */
+  const handleEditorKeyDown = (
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    const textarea = event.currentTarget;
+    const isMod = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
+
+    if (isMod && !event.altKey && !event.shiftKey && key === "b") {
+      event.preventDefault();
+      insertFormatting("**", "**");
+      return;
+    }
+
+    if (isMod && !event.altKey && !event.shiftKey && key === "i") {
+      event.preventDefault();
+      insertFormatting("*", "*");
+      return;
+    }
+
+    if (isMod && !event.altKey && event.shiftKey && key === "x") {
+      event.preventDefault();
+      insertFormatting("~~", "~~");
+      return;
+    }
+
+    if (isMod && !event.altKey && !event.shiftKey && key === "k") {
+      event.preventDefault();
+      insertLink();
+      return;
+    }
+
+    if (event.key === "Tab") {
+      event.preventDefault();
+
+      const value = textarea.value;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+      const effectiveEnd = end > start && value[end - 1] === "\n" ? end - 1 : end;
+      const lineBreak = value.indexOf("\n", effectiveEnd);
+      const lineEnd = lineBreak === -1 ? value.length : lineBreak;
+
+      if (start !== end && value.slice(start, end).includes("\n")) {
+        const block = value.slice(lineStart, lineEnd);
+        const lines = block.split("\n");
+        let nextLines: string[];
+        let removedFromStart = 0;
+
+        if (event.shiftKey) {
+          nextLines = lines.map((line, index) => {
+            const prefix = /^(?: {1,2}|\t)/.exec(line);
+            if (index === 0 && prefix) removedFromStart = prefix[0].length;
+            return prefix ? line.slice(prefix[0].length) : line;
+          });
+        } else {
+          nextLines = lines.map((line) => `  ${line}`);
+        }
+
+        const replacement = nextLines.join("\n");
+        onUpdateContent(value.slice(0, lineStart) + replacement + value.slice(lineEnd));
+        window.setTimeout(() => {
+          textarea.focus();
+          const nextStart = Math.max(lineStart, start + (event.shiftKey ? -removedFromStart : 2));
+          const nextEnd = Math.max(nextStart, end + (event.shiftKey ? -removedFromStart : 2 * lines.length));
+          textarea.setSelectionRange(nextStart, nextEnd);
+        }, 0);
+        return;
+      }
+
+      if (!event.shiftKey) {
+        insertTextAtCursor("  ");
+        return;
+      }
+
+      const caret = textarea.selectionStart;
+      const currentLineStart = value.lastIndexOf("\n", Math.max(0, caret - 1)) + 1;
+      const currentLineBreak = value.indexOf("\n", caret);
+      const currentLineEnd = currentLineBreak === -1 ? value.length : currentLineBreak;
+      const currentLine = value.slice(currentLineStart, currentLineEnd);
+      const removable = /^(?: {1,2}|\t)/.exec(currentLine);
+
+      if (removable) {
+        const updated = value.slice(0, currentLineStart) + currentLine.slice(removable[0].length) + value.slice(currentLineEnd);
+        onUpdateContent(updated);
+        window.setTimeout(() => {
+          textarea.focus();
+          const nextCaret = Math.max(currentLineStart, caret - removable[0].length);
+          textarea.setSelectionRange(nextCaret, nextCaret);
+        }, 0);
+      }
+      return;
+    }
+
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      event.altKey ||
+      isMod ||
+      textarea.selectionStart !== textarea.selectionEnd
+    ) {
+      return;
+    }
+
+    const value = textarea.value;
+    const caret = textarea.selectionStart;
+    const lineStart = value.lastIndexOf("\n", Math.max(0, caret - 1)) + 1;
+    const lineBreak = value.indexOf("\n", caret);
+    const lineEnd = lineBreak === -1 ? value.length : lineBreak;
+    const lineBefore = value.slice(lineStart, caret);
+    const lineAfter = value.slice(caret, lineEnd);
+
+    const listMatch = /^(\s*)([-+*]|\d+[.)])\s+(?:\[([ xX])\]\s+)?(.*)$/.exec(lineBefore);
+    if (listMatch) {
+      const indent = listMatch[1];
+      const marker = listMatch[2];
+      const checkboxState = listMatch[3];
+      const itemText = listMatch[4];
+
+      // 空白清單項目按 Enter 時退出清單，不再產生新的空項目。
+      if (!itemText.trim() && !lineAfter.trim()) {
+        event.preventDefault();
+        const updated = value.slice(0, lineStart) + indent + value.slice(caret);
+        onUpdateContent(updated);
+        window.setTimeout(() => {
+          textarea.focus();
+          const nextCaret = lineStart + indent.length;
+          textarea.setSelectionRange(nextCaret, nextCaret);
+        }, 0);
+        return;
+      }
+
+      const nextMarker = /^\d+[.)]$/.test(marker)
+        ? `${Number.parseInt(marker, 10) + 1}${marker.slice(-1)}`
+        : marker;
+      const nextPrefix = `${indent}${nextMarker} ${checkboxState !== undefined ? "[ ] " : ""}`;
+      event.preventDefault();
+      insertTextAtCursor(`\n${nextPrefix}`);
+      return;
+    }
+
+    const quoteMatch = /^(\s*(?:>\s*)+)(.*)$/.exec(lineBefore);
+    if (quoteMatch) {
+      const quotePrefix = quoteMatch[1];
+      const quoteText = quoteMatch[2];
+
+      // 空白引用行按 Enter 時退出引用。
+      if (!quoteText.trim() && !lineAfter.trim()) {
+        event.preventDefault();
+        const updated = value.slice(0, lineStart) + value.slice(caret);
+        onUpdateContent(updated);
+        window.setTimeout(() => {
+          textarea.focus();
+          textarea.setSelectionRange(lineStart, lineStart);
+        }, 0);
+        return;
+      }
+
+      event.preventDefault();
+      insertTextAtCursor(`\n${quotePrefix}`);
+    }
+  };
+
   const handleProcessFiles = async (
     files: FileList | File[]
   ) => {
@@ -785,98 +1001,35 @@ export function MarkdownEditor({
       </div>
 
       {viewMode !== "preview" && (
-        <div className="flex items-center gap-1 overflow-x-auto border-b border-white/5 bg-black/10 px-4 py-1 text-xs text-slate-500 select-none">
-          <button
-            type="button"
-            onClick={() =>
-              insertFormatting("**", "**")
-            }
-            className="px-2 py-1 font-bold hover:text-slate-200"
-          >
-            B
-          </button>
+        <div className="markdown-editor-toolbar flex items-center gap-1 overflow-x-auto border-b border-white/5 bg-black/10 px-3 py-1 text-xs text-slate-500 select-none">
+          <button type="button" title="粗體（Ctrl/⌘+B）" onClick={() => insertFormatting("**", "**")} className="px-2 py-1 font-bold hover:text-slate-200">B</button>
+          <button type="button" title="斜體（Ctrl/⌘+I）" onClick={() => insertFormatting("*", "*")} className="px-2 py-1 italic hover:text-slate-200">I</button>
+          <button type="button" title="刪除線（Ctrl/⌘+Shift+X）" onClick={() => insertFormatting("~~", "~~")} className="px-2 py-1 line-through hover:text-slate-200">S</button>
+          <button type="button" title="螢光標記" onClick={() => insertFormatting("==", "==")} className="px-2 py-1 hover:text-amber-200">標記</button>
+          <button type="button" title="行內程式碼" onClick={() => insertFormatting("`", "`")} className="px-2 py-1 font-mono hover:text-slate-200">`code`</button>
+          <button type="button" title="程式碼區塊" onClick={() => insertFormatting("```\n", "\n```")} className="px-2 py-1 font-mono hover:text-slate-200">{"</>"}</button>
 
-          <button
-            type="button"
-            onClick={() =>
-              insertFormatting("*", "*")
-            }
-            className="px-2 py-1 italic hover:text-slate-200"
-          >
-            I
-          </button>
+          <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
 
-          <button
-            type="button"
-            onClick={() =>
-              insertFormatting("## ")
-            }
-            className="px-2 py-1 hover:text-slate-200"
-          >
-            H2
-          </button>
+          {(["# ", "## ", "### ", "#### ", "##### ", "###### "] as const).map((prefix, index) => (
+            <button key={prefix} type="button" title={`標題 H${index + 1}`} onClick={() => applyLinePrefix(prefix)} className="px-1.5 py-1 hover:text-slate-200">H{index + 1}</button>
+          ))}
 
-          <button
-            type="button"
-            onClick={() =>
-              insertFormatting("### ")
-            }
-            className="px-2 py-1 hover:text-slate-200"
-          >
-            H3
-          </button>
+          <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
 
-          <button
-            type="button"
-            onClick={() =>
-              insertFormatting("- ")
-            }
-            className="px-2 py-1 hover:text-slate-200"
-          >
-            • 清單
-          </button>
+          <button type="button" title="無序清單" onClick={() => applyLinePrefix("- ")} className="px-2 py-1 hover:text-slate-200">• 清單</button>
+          <button type="button" title="有序清單" onClick={() => applyLinePrefix((_line, index) => `${index + 1}. `)} className="px-2 py-1 hover:text-slate-200">1. 清單</button>
+          <button type="button" title="待辦清單" onClick={() => applyLinePrefix("- [ ] ")} className="px-2 py-1 hover:text-slate-200">☐ 待辦</button>
+          <button type="button" title="引用區塊" onClick={() => applyLinePrefix("> ")} className="px-2 py-1 hover:text-slate-200">引用</button>
+          <button type="button" title="水平分隔線" onClick={() => insertTextAtCursor("\n\n---\n\n")} className="px-2 py-1 hover:text-slate-200">分隔線</button>
+          <button type="button" title="插入 Markdown 表格" onClick={() => insertTextAtCursor("\n\n| 欄位 1 | 欄位 2 |\n| --- | --- |\n| 內容 1 | 內容 2 |\n\n")} className="px-2 py-1 hover:text-slate-200">表格</button>
+          <button type="button" title="插入超連結（Ctrl/⌘+K）" onClick={insertLink} className="px-2 py-1 hover:text-slate-200">連結</button>
 
-          <button
-            type="button"
-            onClick={() =>
-              insertFormatting("> ")
-            }
-            className="px-2 py-1 hover:text-slate-200"
-          >
-            引用
-          </button>
+          <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
 
-          <button
-            type="button"
-            onClick={() =>
-              insertFormatting("[[", "]]")
-            }
-            title="雙向連結 Wikilink"
-            className="px-2 py-1 text-cyan-300"
-          >
-            [[連結]]
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              insertFormatting("#")
-            }
-            className="px-2 py-1 hover:text-slate-200"
-          >
-            #標籤
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              fileInputRef.current?.click()
-            }
-            title="嵌入多媒體"
-            className="px-2 py-1 text-cyan-300"
-          >
-            ![[媒體]]
-          </button>
+          <button type="button" onClick={() => insertFormatting("[[", "]]")} title="雙向連結 Wikilink" className="px-2 py-1 text-cyan-300">[[連結]]</button>
+          <button type="button" onClick={() => insertFormatting("#")} title="插入標籤" className="px-2 py-1 hover:text-slate-200">#標籤</button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} title="上傳並嵌入圖片、影片或檔案" className="px-2 py-1 text-cyan-300">![[媒體]]</button>
         </div>
       )}
 
@@ -898,6 +1051,7 @@ export function MarkdownEditor({
                   event.target.value
                 )
               }
+              onKeyDown={handleEditorKeyDown}
               onPaste={handlePaste}
               spellCheck={false}
               className="h-full w-full resize-none bg-transparent p-5 font-mono text-sm leading-7 text-slate-200 outline-none"
