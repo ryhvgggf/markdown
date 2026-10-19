@@ -28,6 +28,14 @@ import {
   type FolderGraphSettings,
 } from "@/lib/obsidian/folderGraph";
 import { FolderGraphControls } from "@/components/obsidian/FolderGraphControls";
+import {
+  APPEARANCE_PREFERENCES_CHANGED_EVENT,
+  DEFAULT_APPEARANCE,
+  GRAPH_BACKGROUND_CHANGED_EVENT,
+  getCustomBackground,
+  loadAppearancePreferences,
+  type BackgroundEffect,
+} from "@/lib/obsidian/appearance";
 
 import {
   GraphData,
@@ -99,6 +107,12 @@ export function GraphView({
     useRef<HTMLDivElement>(
       null
     );
+
+  const graphBackgroundRef = useRef<HTMLImageElement | null>(null);
+  const graphBackgroundObjectUrlRef = useRef<string | null>(null);
+  const graphBackgroundEffectRef = useRef<BackgroundEffect>({
+    ...DEFAULT_APPEARANCE.effects.graph,
+  });
 
   const [
     graphMode,
@@ -455,6 +469,68 @@ export function GraphView({
   ]);
 
   /*
+   * 圖譜背景與顯示效果獨立載入；背景更新時不重啟整個物理模擬。
+   */
+  useEffect(() => {
+    let cancelled = false;
+    let loadVersion = 0;
+
+    const image = new Image();
+    image.onload = () => wakeUp(0.08);
+    image.src = "/ink/graph-bg.png";
+    graphBackgroundRef.current = image;
+    graphBackgroundEffectRef.current = loadAppearancePreferences().effects.graph;
+
+    const loadBackground = async () => {
+      const version = ++loadVersion;
+      try {
+        const record = await getCustomBackground("graph");
+        if (cancelled || version !== loadVersion) return;
+
+        const oldUrl = graphBackgroundObjectUrlRef.current;
+        if (record?.blob) {
+          const nextUrl = URL.createObjectURL(record.blob);
+          graphBackgroundObjectUrlRef.current = nextUrl;
+          image.src = nextUrl;
+          if (oldUrl) URL.revokeObjectURL(oldUrl);
+        } else {
+          graphBackgroundObjectUrlRef.current = null;
+          image.src = "/ink/graph-bg.png";
+          if (oldUrl) URL.revokeObjectURL(oldUrl);
+        }
+        wakeUp(0.08);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("讀取圖譜背景失敗：", error);
+        }
+      }
+    };
+
+    const reloadEffects = () => {
+      graphBackgroundEffectRef.current = loadAppearancePreferences().effects.graph;
+      wakeUp(0.08);
+    };
+
+    const reloadBackground = () => {
+      void loadBackground();
+    };
+
+    window.addEventListener(APPEARANCE_PREFERENCES_CHANGED_EVENT, reloadEffects);
+    window.addEventListener(GRAPH_BACKGROUND_CHANGED_EVENT, reloadBackground);
+    void loadBackground();
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener(APPEARANCE_PREFERENCES_CHANGED_EVENT, reloadEffects);
+      window.removeEventListener(GRAPH_BACKGROUND_CHANGED_EVENT, reloadBackground);
+      const oldUrl = graphBackgroundObjectUrlRef.current;
+      graphBackgroundObjectUrlRef.current = null;
+      if (oldUrl) URL.revokeObjectURL(oldUrl);
+      if (graphBackgroundRef.current === image) graphBackgroundRef.current = null;
+    };
+  }, [wakeUp]);
+
+  /*
    * Canvas render loop + Force Physics。
    */
   useEffect(() => {
@@ -482,17 +558,6 @@ export function GraphView({
 
     simRef.current.isRunning =
       true;
-
-    const graphBackground =
-      new Image();
-
-    graphBackground.src =
-      "/ink/graph-bg.png";
-
-    graphBackground.onload =
-      () => {
-        wakeUp(0.08);
-      };
 
     function resizeCanvas() {
       const currentCanvas =
@@ -1047,7 +1112,9 @@ export function GraphView({
         height
       );
 
+      const graphBackground = graphBackgroundRef.current;
       if (
+        graphBackground &&
         graphBackground.complete &&
         graphBackground.naturalWidth >
           0 &&
@@ -1106,8 +1173,9 @@ export function GraphView({
 
         ctx.save();
 
-        ctx.globalAlpha =
-          0.32;
+        const backgroundEffect = graphBackgroundEffectRef.current;
+        ctx.globalAlpha = backgroundEffect.opacity;
+        ctx.filter = `brightness(${backgroundEffect.brightness}) blur(${backgroundEffect.blur}px)`;
 
         ctx.drawImage(
           graphBackground,
@@ -2425,6 +2493,15 @@ export function GraphView({
               局部
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("obsidian-open-appearance-settings", { detail: { zone: "graph" } }))}
+            className="shrink-0 border-b border-transparent pb-1 text-[#a69b89] hover:border-[#b99767] hover:text-[#dfc49a]"
+            title="更換圖譜背景及調整顯示效果"
+          >
+            圖譜背景
+          </button>
 
           <button
             type="button"

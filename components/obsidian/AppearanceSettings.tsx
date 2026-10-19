@@ -62,12 +62,14 @@ const EMPTY_ASSETS: BackgroundAssetMap = {
   left: null,
   center: null,
   right: null,
+  graph: null,
 };
 
 const DEFAULT_IMAGE: Record<BackgroundZone, string> = {
   left: "/ink/left-mountain.png",
   center: "/ink/center-bamboo-forest.png",
   right: "/ink/right-plum-large.png",
+  graph: "/ink/graph-bg.png",
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -141,7 +143,16 @@ export function AppearanceSettings() {
 
   // 開啟入口在編輯器頂部工具列；設定視窗與游標執行程式仍常駐 layout。
   useEffect(() => {
-    const openFromToolbar = () => setOpen(true);
+    const openFromToolbar = (event: Event) => {
+      const detail = (event as CustomEvent<{ zone?: BackgroundZone; tab?: "background" | "cursor" }>).detail;
+      if (detail?.zone && BACKGROUND_ZONES.includes(detail.zone)) {
+        setSelectedZone(detail.zone);
+        setAppearanceTab("background");
+      } else if (detail?.tab) {
+        setAppearanceTab(detail.tab);
+      }
+      setOpen(true);
+    };
     window.addEventListener("obsidian-open-appearance-settings", openFromToolbar);
     return () => window.removeEventListener("obsidian-open-appearance-settings", openFromToolbar);
   }, []);
@@ -206,6 +217,8 @@ export function AppearanceSettings() {
     body.removeAttribute("data-appearance-mode"); // 清掉舊版全畫面模式
 
     for (const zone of BACKGROUND_ZONES) {
+      // 圖譜背景由 Canvas 直接讀取，不套用到整個 body。
+      if (zone === "graph") continue;
       const asset = assets[zone];
       const effect = prefs.effects[zone];
       const prefix = `--appearance-${zone}`;
@@ -445,7 +458,7 @@ export function AppearanceSettings() {
 
   async function restoreSelected() {
     if (busy || !currentAsset) return;
-    if (!window.confirm(`要恢復「${currentInfo.title}」的水墨預設圖片嗎？\n\n目前這一區的自訂圖將被刪除，另外兩區不受影響。`)) return;
+    if (!window.confirm(`要恢復「${currentInfo.title}」的水墨預設圖片嗎？\n\n目前這一區的自訂圖將被刪除，其他區域不受影響。`)) return;
 
     setBusy(true);
     setMessage(null);
@@ -465,7 +478,7 @@ export function AppearanceSettings() {
 
   async function restoreAll() {
     if (busy) return;
-    if (!window.confirm("確定恢復左側、中間、右側全部的水墨預設背景嗎？\n\n三區已上傳的圖片都會從本機刪除。")) return;
+    if (!window.confirm("確定恢復左側、中間、右側及圖譜的水墨預設背景嗎？\n\n四區已上傳的圖片都會從本機刪除。")) return;
 
     setBusy(true);
     setMessage(null);
@@ -481,10 +494,11 @@ export function AppearanceSettings() {
           left: { ...DEFAULT_APPEARANCE.effects.left },
           center: { ...DEFAULT_APPEARANCE.effects.center },
           right: { ...DEFAULT_APPEARANCE.effects.right },
+          graph: { ...DEFAULT_APPEARANCE.effects.graph },
         },
       });
       window.requestAnimationFrame(() => oldUrls.forEach((url) => URL.revokeObjectURL(url)));
-      setMessage("三區已恢復原本水墨背景，並清除全部自訂背景檔。 ");
+      setMessage("四區已恢復原本水墨背景，並清除全部自訂背景檔。 ");
     } catch (error) {
       setMessage(`恢復失敗：${friendlyError(error)}`);
     } finally {
@@ -539,7 +553,7 @@ export function AppearanceSettings() {
                   外觀設定
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  三區背景、滑鼠游標皆可自訂，設定僅保存在目前瀏覽器
+                  四區背景、滑鼠游標皆可自訂，設定僅保存在目前瀏覽器
                 </p>
               </div>
               <button
@@ -576,7 +590,7 @@ export function AppearanceSettings() {
             <div className="space-y-5 p-5">
               <div>
                 <h3 className="mb-2 text-xs text-slate-300">選擇要更換的背景區域</h3>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {BACKGROUND_ZONES.map((zone) => {
                     const info = BACKGROUND_INFO[zone];
                     const selected = zone === selectedZone;
@@ -727,7 +741,7 @@ export function AppearanceSettings() {
                   onClick={() => void restoreAll()}
                   className="border border-red-800/30 px-3 py-2 text-xs text-red-200/80 hover:bg-red-950/20 disabled:opacity-40"
                 >
-                  三區全部恢復預設
+                  四區全部恢復預設
                 </button>
                 <button type="button" disabled={busy} onClick={() => setOpen(false)} className={buttonClass}>
                   完成
