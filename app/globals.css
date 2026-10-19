@@ -2048,3 +2048,115 @@ body > div.flex.h-screen.w-screen
   }
 }
 
+/* ============================================================
+   Markdown / GFM extras
+   ============================================================ */
+.obsidian-preview-container .obsidian-markdown-table {
+  width: 100%;
+  max-width: 100%;
+  margin: 1.35rem 0;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.obsidian-preview-container .obsidian-markdown-table th,
+.obsidian-preview-container .obsidian-markdown-table td {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(238, 233, 222, 0.14);
+  vertical-align: top;
+}
+
+.obsidian-preview-container .obsidian-markdown-table th {
+  color: #eee9de;
+  background: rgba(238, 233, 222, 0.055);
+  font-weight: 600;
+}
+
+.obsidian-preview-container .obsidian-markdown-table tbody tr:nth-child(even) {
+  background: rgba(238, 233, 222, 0.025);
+}
+
+.obsidian-preview-container .obsidian-markdown-table code {
+  overflow-wrap: anywhere;
+}
+
+.obsidian-preview-container li > p {
+  margin-bottom: 0.45rem;
+}
+
+.obsidian-preview-container .task-list-item {
+  list-style: none;
+  margin-left: -1.25rem;
+}
+
+.obsidian-preview-container .task-list-item input[type="checkbox"] {
+  margin-right: 0.5rem;
+  accent-color: var(--jade);
+  vertical-align: middle;
+}
+
+.obsidian-preview-container .task-list-item.is-checked > p {
+  color: #989a94;
+}
+
+.obsidian-preview-container hr {
+  margin: 2rem 0;
+  border: 0;
+  border-top: 1px solid rgba(238, 233, 222, 0.18);
+}
+
+.obsidian-preview-container mark {
+  border-radius: 2px;
+  padding: 0.05rem 0.18rem;
+  background: rgba(217, 173, 91, 0.2);
+  color: #f1dfb9;
+}
+
+.obsidian-preview-container sup,
+.obsidian-preview-container sub {
+  line-height: 0;
+}
+
+.obsidian-preview-container .obsidian-footnotes {
+  margin-top: 2rem;
+  color: #a7a69f;
+  font-size: 0.82rem;
+}
+
+.obsidian-preview-container .obsidian-footnotes hr {
+  margin: 1rem 0;
+}
+
+.obsidian-preview-container .obsidian-footnotes ol {
+  padding-left: 1.5rem;
+}
+
+.obsidian-preview-container .obsidian-footnote-ref a,
+.obsidian-preview-container .obsidian-footnote-backref {
+  color: var(--jade-light);
+  text-decoration: none;
+}
+
+.obsidian-preview-container .obsidian-footnote-backref {
+  margin-left: 0.35rem;
+}
+
+.obsidian-preview-container pre code {
+  display: block;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.markdown-editor-toolbar button {
+  flex-shrink: 0;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.markdown-editor-toolbar button:focus-visible {
+  outline: 1px solid rgba(120, 153, 145, 0.8);
+  outline-offset: 1px;
+}
+
