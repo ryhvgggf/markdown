@@ -18,11 +18,15 @@ import {
 } from "@/lib/obsidian/types";
 import {
   FOLDER_GRAPH_CHANGED_EVENT,
-  getGraphLinkedFolders,
+  FOLDER_GRAPH_STORAGE_KEYS,
+  collectGraphFolderPaths,
+  isGraphFolderVisible,
+  readFolderGraphSettings,
   moveGraphFolderLinkSettings,
   removeGraphFolderLinkSettings,
-  setGraphFolderLinked,
+  type FolderGraphSettings,
 } from "@/lib/obsidian/folderGraph";
+import { FolderGraphControls } from "@/components/obsidian/FolderGraphControls";
 
 interface FileTreeProps {
   notes: NoteMetadata[];
@@ -158,21 +162,24 @@ export default function FileTree({
   const [search, setSearch] =
     useState("");
 
-  // 每個資料夾的圖譜連結都由使用者主動開啟，預設沒有任何連線。
-  const [graphLinkedFolders, setGraphLinkedFolders] = useState<string[]>([]);
+  // 資料夾選項包含節點顯示、每篇直屬筆記與每個直屬子資料夾的個別連線。
+  const [graphSettings, setGraphSettings] = useState<FolderGraphSettings>({
+    version: 2, visibleFolders: [], selections: {},
+  });
+  const [editingGraphFolder, setEditingGraphFolder] = useState<string | null>(null);
   useEffect(() => {
-    const sync = () => setGraphLinkedFolders(getGraphLinkedFolders());
+    const sync = () => setGraphSettings(readFolderGraphSettings(notes));
     sync();
     window.addEventListener(FOLDER_GRAPH_CHANGED_EVENT, sync);
     const onStorage = (event: StorageEvent) => {
-      if (!event.key || event.key === "obsidian-folder-graph-links-v1") sync();
+      if (!event.key || FOLDER_GRAPH_STORAGE_KEYS.includes(event.key)) sync();
     };
     window.addEventListener("storage", onStorage);
     return () => {
       window.removeEventListener(FOLDER_GRAPH_CHANGED_EVENT, sync);
       window.removeEventListener("storage", onStorage);
     };
-  }, []);
+  }, [notes]);
 
   const [
     noteSortMode,
@@ -234,6 +241,8 @@ export default function FileTree({
     useState<string[]>(
       []
     );
+
+  const graphFolderPaths = useMemo(() => collectGraphFolderPaths(notes, customFolders), [notes, customFolders]);
 
   const [
     expandedFolders,
@@ -1834,8 +1843,8 @@ export default function FileTree({
                   {folder.notes.length +
                     folder.subfolders.length}
                 </span>
-                {graphLinkedFolders.includes(folder.path) && (
-                  <span className="text-[10px] text-[#b99767]" title="此資料夾已啟用圖譜關聯">⟷</span>
+                {isGraphFolderVisible(graphSettings, folder.path) && (
+                  <span className="text-[10px] text-[#b99767]" title="此資料夾正在圖譜顯示">⟷</span>
                 )}
               </div>
 
@@ -1849,12 +1858,12 @@ export default function FileTree({
               >
                 <button
                   type="button"
-                  aria-pressed={graphLinkedFolders.includes(folder.path)}
-                  title={graphLinkedFolders.includes(folder.path)
-                    ? `取消「${folder.name}」與其筆記的圖譜連結`
-                    : `在圖譜中連結「${folder.name}」與其筆記`}
-                  onClick={() => setGraphFolderLinked(folder.path, !graphLinkedFolders.includes(folder.path))}
-                  className={`px-1 ${graphLinkedFolders.includes(folder.path) ? "text-[#d5b688]" : "text-slate-500 hover:text-[#d5b688]"}`}
+                  draggable={false}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  aria-expanded={editingGraphFolder === folder.path}
+                  title={`選擇「${folder.name}」每篇筆記及子資料夾的圖譜連線`}
+                  onClick={() => setEditingGraphFolder((current) => current === folder.path ? null : folder.path)}
+                  className={`px-1 ${editingGraphFolder === folder.path || isGraphFolderVisible(graphSettings, folder.path) ? "text-[#d5b688]" : "text-slate-500 hover:text-[#d5b688]"}`}
                 >
                   圖
                 </button>
@@ -1925,6 +1934,18 @@ export default function FileTree({
                   刪
                 </button>
               </div>
+            </div>
+          )}
+
+          {editingGraphFolder === folder.path && !isRoot && (
+            <div className="relative z-10 mx-2 mb-2 max-h-[58vh] overflow-y-auto border border-[#b99767]/30 bg-[#111617]/95 p-3"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}>
+              <div className="mb-2 flex justify-end">
+                <button type="button" onClick={() => setEditingGraphFolder(null)}
+                  className="px-2 py-1 text-[11px] text-slate-400 hover:text-white">關閉 ✕</button>
+              </div>
+              <FolderGraphControls folder={folder.path} notes={notes} paths={graphFolderPaths} settings={graphSettings} />
             </div>
           )}
 

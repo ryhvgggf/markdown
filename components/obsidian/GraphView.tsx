@@ -17,14 +17,17 @@ import {
 import { getCustomFolders } from "@/lib/obsidian/db";
 import {
   FOLDER_GRAPH_CHANGED_EVENT,
+  FOLDER_GRAPH_STORAGE_KEYS,
   addFolderLinksToGraph,
   buildFolderLocalGraph,
   collectGraphFolderPaths,
   getGraphFolderNodeId,
-  getGraphLinkedFolders,
+  hasGraphNoteLink,
   normalizeGraphFolderPath,
-  setGraphFolderLinked,
+  readFolderGraphSettings,
+  type FolderGraphSettings,
 } from "@/lib/obsidian/folderGraph";
+import { FolderGraphControls } from "@/components/obsidian/FolderGraphControls";
 
 import {
   GraphData,
@@ -115,36 +118,39 @@ export function GraphView({
   ] =
     useState(300);
 
-  // 資料夾關聯完全採用自願開啟；預設不產生任何資料夾節點。
-  const [linkedFolders, setLinkedFolders] = useState<string[]>([]);
+  // 資料夾是否顯示，以及每條「資料夾 -> 筆記／子資料夾」連線，個別儲存。
+  const [folderSettings, setFolderSettings] = useState<FolderGraphSettings>({
+    version: 2, visibleFolders: [], selections: {},
+  });
   const [focusedFolder, setFocusedFolder] = useState<string | null>(null);
   const [showFolderSettings, setShowFolderSettings] = useState(false);
 
   useEffect(() => {
-    const reload = () => setLinkedFolders(getGraphLinkedFolders());
+    const reload = () => setFolderSettings(readFolderGraphSettings(notes));
     reload();
     window.addEventListener(FOLDER_GRAPH_CHANGED_EVENT, reload);
     const onStorage = (event: StorageEvent) => {
-      if (!event.key || event.key === "obsidian-folder-graph-links-v1") reload();
+      if (!event.key || FOLDER_GRAPH_STORAGE_KEYS.includes(event.key)) reload();
     };
     window.addEventListener("storage", onStorage);
     return () => {
       window.removeEventListener(FOLDER_GRAPH_CHANGED_EVENT, reload);
       window.removeEventListener("storage", onStorage);
     };
-  }, []);
+  }, [notes]);
 
   const folderPaths = useMemo(
     () => collectGraphFolderPaths(notes, getCustomFolders()),
-    [notes, linkedFolders]
+    [notes, folderSettings]
   );
 
   useEffect(() => {
-    if (focusedFolder && !linkedFolders.includes(focusedFolder)) {
+    if (focusedFolder && !folderSettings.visibleFolders.includes(focusedFolder) &&
+      !Object.values(folderSettings.selections).some((choice) => choice.childFolders.includes(focusedFolder))) {
       setFocusedFolder(null);
       setGraphMode("global");
     }
-  }, [focusedFolder, linkedFolders]);
+  }, [focusedFolder, folderSettings]);
 
   const [
     filterQuery,
@@ -249,30 +255,32 @@ export function GraphView({
       data: GraphData;
       isCapped: boolean;
     } => {
-      // 點擊資料夾後，局部圖譜顯示該資料夾及它直接包含的所有筆記。
+      // 資料夾局部圖：只顯示所選直屬筆記及所選直屬子資料夾。
       if (graphMode === "local" && focusedFolder) {
-        const local = buildFolderLocalGraph(focusedFolder, notes, maxNodesLimit);
+        const local = buildFolderLocalGraph(focusedFolder, notes, folderSettings, folderPaths, maxNodesLimit);
         return { data: { nodes: local.nodes, links: local.links }, isCapped: local.isCapped };
       }
 
-      // 原本以筆記為中心的局部圖譜：額外連結「已啟用」且相關的資料夾。
+      // 筆記局部圖：只有被勾選的筆記才會顯示其資料夾關聯。
       if (graphMode === "local" && activeNoteId) {
         const local = buildLocalGraphData(activeNoteId, notes);
         const visibleNoteIds = new Set(local.nodes.filter(n => n.type === "note").map(n => n.id));
-        const relatedFolders = linkedFolders.filter(folder => notes.some(note =>
-          visibleNoteIds.has(note.id) && normalizeGraphFolderPath(note.folder || "") === folder
+        const relatedFolders = folderPaths.filter(folder => notes.some(note =>
+          visibleNoteIds.has(note.id) && normalizeGraphFolderPath(note.folder || "") === folder &&
+          hasGraphNoteLink(folderSettings, folder, note.id)
         ));
-        const data = addFolderLinksToGraph(local, notes, relatedFolders, folderPaths);
+        const data = addFolderLinksToGraph(local, notes, folderSettings, folderPaths,
+          { includedFolders: relatedFolders });
         return { data, isCapped: false };
       }
 
-      // 全域圖譜保留原本 Wikilink/未建立筆記的所有連線。
+      // 全域圖：保留原本 Wikilink/未建立筆記，另外加入明確勾選的資料夾線條。
       const result = buildGraphData(notes, maxNodesLimit);
       const data = addFolderLinksToGraph(
-        { nodes: result.nodes, links: result.links }, notes, linkedFolders, folderPaths
+        { nodes: result.nodes, links: result.links }, notes, folderSettings, folderPaths
       );
       return { data, isCapped: Boolean(result.isCapped) };
-    }, [notes, graphMode, activeNoteId, focusedFolder, maxNodesLimit, linkedFolders, folderPaths]);
+    }, [notes, graphMode, activeNoteId, focusedFolder, maxNodesLimit, folderSettings, folderPaths]);
 
   const initialResult =
     createGraphData();
@@ -2424,9 +2432,9 @@ export function GraphView({
             className={`shrink-0 border-b pb-1 ${showFolderSettings ? "border-[#b99767] text-[#dfc49a]" : "border-transparent text-[#a69b89] hover:text-[#dfc49a]"}`}
             aria-expanded={showFolderSettings}
             aria-controls="graph-folder-settings"
-            title="自行選擇哪些資料夾要在圖譜上連結其筆記"
+            title="自行選擇資料夾、直屬筆記及子資料夾的個別圖譜關聯"
           >
-            資料夾關聯{linkedFolders.length ? ` (${linkedFolders.length})` : ""}
+            資料夾關聯{folderSettings.visibleFolders.length ? ` (${folderSettings.visibleFolders.length})` : ""}
           </button>
 
           <input
@@ -2472,38 +2480,33 @@ export function GraphView({
       </div>
 
        {showFolderSettings && (
-         <div
-           id="graph-folder-settings"
-           className="absolute left-3 right-3 top-14 z-30 max-h-[65dvh] overflow-y-auto sm:left-auto sm:w-[360px] border border-[#b99767]/30 bg-[#111617]/98 p-4 text-xs text-[#d1cdc4] shadow-2xl"
-         >
+         <div id="graph-folder-settings"
+           className="absolute left-3 right-3 top-14 z-30 max-h-[70dvh] overflow-y-auto border border-[#b99767]/30 bg-[#111617]/98 p-4 text-xs text-[#d1cdc4] shadow-2xl sm:left-auto sm:w-[400px]">
            <div className="mb-2 flex items-center justify-between gap-2">
              <strong className="text-[#e0c396]">資料夾關聯設定</strong>
-             <button type="button" aria-label="關閉資料夾關聯設定" onClick={() => setShowFolderSettings(false)} className="px-2 py-1 text-slate-400 hover:text-white">✕</button>
+             <button type="button" aria-label="關閉資料夾關聯設定" onClick={() => setShowFolderSettings(false)}
+               className="px-2 py-1 text-slate-400 hover:text-white">✕</button>
            </div>
            <p className="mb-3 text-[11px] leading-5 text-slate-400">
-             預設全部關閉。開啟後，在圖譜新增資料夾節點，連結直接位於該資料夾內的筆記；不會修改筆記或加入 [[連結]]。
+             每個資料夾的顯示、每篇直屬筆記、每個直屬子資料夾，都能獨立決定是否連線；預設不自動加入。
            </p>
            {folderPaths.length ? (
-             <div className="space-y-1">
-               {folderPaths.map((folder) => {
-                 const count = notes.filter(note => normalizeGraphFolderPath(note.folder || "") === folder).length;
-                 const enabled = linkedFolders.includes(folder);
-                 return (
-                   <label key={folder} className="flex cursor-pointer items-center gap-3 border border-white/[0.06] px-2.5 py-2 hover:bg-white/[0.04]">
-                     <input
-                       type="checkbox"
-                       checked={enabled}
-                       onChange={(event) => setGraphFolderLinked(folder, event.target.checked)}
-                       className="accent-[#b99767]"
-                     />
-                     <span className="min-w-0 flex-1 truncate" title={folder}>{folder}</span>
-                     <span className="shrink-0 font-mono text-[10px] text-slate-500">{count} 篇</span>
-                   </label>
-                 );
-               })}
+             <div className="space-y-2">
+               {folderPaths.map((folder) => (
+                 <details key={folder} className="group border border-white/[0.09] px-2.5 py-2">
+                   <summary className="cursor-pointer break-all text-[#d8cbb6]">
+                     📁 {folder} <span className="text-[10px] text-slate-500">（展開設定）</span>
+                   </summary>
+                   <div className="mt-3 border-t border-white/10 pt-3">
+                     <FolderGraphControls folder={folder} notes={notes} paths={folderPaths} settings={folderSettings}/>
+                   </div>
+                 </details>
+               ))}
              </div>
            ) : <p className="text-slate-500">目前尚無資料夾。</p>}
-           <p className="mt-3 text-[10px] leading-4 text-slate-500">點擊圖譜中的 📁 資料夾節點，可查看該資料夾的筆記群組。子資料夾須個別開啟。</p>
+           <p className="mt-3 text-[10px] leading-4 text-slate-500">
+             父子資料夾即使不連線，原有檔案樹層級仍保持不變。點擊圖譜資料夾節點可查看已勾選的直屬成員。
+           </p>
          </div>
        )}
 
