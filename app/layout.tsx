@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AppearanceSettings } from "@/components/obsidian/AppearanceSettings";
 import "./globals.css";
 import "./mobile.css";
+import "./appearance.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,6 +39,7 @@ export default function RootLayout({
     >
       <body className="ink-root min-h-full flex flex-col">
         {children}
+        <AppearanceSettings />
       </body>
     </html>
   );
