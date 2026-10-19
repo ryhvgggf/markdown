@@ -37,12 +37,14 @@ export interface BacklinkItem {
   contextSnippet: string;
 }
 
-export type GraphNodeType = "note" | "tag" | "unresolved";
+// folder 為圖譜專用虛擬節點，不是筆記，不參與 [[Wikilink]] 解析。
+export type GraphNodeType = "note" | "tag" | "unresolved" | "folder";
 
 export interface GraphNode {
   id: string;
   label: string;
   type: GraphNodeType;
+  folderPath?: string;
   x: number;
   y: number;
   vx: number;
@@ -54,6 +56,7 @@ export interface GraphNode {
 export interface GraphLink {
   source: string;
   target: string;
+  kind?: "folder";
 }
 
 export interface GraphData {
