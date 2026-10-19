@@ -115,7 +115,8 @@ body[data-appearance-mode="dark"]
   .appearance-launcher {
     left: 12px;
     bottom: calc(78px + env(safe-area-inset-bottom));
-    z-index: 11000;
+    /* 手機側欄與關聯面板使用 10010～10030，浮動按鈕不可蓋住面板。 */
+    z-index: 10000;
     min-height: 37px;
     padding: 8px 12px;
     font-size: 12px;
