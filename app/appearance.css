@@ -40,32 +40,6 @@ body[data-appearance-right="custom"]
     blur(var(--appearance-right-blur, 0px));
 }
 
-/* 外觀按鈕 */
-.appearance-launcher {
-  position: fixed;
-  left: 12px;
-  bottom: 65px;
-  z-index: 11000;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 6px 11px;
-  border: 1px solid rgba(180, 195, 189, 0.25);
-  background: rgba(12, 17, 19, 0.90);
-  color: #c3d1cd;
-  font-size: 11px;
-  line-height: 1.3;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.22);
-  cursor: pointer;
-}
-
-.appearance-launcher:hover {
-  border-color: rgba(185, 204, 196, 0.55);
-  background: rgba(24, 35, 34, 0.96);
-}
-
 /* 外觀設定主視窗 */
 .appearance-dialog-backdrop {
   position: fixed;
@@ -131,16 +105,6 @@ body[data-appearance-right="custom"]
 }
 
 @media (max-width: 768px) {
-  .appearance-launcher {
-    left: 12px;
-    bottom: calc(78px + env(safe-area-inset-bottom));
-    /* 必須低於手機側欄（10020）和右側面板（10030）。 */
-    z-index: 10000;
-    min-height: 37px;
-    padding: 8px 12px;
-    font-size: 12px;
-  }
-
   .appearance-dialog-backdrop {
     padding: 10px;
   }
@@ -154,15 +118,10 @@ body[data-appearance-right="custom"]
 
 /* ============================================================
    游標設定 - 自訂圖片/ANI/GIF 等動畫游標
-   內建游標使用 CSS cursor；自訂游標使用不攔截點擊的固定圖層。
+   僅對使用者上傳的游標使用不攔截點擊的固定圖層。
    ============================================================ */
 
 @media (hover: hover) and (pointer: fine) {
-  body[data-obsidian-cursor="preset"],
-  body[data-obsidian-cursor="preset"] * {
-    cursor: var(--obsidian-cursor-native, auto) !important;
-  }
-
   body[data-obsidian-cursor="overlay"],
   body[data-obsidian-cursor="overlay"] * {
     cursor: none !important;
