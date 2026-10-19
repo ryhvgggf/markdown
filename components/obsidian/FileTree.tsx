@@ -16,6 +16,13 @@ import {
   FolderNode,
   NoteMetadata,
 } from "@/lib/obsidian/types";
+import {
+  FOLDER_GRAPH_CHANGED_EVENT,
+  getGraphLinkedFolders,
+  moveGraphFolderLinkSettings,
+  removeGraphFolderLinkSettings,
+  setGraphFolderLinked,
+} from "@/lib/obsidian/folderGraph";
 
 interface FileTreeProps {
   notes: NoteMetadata[];
@@ -150,6 +157,22 @@ export default function FileTree({
 }: FileTreeProps) {
   const [search, setSearch] =
     useState("");
+
+  // 每個資料夾的圖譜連結都由使用者主動開啟，預設沒有任何連線。
+  const [graphLinkedFolders, setGraphLinkedFolders] = useState<string[]>([]);
+  useEffect(() => {
+    const sync = () => setGraphLinkedFolders(getGraphLinkedFolders());
+    sync();
+    window.addEventListener(FOLDER_GRAPH_CHANGED_EVENT, sync);
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === "obsidian-folder-graph-links-v1") sync();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(FOLDER_GRAPH_CHANGED_EVENT, sync);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
 
   const [
     noteSortMode,
@@ -706,6 +729,9 @@ export default function FileTree({
         next
       );
 
+      // 重新命名資料夾時，將它及其子資料夾的選用圖譜設定一併移動。
+      moveGraphFolderLinkSettings(oldPath, newPath);
+
       if (
         onMoveNoteFolder
       ) {
@@ -827,6 +853,9 @@ export default function FileTree({
       saveCustomFolders(
         next
       );
+
+      // 刪除資料夾時不保留已失效的圖譜關聯設定。
+      removeGraphFolderLinkSettings(target);
 
       setExpandedFolders(
         (previous) => {
@@ -1056,6 +1085,9 @@ export default function FileTree({
         saveCustomFolders(
           next
         );
+
+        // 拖曳搬移資料夾時，沿用原來的圖譜開關設定。
+        moveGraphFolderLinkSettings(source, newPath);
 
         if (
           onMoveFolder
@@ -1802,6 +1834,9 @@ export default function FileTree({
                   {folder.notes.length +
                     folder.subfolders.length}
                 </span>
+                {graphLinkedFolders.includes(folder.path) && (
+                  <span className="text-[10px] text-[#b99767]" title="此資料夾已啟用圖譜關聯">⟷</span>
+                )}
               </div>
 
               <div
@@ -1812,6 +1847,18 @@ export default function FileTree({
                   event.stopPropagation()
                 }
               >
+                <button
+                  type="button"
+                  aria-pressed={graphLinkedFolders.includes(folder.path)}
+                  title={graphLinkedFolders.includes(folder.path)
+                    ? `取消「${folder.name}」與其筆記的圖譜連結`
+                    : `在圖譜中連結「${folder.name}」與其筆記`}
+                  onClick={() => setGraphFolderLinked(folder.path, !graphLinkedFolders.includes(folder.path))}
+                  className={`px-1 ${graphLinkedFolders.includes(folder.path) ? "text-[#d5b688]" : "text-slate-500 hover:text-[#d5b688]"}`}
+                >
+                  圖
+                </button>
+
                 <button
                   type="button"
                   onClick={() =>

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -13,6 +14,17 @@ import {
   buildGraphData,
   buildLocalGraphData,
 } from "@/lib/obsidian/links";
+import { getCustomFolders } from "@/lib/obsidian/db";
+import {
+  FOLDER_GRAPH_CHANGED_EVENT,
+  addFolderLinksToGraph,
+  buildFolderLocalGraph,
+  collectGraphFolderPaths,
+  getGraphFolderNodeId,
+  getGraphLinkedFolders,
+  normalizeGraphFolderPath,
+  setGraphFolderLinked,
+} from "@/lib/obsidian/folderGraph";
 
 import {
   GraphData,
@@ -102,6 +114,37 @@ export function GraphView({
     setMaxNodesLimit,
   ] =
     useState(300);
+
+  // 資料夾關聯完全採用自願開啟；預設不產生任何資料夾節點。
+  const [linkedFolders, setLinkedFolders] = useState<string[]>([]);
+  const [focusedFolder, setFocusedFolder] = useState<string | null>(null);
+  const [showFolderSettings, setShowFolderSettings] = useState(false);
+
+  useEffect(() => {
+    const reload = () => setLinkedFolders(getGraphLinkedFolders());
+    reload();
+    window.addEventListener(FOLDER_GRAPH_CHANGED_EVENT, reload);
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === "obsidian-folder-graph-links-v1") reload();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(FOLDER_GRAPH_CHANGED_EVENT, reload);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  const folderPaths = useMemo(
+    () => collectGraphFolderPaths(notes, getCustomFolders()),
+    [notes, linkedFolders]
+  );
+
+  useEffect(() => {
+    if (focusedFolder && !linkedFolders.includes(focusedFolder)) {
+      setFocusedFolder(null);
+      setGraphMode("global");
+    }
+  }, [focusedFolder, linkedFolders]);
 
   const [
     filterQuery,
@@ -206,49 +249,30 @@ export function GraphView({
       data: GraphData;
       isCapped: boolean;
     } => {
-      if (
-        graphMode ===
-          "local" &&
-        activeNoteId
-      ) {
-        return {
-          data:
-            buildLocalGraphData(
-              activeNoteId,
-              notes
-            ),
-
-          isCapped: false,
-        };
+      // 點擊資料夾後，局部圖譜顯示該資料夾及它直接包含的所有筆記。
+      if (graphMode === "local" && focusedFolder) {
+        const local = buildFolderLocalGraph(focusedFolder, notes, maxNodesLimit);
+        return { data: { nodes: local.nodes, links: local.links }, isCapped: local.isCapped };
       }
 
-      const result =
-        buildGraphData(
-          notes,
-          maxNodesLimit
-        ) as GraphData & {
-          isCapped?: boolean;
-        };
+      // 原本以筆記為中心的局部圖譜：額外連結「已啟用」且相關的資料夾。
+      if (graphMode === "local" && activeNoteId) {
+        const local = buildLocalGraphData(activeNoteId, notes);
+        const visibleNoteIds = new Set(local.nodes.filter(n => n.type === "note").map(n => n.id));
+        const relatedFolders = linkedFolders.filter(folder => notes.some(note =>
+          visibleNoteIds.has(note.id) && normalizeGraphFolderPath(note.folder || "") === folder
+        ));
+        const data = addFolderLinksToGraph(local, notes, relatedFolders, folderPaths);
+        return { data, isCapped: false };
+      }
 
-      return {
-        data: {
-          nodes:
-            result.nodes,
-          links:
-            result.links,
-        },
-
-        isCapped:
-          Boolean(
-            result.isCapped
-          ),
-      };
-    }, [
-      notes,
-      graphMode,
-      activeNoteId,
-      maxNodesLimit,
-    ]);
+      // 全域圖譜保留原本 Wikilink/未建立筆記的所有連線。
+      const result = buildGraphData(notes, maxNodesLimit);
+      const data = addFolderLinksToGraph(
+        { nodes: result.nodes, links: result.links }, notes, linkedFolders, folderPaths
+      );
+      return { data, isCapped: Boolean(result.isCapped) };
+    }, [notes, graphMode, activeNoteId, focusedFolder, maxNodesLimit, linkedFolders, folderPaths]);
 
   const initialResult =
     createGraphData();
@@ -325,7 +349,12 @@ export function GraphView({
                   node.id
                 );
 
-              if (existing) {
+              // 資料夾局部圖譜以資料夾為中心，不沿用全域圖的舊座標。
+               if (graphMode === "local" && focusedFolder && node.type === "folder" && node.folderPath === focusedFolder) {
+                 return { ...node, x: 0, y: 0, vx: 0, vy: 0 };
+               }
+
+               if (existing) {
                 return {
                   ...node,
                   x:
@@ -413,6 +442,7 @@ export function GraphView({
     createGraphData,
     graphMode,
     activeNoteId,
+    focusedFolder,
     wakeUp,
   ]);
 
@@ -1179,7 +1209,7 @@ export function GraphView({
 
       const focusId =
         hoveredNodeId ||
-        activeNoteId;
+        (focusedFolder ? getGraphFolderNodeId(focusedFolder) : activeNoteId);
 
       const neighborIds =
         new Set<string>();
@@ -1300,33 +1330,21 @@ export function GraphView({
             targetPos.y
           );
 
+          const isFolderLink = link.kind === "folder";
           ctx.strokeStyle =
-            related
+            isFolderLink
+              ? (related ? "rgba(214,175,116,.80)" : focusId ? "rgba(185,147,92,.14)" : "rgba(185,147,92,.36)")
+              : related
               ? "rgba(112,143,137,.58)"
               : focusId
               ? "rgba(226,220,207,.035)"
               : "rgba(226,220,207,.085)";
 
-          ctx.lineWidth =
-            related
-              ? 1.05
-              : 0.72;
+          ctx.lineWidth = isFolderLink ? (related ? 1.7 : 1.2) : (related ? 1.05 : 0.72);
 
-          ctx.setLineDash(
-            related
-              ? [
-                  17,
-                  2,
-                  4,
-                  3,
-                ]
-              : [
-                  22,
-                  3,
-                  2,
-                  5,
-                ]
-          );
+          ctx.setLineDash(isFolderLink ? [4, 5] : (
+            related ? [17, 2, 4, 3] : [22, 3, 2, 5]
+          ));
 
           ctx.stroke();
 
@@ -1344,8 +1362,9 @@ export function GraphView({
        */
       for (const node of nodes) {
         const isActive =
-          node.id ===
-          activeNoteId;
+          node.type === "folder"
+            ? Boolean(focusedFolder && node.folderPath === focusedFolder)
+            : node.id === activeNoteId && !focusedFolder;
 
         const isHovered =
           node.id ===
@@ -1512,7 +1531,9 @@ export function GraphView({
             2
         );
 
-        if (
+        if (node.type === "folder") {
+          ctx.fillStyle = isHovered ? "#dab680" : "#ad8b5e";
+        } else if (
           node.type ===
           "unresolved"
         ) {
@@ -1569,6 +1590,7 @@ export function GraphView({
          * Label
          */
         const showFullText =
+          node.type === "folder" ||
           isHovered ||
           isActive ||
           nodes.length <=
@@ -1657,6 +1679,7 @@ export function GraphView({
     filterQuery,
     activeNoteId,
     graphMode,
+    focusedFolder,
     hoveredNodeId,
     wakeUp,
   ]);
@@ -2222,14 +2245,13 @@ export function GraphView({
             event.clientY
           );
 
-        if (
-          node &&
-          node.type ===
-            "note"
-        ) {
-          onSelectNote(
-            node.id
-          );
+        if (node?.type === "folder" && node.folderPath) {
+          setFocusedFolder(node.folderPath);
+          setGraphMode("local");
+          setShowFolderSettings(false);
+          wakeUp(0.9);
+        } else if (node?.type === "note") {
+          onSelectNote(node.id);
         }
       } else if (
         drag.draggedNodeId
@@ -2337,10 +2359,11 @@ export function GraphView({
       <div className="graph-view-header relative z-10 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.055] bg-[#101213]/94 px-5 py-2.5 backdrop-blur-md">
         <div className="graph-title-row flex items-center gap-4">
           <span className="font-serif text-[13px] tracking-[0.08em] text-[#d8d4ca]">
-            {graphMode ===
-            "global"
+            {graphMode === "global"
               ? "全域圖譜"
-              : "局部圖譜"}
+              : focusedFolder
+                ? `資料夾圖譜 · ${focusedFolder}`
+                : "局部圖譜"}
           </span>
 
           <span className="font-mono text-[10px] text-[#676b67]">
@@ -2362,10 +2385,8 @@ export function GraphView({
             <button
               type="button"
               onClick={() => {
-                setGraphMode(
-                  "global"
-                );
-
+                setFocusedFolder(null);
+                setGraphMode("global");
                 wakeUp(0.9);
               }}
               className={`border-b pb-1 ${
@@ -2380,14 +2401,10 @@ export function GraphView({
 
             <button
               type="button"
-              disabled={
-                !activeNoteId
-              }
+              disabled={!activeNoteId}
               onClick={() => {
-                setGraphMode(
-                  "local"
-                );
-
+                setFocusedFolder(null);
+                setGraphMode("local");
                 wakeUp(0.9);
               }}
               className={`border-b pb-1 ${
@@ -2400,6 +2417,17 @@ export function GraphView({
               局部
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setShowFolderSettings((open) => !open)}
+            className={`shrink-0 border-b pb-1 ${showFolderSettings ? "border-[#b99767] text-[#dfc49a]" : "border-transparent text-[#a69b89] hover:text-[#dfc49a]"}`}
+            aria-expanded={showFolderSettings}
+            aria-controls="graph-folder-settings"
+            title="自行選擇哪些資料夾要在圖譜上連結其筆記"
+          >
+            資料夾關聯{linkedFolders.length ? ` (${linkedFolders.length})` : ""}
+          </button>
 
           <input
             type="text"
@@ -2443,13 +2471,45 @@ export function GraphView({
         </div>
       </div>
 
-      {isCapped &&
-        graphMode ===
-          "global" && (
+       {showFolderSettings && (
+         <div
+           id="graph-folder-settings"
+           className="absolute left-3 right-3 top-14 z-30 max-h-[65dvh] overflow-y-auto sm:left-auto sm:w-[360px] border border-[#b99767]/30 bg-[#111617]/98 p-4 text-xs text-[#d1cdc4] shadow-2xl"
+         >
+           <div className="mb-2 flex items-center justify-between gap-2">
+             <strong className="text-[#e0c396]">資料夾關聯設定</strong>
+             <button type="button" aria-label="關閉資料夾關聯設定" onClick={() => setShowFolderSettings(false)} className="px-2 py-1 text-slate-400 hover:text-white">✕</button>
+           </div>
+           <p className="mb-3 text-[11px] leading-5 text-slate-400">
+             預設全部關閉。開啟後，在圖譜新增資料夾節點，連結直接位於該資料夾內的筆記；不會修改筆記或加入 [[連結]]。
+           </p>
+           {folderPaths.length ? (
+             <div className="space-y-1">
+               {folderPaths.map((folder) => {
+                 const count = notes.filter(note => normalizeGraphFolderPath(note.folder || "") === folder).length;
+                 const enabled = linkedFolders.includes(folder);
+                 return (
+                   <label key={folder} className="flex cursor-pointer items-center gap-3 border border-white/[0.06] px-2.5 py-2 hover:bg-white/[0.04]">
+                     <input
+                       type="checkbox"
+                       checked={enabled}
+                       onChange={(event) => setGraphFolderLinked(folder, event.target.checked)}
+                       className="accent-[#b99767]"
+                     />
+                     <span className="min-w-0 flex-1 truncate" title={folder}>{folder}</span>
+                     <span className="shrink-0 font-mono text-[10px] text-slate-500">{count} 篇</span>
+                   </label>
+                 );
+               })}
+             </div>
+           ) : <p className="text-slate-500">目前尚無資料夾。</p>}
+           <p className="mt-3 text-[10px] leading-4 text-slate-500">點擊圖譜中的 📁 資料夾節點，可查看該資料夾的筆記群組。子資料夾須個別開啟。</p>
+         </div>
+       )}
+
+       {isCapped && (graphMode === "global" || Boolean(focusedFolder)) && (
           <div className="border-b border-[#796454]/20 bg-[#796454]/8 px-5 py-2 text-[10px] text-[#aa9683]">
-            知識庫節點較多，目前裝置顯示前{" "}
-            {maxNodesLimit}{" "}
-            個節點以維持流暢度。
+            {focusedFolder ? "資料夾筆記較多" : "知識庫節點較多"}，目前裝置最多顯示 {maxNodesLimit} 篇筆記，以維持圖譜流暢度。
           </div>
         )}
 
