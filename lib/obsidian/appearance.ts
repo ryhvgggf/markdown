@@ -1,12 +1,12 @@
 /**
- * 外觀設定 v2：左／中／右三塊背景各自獨立。
+ * 外觀設定 v3：左／中／右／圖譜四塊背景各自獨立。
  * - 圖檔存獨立 IndexedDB；同區固定 ID，替換即覆蓋，不累積舊圖。
  * - 透明度／亮度／模糊程度分區保存在 localStorage。
  * - 不改 WebObsidianDB 的筆記與 media 資料。
  * - 兼容舊版單張背景：首次讀取時遷移到「中間背景」。
  */
 
-export type BackgroundZone = "left" | "center" | "right";
+export type BackgroundZone = "left" | "center" | "right" | "graph";
 
 export interface BackgroundEffect {
   opacity: number;
@@ -22,6 +22,7 @@ export const BACKGROUND_ZONES: BackgroundZone[] = [
   "left",
   "center",
   "right",
+  "graph",
 ];
 
 export const BACKGROUND_INFO: Record<
@@ -46,6 +47,12 @@ export const BACKGROUND_INFO: Record<
     width: 720,
     height: 1200,
   },
+  graph: {
+    title: "圖譜背景圖",
+    description: "全域／局部圖譜畫布區域",
+    width: 1600,
+    height: 1000,
+  },
 };
 
 const DEFAULT_EFFECT: BackgroundEffect = {
@@ -54,15 +61,26 @@ const DEFAULT_EFFECT: BackgroundEffect = {
   blur: 0,
 };
 
+const DEFAULT_GRAPH_EFFECT: BackgroundEffect = {
+  ...DEFAULT_EFFECT,
+  opacity: 0.32,
+};
+
 export const DEFAULT_APPEARANCE: AppearancePreferences = {
   effects: {
     left: { ...DEFAULT_EFFECT },
     center: { ...DEFAULT_EFFECT },
     right: { ...DEFAULT_EFFECT },
+    graph: { ...DEFAULT_GRAPH_EFFECT },
   },
 };
 
 const STORAGE_KEY = "web-obsidian-appearance-v2";
+
+export const APPEARANCE_PREFERENCES_CHANGED_EVENT =
+  "obsidian-appearance-preferences-changed";
+export const GRAPH_BACKGROUND_CHANGED_EVENT =
+  "obsidian-graph-background-changed";
 const LEGACY_STORAGE_KEY = "web-obsidian-appearance-v1";
 const DB_NAME = "WebObsidianAppearanceDB";
 const DB_VERSION = 1;
@@ -133,14 +151,17 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
     : fallback;
 }
 
-function sanitizeEffect(value: unknown): BackgroundEffect {
+function sanitizeEffect(
+  value: unknown,
+  fallback: BackgroundEffect = DEFAULT_EFFECT
+): BackgroundEffect {
   const source = value && typeof value === "object"
     ? (value as Partial<BackgroundEffect>)
     : {};
   return {
-    opacity: clampNumber(source.opacity, 0.05, 1, DEFAULT_EFFECT.opacity),
-    brightness: clampNumber(source.brightness, 0.35, 1.5, DEFAULT_EFFECT.brightness),
-    blur: clampNumber(source.blur, 0, 16, DEFAULT_EFFECT.blur),
+    opacity: clampNumber(source.opacity, 0.05, 1, fallback.opacity),
+    brightness: clampNumber(source.brightness, 0.35, 1.5, fallback.brightness),
+    blur: clampNumber(source.blur, 0, 16, fallback.blur),
   };
 }
 
@@ -151,6 +172,7 @@ export function loadAppearancePreferences(): AppearancePreferences {
         left: { ...DEFAULT_EFFECT },
         center: { ...DEFAULT_EFFECT },
         right: { ...DEFAULT_EFFECT },
+        graph: { ...DEFAULT_GRAPH_EFFECT },
       },
     };
   }
@@ -164,6 +186,7 @@ export function loadAppearancePreferences(): AppearancePreferences {
           left: sanitizeEffect(saved.effects?.left),
           center: sanitizeEffect(saved.effects?.center),
           right: sanitizeEffect(saved.effects?.right),
+          graph: sanitizeEffect(saved.effects?.graph, DEFAULT_GRAPH_EFFECT),
         },
       };
     }
@@ -177,6 +200,7 @@ export function loadAppearancePreferences(): AppearancePreferences {
           left: { ...DEFAULT_EFFECT },
           center: sanitizeEffect(legacy),
           right: { ...DEFAULT_EFFECT },
+          graph: { ...DEFAULT_GRAPH_EFFECT },
         },
       };
     }
@@ -189,6 +213,7 @@ export function loadAppearancePreferences(): AppearancePreferences {
       left: { ...DEFAULT_EFFECT },
       center: { ...DEFAULT_EFFECT },
       right: { ...DEFAULT_EFFECT },
+      graph: { ...DEFAULT_GRAPH_EFFECT },
     },
   };
 }
@@ -196,6 +221,7 @@ export function loadAppearancePreferences(): AppearancePreferences {
 export function saveAppearancePreferences(prefs: AppearancePreferences): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+  window.dispatchEvent(new Event(APPEARANCE_PREFERENCES_CHANGED_EVENT));
 }
 
 /**
@@ -279,7 +305,12 @@ export async function replaceCustomBackground(
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     tx.objectStore(STORE_NAME).put(item);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => {
+      resolve();
+      if (zone === "graph") {
+        window.dispatchEvent(new Event(GRAPH_BACKGROUND_CHANGED_EVENT));
+      }
+    };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
   });
@@ -290,7 +321,12 @@ export async function deleteCustomBackground(zone: BackgroundZone): Promise<void
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     tx.objectStore(STORE_NAME).delete(backgroundId(zone));
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => {
+      resolve();
+      if (zone === "graph") {
+        window.dispatchEvent(new Event(GRAPH_BACKGROUND_CHANGED_EVENT));
+      }
+    };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
   });
@@ -303,7 +339,10 @@ export async function deleteAllCustomBackgrounds(): Promise<void> {
     const store = tx.objectStore(STORE_NAME);
     for (const zone of BACKGROUND_ZONES) store.delete(backgroundId(zone));
     store.delete(LEGACY_BACKGROUND_ID);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => {
+      resolve();
+      window.dispatchEvent(new Event(GRAPH_BACKGROUND_CHANGED_EVENT));
+    };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
   });
