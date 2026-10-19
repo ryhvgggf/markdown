@@ -34,6 +34,165 @@ interface MarkdownEditorProps {
   onSelectTag?: (tag: string) => void;
 }
 
+type ListStyle =
+  | "bullet"
+  | "decimal-dot"
+  | "decimal-paren"
+  | "lower-alpha-paren"
+  | "upper-alpha-paren"
+  | "lower-roman"
+  | "upper-roman"
+  | "cn-ideographic"
+  | "cn-parentheses"
+  | "cn-heavenly"
+  | "cn-earthly"
+  | "task";
+
+const CHINESE_DIGITS = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+const HEAVENLY_STEMS = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
+const EARTHLY_BRANCHES = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
+
+function numberToAlpha(value: number): string {
+  let n = Math.max(1, value);
+  let result = "";
+  while (n > 0) {
+    n -= 1;
+    result = String.fromCharCode(97 + (n % 26)) + result;
+    n = Math.floor(n / 26);
+  }
+  return result;
+}
+
+function alphaToNumber(value: string): number {
+  let result = 0;
+  for (const char of value.toLowerCase()) {
+    result = result * 26 + char.charCodeAt(0) - 96;
+  }
+  return Math.max(1, result);
+}
+
+function numberToRoman(value: number): string {
+  const pairs: Array<[number, string]> = [
+    [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
+    [100, "C"], [90, "XC"], [50, "L"], [40, "XL"],
+    [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+  ];
+  let n = Math.max(1, Math.min(3999, value));
+  let result = "";
+  for (const [amount, symbol] of pairs) {
+    while (n >= amount) {
+      result += symbol;
+      n -= amount;
+    }
+  }
+  return result;
+}
+
+function romanToNumber(value: string): number {
+  const values: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+  const text = value.toUpperCase();
+  let total = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const current = values[text[index]] || 0;
+    const next = values[text[index + 1]] || 0;
+    total += current < next ? -current : current;
+  }
+  return Math.max(1, total);
+}
+
+function numberToChinese(value: number): string {
+  const n = Math.floor(value);
+  if (n <= 0) return "一";
+  if (n > 9999) return String(n);
+  const units = ["", "十", "百", "千"];
+  const digits = String(n);
+  let result = "";
+  let pendingZero = false;
+
+  for (let index = 0; index < digits.length; index += 1) {
+    const digit = Number(digits[index]);
+    const place = digits.length - index - 1;
+    if (digit === 0) {
+      if (result && digits.slice(index + 1).split("").some((item) => item !== "0")) {
+        pendingZero = true;
+      }
+      continue;
+    }
+    if (pendingZero) {
+      result += "零";
+      pendingZero = false;
+    }
+    if (!(place === 1 && digit === 1 && index === 0)) result += CHINESE_DIGITS[digit];
+    result += units[place];
+  }
+  return result || "一";
+}
+
+function chineseToNumber(value: string): number {
+  const digitMap: Record<string, number> = { 零: 0, 〇: 0, 一: 1, 二: 2, 兩: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  const unitMap: Record<string, number> = { 十: 10, 百: 100, 千: 1000 };
+  let total = 0;
+  let current = 0;
+  for (const char of value) {
+    if (char in digitMap) current = digitMap[char];
+    else if (char in unitMap) {
+      total += (current || 1) * unitMap[char];
+      current = 0;
+    }
+  }
+  return Math.max(1, total + current);
+}
+
+function nextListMarker(marker: string): string {
+  if (/^\d+[.)]$/.test(marker)) {
+    return `${Number.parseInt(marker, 10) + 1}${marker.slice(-1)}`;
+  }
+
+  if (/^[a-z]+\)$/i.test(marker)) {
+    const current = marker.slice(0, -1);
+    const next = numberToAlpha(alphaToNumber(current) + 1);
+    return `${current === current.toUpperCase() ? next.toUpperCase() : next})`;
+  }
+
+  if (/^[ivxlcdm]+\.$/i.test(marker)) {
+    const current = marker.slice(0, -1);
+    const next = numberToRoman(romanToNumber(current) + 1);
+    return `${current === current.toUpperCase() ? next : next.toLowerCase()}.`;
+  }
+
+  const chineseParen = /^(（|\()([一二三四五六七八九十百千零〇兩两]+)(）|\))$/.exec(marker);
+  if (chineseParen) {
+    const next = numberToChinese(chineseToNumber(chineseParen[2]) + 1);
+    return `${chineseParen[1]}${next}${chineseParen[3]}`;
+  }
+
+  const chineseNumber = /^([一二三四五六七八九十百千零〇兩两]+)([、.])$/.exec(marker);
+  if (chineseNumber) {
+    return `${numberToChinese(chineseToNumber(chineseNumber[1]) + 1)}${chineseNumber[2]}`;
+  }
+
+  const stem = /^([甲乙丙丁戊己庚辛壬癸])([、.])$/.exec(marker);
+  if (stem) {
+    const index = HEAVENLY_STEMS.indexOf(stem[1]);
+    return `${HEAVENLY_STEMS[(index + 1) % HEAVENLY_STEMS.length]}${stem[2]}`;
+  }
+
+  const branch = /^([子丑寅卯辰巳午未申酉戌亥])([、.])$/.exec(marker);
+  if (branch) {
+    const index = EARTHLY_BRANCHES.indexOf(branch[1]);
+    return `${EARTHLY_BRANCHES[(index + 1) % EARTHLY_BRANCHES.length]}${branch[2]}`;
+  }
+
+  return marker;
+}
+
+function stripExistingListMarker(line: string): { indent: string; content: string } {
+  const indent = /^[ \t]*/.exec(line)?.[0] || "";
+  const body = line.slice(indent.length);
+  const markerPattern = /^(?:[-+*]|\d+[.)]|[a-zA-Z]+\)|[ivxlcdm]+\.|（[一二三四五六七八九十百千零〇兩两]+）|\([一二三四五六七八九十百千零〇兩两]+\)|[一二三四五六七八九十百千零〇兩两]+[、.]|[甲乙丙丁戊己庚辛壬癸][、.]|[子丑寅卯辰巳午未申酉戌亥][、.])\s*(?:\[([ xX])\]\s+)?/i;
+  return { indent, content: body.replace(markerPattern, "") };
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -73,6 +232,7 @@ export function MarkdownEditor({
   onSelectTag,
 }: MarkdownEditorProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
+  const [listStyleValue, setListStyleValue] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -118,6 +278,7 @@ export function MarkdownEditor({
         "data-heading-target",
         "data-heading-slug",
         "data-tag",
+        "data-list-marker",
       ],
     });
 
@@ -467,6 +628,75 @@ export function MarkdownEditor({
     }, 0);
   };
 
+  /** 類似 Word 的清單樣式：一次替選取行／目前行套用指定編號。 */
+  const applyListStyle = (style: ListStyle) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const value = textarea.value;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+    const effectiveEnd = end > start && value[end - 1] === "\n" ? end - 1 : end;
+    const lineBreak = value.indexOf("\n", effectiveEnd);
+    const lineEnd = lineBreak === -1 ? value.length : lineBreak;
+    const selectedBlock = value.slice(lineStart, lineEnd);
+    const lines = selectedBlock.split("\n");
+
+    const replacement = lines.map((line, index) => {
+      const { indent, content } = stripExistingListMarker(line);
+      let prefix = "";
+
+      switch (style) {
+        case "bullet":
+          prefix = "- ";
+          break;
+        case "decimal-dot":
+          prefix = `${index + 1}. `;
+          break;
+        case "decimal-paren":
+          prefix = `${index + 1}) `;
+          break;
+        case "lower-alpha-paren":
+          prefix = `${numberToAlpha(index + 1)}) `;
+          break;
+        case "upper-alpha-paren":
+          prefix = `${numberToAlpha(index + 1).toUpperCase()}) `;
+          break;
+        case "lower-roman":
+          prefix = `${numberToRoman(index + 1).toLowerCase()}. `;
+          break;
+        case "upper-roman":
+          prefix = `${numberToRoman(index + 1)}. `;
+          break;
+        case "cn-ideographic":
+          prefix = `${numberToChinese(index + 1)}、 `;
+          break;
+        case "cn-parentheses":
+          prefix = `（${numberToChinese(index + 1)}） `;
+          break;
+        case "cn-heavenly":
+          prefix = `${HEAVENLY_STEMS[index % HEAVENLY_STEMS.length]}、 `;
+          break;
+        case "cn-earthly":
+          prefix = `${EARTHLY_BRANCHES[index % EARTHLY_BRANCHES.length]}、 `;
+          break;
+        case "task":
+          prefix = "- [ ] ";
+          break;
+      }
+
+      return `${indent}${prefix}${content}`;
+    }).join("\n");
+
+    onUpdateContent(value.slice(0, lineStart) + replacement + value.slice(lineEnd));
+
+    window.setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(lineStart, lineStart + replacement.length);
+    }, 0);
+  };
+
   /** 插入一般 Markdown 連結，並選取網址方便直接修改。 */
   const insertLink = () => {
     const textarea = textareaRef.current;
@@ -601,7 +831,7 @@ export function MarkdownEditor({
     const lineBefore = value.slice(lineStart, caret);
     const lineAfter = value.slice(caret, lineEnd);
 
-    const listMatch = /^(\s*)([-+*]|\d+[.)])\s+(?:\[([ xX])\]\s+)?(.*)$/.exec(lineBefore);
+    const listMatch = /^(\s*)([-+*]|\d+[.)]|[a-zA-Z]+\)|[ivxlcdm]+\.|（[一二三四五六七八九十百千零〇兩两]+）|\([一二三四五六七八九十百千零〇兩两]+\)|[一二三四五六七八九十百千零〇兩两]+[、.]|[甲乙丙丁戊己庚辛壬癸][、.]|[子丑寅卯辰巳午未申酉戌亥][、.])\s+(?:\[([ xX])\]\s+)?(.*)$/.exec(lineBefore);
     if (listMatch) {
       const indent = listMatch[1];
       const marker = listMatch[2];
@@ -621,9 +851,7 @@ export function MarkdownEditor({
         return;
       }
 
-      const nextMarker = /^\d+[.)]$/.test(marker)
-        ? `${Number.parseInt(marker, 10) + 1}${marker.slice(-1)}`
-        : marker;
+      const nextMarker = nextListMarker(marker);
       const nextPrefix = `${indent}${nextMarker} ${checkboxState !== undefined ? "[ ] " : ""}`;
       event.preventDefault();
       insertTextAtCursor(`\n${nextPrefix}`);
@@ -1017,9 +1245,37 @@ export function MarkdownEditor({
 
           <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
 
-          <button type="button" title="無序清單" onClick={() => applyLinePrefix("- ")} className="px-2 py-1 hover:text-slate-200">• 清單</button>
-          <button type="button" title="有序清單" onClick={() => applyLinePrefix((_line, index) => `${index + 1}. `)} className="px-2 py-1 hover:text-slate-200">1. 清單</button>
-          <button type="button" title="待辦清單" onClick={() => applyLinePrefix("- [ ] ")} className="px-2 py-1 hover:text-slate-200">☐ 待辦</button>
+          <select
+            aria-label="清單樣式"
+            title="選擇清單樣式（類似 Word）"
+            value={listStyleValue}
+            onChange={(event) => {
+              const value = event.target.value as ListStyle | "";
+              if (value) applyListStyle(value);
+              setListStyleValue("");
+            }}
+            className="mx-1 max-w-[132px] shrink-0 cursor-pointer rounded border border-white/10 bg-[#171a19] px-2 py-1 text-slate-300 outline-none hover:border-white/20 hover:text-slate-100 focus:border-cyan-700"
+          >
+            <option value="" disabled>清單 ▾</option>
+            <optgroup label="基本清單">
+              <option value="bullet">• 無序清單</option>
+              <option value="decimal-dot">1. 2. 3. 數字</option>
+              <option value="decimal-paren">1) 2) 3) 數字括號</option>
+              <option value="task">☐ 待辦清單</option>
+            </optgroup>
+            <optgroup label="英文字母與羅馬數字">
+              <option value="lower-alpha-paren">a) b) c) 小寫字母</option>
+              <option value="upper-alpha-paren">A) B) C) 大寫字母</option>
+              <option value="lower-roman">i. ii. iii. 小寫羅馬數字</option>
+              <option value="upper-roman">I. II. III. 大寫羅馬數字</option>
+            </optgroup>
+            <optgroup label="中文序號">
+              <option value="cn-ideographic">一、二、三、 中文數字</option>
+              <option value="cn-parentheses">（一）（二）（三）</option>
+              <option value="cn-heavenly">甲、乙、丙、 天干</option>
+              <option value="cn-earthly">子、丑、寅、 地支</option>
+            </optgroup>
+          </select>
           <button type="button" title="引用區塊" onClick={() => applyLinePrefix("> ")} className="px-2 py-1 hover:text-slate-200">引用</button>
           <button type="button" title="水平分隔線" onClick={() => insertTextAtCursor("\n\n---\n\n")} className="px-2 py-1 hover:text-slate-200">分隔線</button>
           <button type="button" title="插入 Markdown 表格" onClick={() => insertTextAtCursor("\n\n| 欄位 1 | 欄位 2 |\n| --- | --- |\n| 內容 1 | 內容 2 |\n\n")} className="px-2 py-1 hover:text-slate-200">表格</button>
