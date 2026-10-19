@@ -2160,3 +2160,40 @@ body > div.flex.h-screen.w-screen
   outline-offset: 1px;
 }
 
+
+
+/* Word-style custom Markdown numbering markers. */
+.obsidian-preview-container ol.obsidian-list--custom {
+  list-style: none;
+  padding-left: 2.65em;
+}
+
+.obsidian-preview-container ol.obsidian-list--custom > li {
+  position: relative;
+  list-style: none;
+}
+
+.obsidian-preview-container ol.obsidian-list--custom > li::before {
+  content: attr(data-list-marker);
+  position: absolute;
+  right: calc(100% + 0.35rem);
+  min-width: 2.1em;
+  text-align: right;
+  white-space: pre;
+  color: inherit;
+}
+
+.obsidian-preview-container ol.obsidian-list--custom > li.task-list-item::before {
+  content: none;
+}
+
+.markdown-editor-toolbar select {
+  font: inherit;
+  line-height: 1.5;
+}
+
+.markdown-editor-toolbar select option,
+.markdown-editor-toolbar select optgroup {
+  color: #e7e5e4;
+  background: #171a19;
+}
