@@ -1,59 +1,46 @@
 /* ============================================================
-   Custom Appearance
-   Imported after globals.css and mobile.css.
-   Existing ink backgrounds remain unchanged in default mode.
+   外觀設定 v2：左／中／右獨立背景。
+   原本 globals.css 水墨背景維持不動，只有上傳過的區域才套用。
+   預覽確認時已裁切；顯示用 cover 只在視窗比例變化時微調。
    ============================================================ */
 
-/* 只在自訂模式建立跨左、中、右三欄的單一背景圖層。 */
-body[data-appearance-mode="custom"]
-> div.markdown-vault-root.flex.h-screen.w-screen {
-  position: relative !important;
-  isolation: isolate;
-}
-
-body[data-appearance-mode="custom"]
-> div.markdown-vault-root.flex.h-screen.w-screen::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image: var(--appearance-wallpaper-image, none);
-  background-color: #08090a;
-  background-size: var(--appearance-wallpaper-fit, cover);
-  background-position: var(--appearance-wallpaper-position, center center);
-  background-repeat: no-repeat;
-  opacity: var(--appearance-wallpaper-opacity, 0.42);
-  filter: brightness(var(--appearance-wallpaper-brightness, 0.85))
-    blur(var(--appearance-wallpaper-blur, 0px));
-}
-
-/* 自訂與純色模式都隱藏原本的三幅水墨圖片。 */
-body:is([data-appearance-mode="custom"], [data-appearance-mode="dark"])
+body[data-appearance-left="custom"]
 > div.markdown-vault-root.flex.h-screen.w-screen
-> :is(aside.app-sidebar, main.app-main, aside.app-right-panel)::before {
-  display: none !important;
+> aside.app-sidebar.w-64::before {
+  background-image: var(--appearance-left-image) !important;
+  background-position: center center !important;
+  background-size: cover !important;
+  background-repeat: no-repeat !important;
+  opacity: var(--appearance-left-opacity, 0.42) !important;
+  filter: brightness(var(--appearance-left-brightness, 0.85))
+    blur(var(--appearance-left-blur, 0px));
 }
 
-/* 原版三欄都有不透明背景，必須在自訂模式改為透明才能看到整張背景。 */
-body[data-appearance-mode="custom"]
+body[data-appearance-center="custom"]
 > div.markdown-vault-root.flex.h-screen.w-screen
-> :is(aside.app-sidebar, main.app-main, aside.app-right-panel) {
-  background: transparent !important;
-  background-image: none !important;
-  /* 桌面維持正常圖層；手機 fixed Drawer 交給 mobile.css 控制。 */
-  position: relative;
-  z-index: 1;
+> main.app-main::before {
+  background-image: var(--appearance-center-image) !important;
+  background-position: center center !important;
+  background-size: cover !important;
+  background-repeat: no-repeat !important;
+  opacity: var(--appearance-center-opacity, 0.42) !important;
+  filter: brightness(var(--appearance-center-brightness, 0.85))
+    blur(var(--appearance-center-blur, 0px));
 }
 
-/* 深色模式保留原有 UI，只關閉三張水墨圖。 */
-body[data-appearance-mode="dark"]
+body[data-appearance-right="custom"]
 > div.markdown-vault-root.flex.h-screen.w-screen
-> :is(aside.app-sidebar, main.app-main, aside.app-right-panel) {
-  background-image: none !important;
+> aside.app-right-panel.w-72::before {
+  background-image: var(--appearance-right-image) !important;
+  background-position: center center !important;
+  background-size: cover !important;
+  background-repeat: no-repeat !important;
+  opacity: var(--appearance-right-opacity, 0.42) !important;
+  filter: brightness(var(--appearance-right-brightness, 0.85))
+    blur(var(--appearance-right-blur, 0px));
 }
 
-/* 左側底部外觀按鈕，手機避開底部導覽列。 */
+/* 外觀按鈕 */
 .appearance-launcher {
   position: fixed;
   left: 12px;
@@ -79,6 +66,7 @@ body[data-appearance-mode="dark"]
   background: rgba(24, 35, 34, 0.96);
 }
 
+/* 外觀設定主視窗 */
 .appearance-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -93,7 +81,7 @@ body[data-appearance-mode="dark"]
 
 .appearance-dialog {
   width: 100%;
-  max-width: 480px;
+  max-width: 600px;
   max-height: 90dvh;
   overflow-y: auto;
   border: 1px solid rgba(180, 195, 189, 0.20);
@@ -102,29 +90,63 @@ body[data-appearance-mode="dark"]
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.56);
 }
 
-.appearance-dialog input[type="range"] {
-  accent-color: #91ada5;
-  cursor: pointer;
+/* 上傳後裁切視窗：可以拖曳圖片、縮放、儲存；未確認不會覆蓋舊圖。 */
+.appearance-crop-dialog {
+  width: 100%;
+  max-width: 680px;
+  max-height: 92dvh;
+  overflow-y: auto;
+  border: 1px solid rgba(180, 195, 189, 0.24);
+  background: #121617;
+  color: #dde5e0;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.62);
 }
 
-.appearance-dialog select {
-  color-scheme: dark;
+.appearance-crop-frame {
+  position: relative;
+  margin-inline: auto;
+  overflow: hidden;
+  background: #070909;
+  border: 1px solid rgba(185, 203, 194, 0.45);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  overscroll-behavior: contain;
+}
+
+.appearance-crop-frame:active {
+  cursor: grabbing;
+}
+
+.appearance-crop-frame img {
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.appearance-dialog input[type="range"],
+.appearance-crop-dialog input[type="range"] {
+  accent-color: #91ada5;
+  cursor: pointer;
 }
 
 @media (max-width: 768px) {
   .appearance-launcher {
     left: 12px;
     bottom: calc(78px + env(safe-area-inset-bottom));
-    /* 手機側欄與關聯面板使用 10010～10030，浮動按鈕不可蓋住面板。 */
+    /* 必須低於手機側欄（10020）和右側面板（10030）。 */
     z-index: 10000;
     min-height: 37px;
     padding: 8px 12px;
     font-size: 12px;
   }
+
   .appearance-dialog-backdrop {
     padding: 10px;
   }
-  .appearance-dialog {
-    max-height: 85dvh;
+
+  .appearance-dialog,
+  .appearance-crop-dialog {
+    max-height: 88dvh;
   }
 }
