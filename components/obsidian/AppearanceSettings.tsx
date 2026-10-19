@@ -10,6 +10,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { CursorRuntime } from "@/components/obsidian/CursorRuntime";
+import { CursorSettings } from "@/components/obsidian/CursorSettings";
 
 import {
   ACCEPTED_IMAGE_TYPES,
@@ -118,6 +120,7 @@ function assetFromRecord(record: BackgroundRecord): BackgroundAsset {
 
 export function AppearanceSettings() {
   const [open, setOpen] = useState(false);
+  const [appearanceTab, setAppearanceTab] = useState<"background" | "cursor">("background");
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [selectedZone, setSelectedZone] = useState<BackgroundZone>("center");
@@ -497,6 +500,8 @@ export function AppearanceSettings() {
 
   return (
     <>
+      {/* 全站常駐游標：關閉設定視窗後仍生效。 */}
+      <CursorRuntime />
       <input
         ref={inputRef}
         type="file"
@@ -512,7 +517,7 @@ export function AppearanceSettings() {
         disabled={!ready || busy}
         onClick={() => setOpen(true)}
         aria-label="開啟外觀設定"
-        title="外觀設定：左右中間背景圖片"
+        title="外觀設定：背景圖片與滑鼠游標"
       >
         <span aria-hidden="true">⚙</span>
         <span>外觀設定</span>
@@ -539,7 +544,7 @@ export function AppearanceSettings() {
                   外觀設定
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  三個背景可獨立更換，設定僅保存在目前瀏覽器
+                  三區背景、滑鼠游標皆可自訂，設定僅保存在目前瀏覽器
                 </p>
               </div>
               <button
@@ -553,6 +558,26 @@ export function AppearanceSettings() {
               </button>
             </div>
 
+            <div className="flex border-b border-white/10 text-xs">
+              <button
+                type="button"
+                className={`flex-1 px-4 py-3 ${appearanceTab === "background" ? "border-b-2 border-cyan-500 text-cyan-100" : "text-slate-400 hover:text-white"}`}
+                aria-pressed={appearanceTab === "background"}
+                onClick={() => setAppearanceTab("background")}
+              >
+                背景圖片
+              </button>
+              <button
+                type="button"
+                className={`flex-1 px-4 py-3 ${appearanceTab === "cursor" ? "border-b-2 border-cyan-500 text-cyan-100" : "text-slate-400 hover:text-white"}`}
+                aria-pressed={appearanceTab === "cursor"}
+                onClick={() => setAppearanceTab("cursor")}
+              >
+                滑鼠游標
+              </button>
+            </div>
+
+            {appearanceTab === "background" ? (
             <div className="space-y-5 p-5">
               <div>
                 <h3 className="mb-2 text-xs text-slate-300">選擇要更換的背景區域</h3>
@@ -718,6 +743,9 @@ export function AppearanceSettings() {
                 GIF 動圖經裁切後會變成靜態圖片。知識庫 ZIP 備份目前不包含背景圖片。
               </p>
             </div>
+            ) : (
+              <CursorSettings />
+            )}
           </div>
         </div>,
         document.body
