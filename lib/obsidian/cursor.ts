@@ -4,7 +4,7 @@
  * 游標使用唯一主鍵 custom-cursor，每次上傳會取代上一個檔案。
  * 不接觸筆記 WebObsidianDB。
  */
-export type CursorMode = "system" | "sparkle" | "custom";
+export type CursorMode = "system" | "custom";
 
 export type CursorFileKind = "static" | "animated" | "ani";
 
@@ -51,16 +51,9 @@ export const DEFAULT_CURSOR_PREFERENCES: CursorPreferences = {
   preserveTextCursor: true,
 };
 
-const MODES: CursorMode[] = ["system", "sparkle", "custom"];
-
-export const CURSOR_PRESETS: Array<{
-  mode: CursorMode;
-  label: string;
-  description: string;
-  icon: string;
-}> = [
-  { mode: "sparkle", label: "星芒", description: "柔和亮色星形游標", icon: "✦" },
-];
+// 只允許系統游標、使用者自行上傳的游標。
+// 舊版 localStorage 若曾選用已移除的內建造型，readCursorPreferences 會自動回到 system。
+const MODES: CursorMode[] = ["system", "custom"];
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value)
@@ -332,15 +325,4 @@ export async function validateCursorFile(file: File): Promise<CursorFileKind> {
     throw new Error("JPG 檔案標頭無效");
   }
   return "static";
-}
-
-/** 唯一內建造型為星芒；系統預設與自訂檔案另行處理。 */
-export function makeBuiltInCursorCss(mode: CursorMode, size: number): string {
-  if (mode !== "sparkle") return "auto";
-  const sz = Math.round(Math.max(16, Math.min(96, size)));
-  const path = '<path d="M23 2 L28 17 L44 22 L28 27 L23 44 L18 27 L2 22 L18 17 Z" fill="#e9dfb8" stroke="#31564d" stroke-width="2.2"/><circle cx="23" cy="22" r="4" fill="#fff"/>';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${sz}" height="${sz}" viewBox="0 0 48 48">${path}</svg>`;
-  const hotspotX = Math.round(sz * 23 / 48);
-  const hotspotY = Math.round(sz * 22 / 48);
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspotX} ${hotspotY}, auto`;
 }
