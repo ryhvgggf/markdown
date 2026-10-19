@@ -442,7 +442,7 @@ export function VaultTransferPanel({
         }
       />
 
-      <div className="flex items-center justify-between gap-1 border-t border-white/5 bg-black/20 p-2 text-[11px] text-slate-500">
+      <div className="relative z-10 mt-auto flex shrink-0 items-center justify-between gap-1 border-t border-white/5 bg-black/70 p-2 text-[11px] text-slate-500">
         <button
           type="button"
           disabled={busy}

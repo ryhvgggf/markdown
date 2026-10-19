@@ -2171,7 +2171,7 @@ export default function FileTree({
 
   return (
     <>
-      <aside className="flex h-full w-64 select-none flex-col border-r border-white/5 bg-transparent">
+      <aside className="flex min-h-0 min-w-0 w-64 flex-1 select-none flex-col overflow-hidden border-r border-white/5 bg-transparent">
         <div className="flex flex-col gap-2.5 border-b border-white/5 p-3">
           <div className="flex items-center justify-between px-1">
             <div
@@ -2344,7 +2344,7 @@ export default function FileTree({
         </div>
 
         <div
-          className="flex-1 overflow-y-auto p-2"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2"
           data-drop-root="true"
           onDragOver={(
             event
