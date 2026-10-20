@@ -80,3 +80,45 @@
 .obsidian-preview-container .obsidian-code-block .hljs-comment { color: #89949b; }
 .obsidian-preview-container .obsidian-code-block .hljs-title,
 .obsidian-preview-container .obsidian-code-block .hljs-function { color: #93cbde; }
+
+
+/* Word 式多層編號：子層 1)、2)、3) 要照原文顯示，避免被瀏覽器改成 1.、2.。 */
+.obsidian-preview-container ol.obsidian-list--decimal-paren {
+  list-style: none;
+  padding-inline-start: 2.6em;
+}
+.obsidian-preview-container ol.obsidian-list--decimal-paren > li {
+  position: relative;
+  list-style: none;
+}
+.obsidian-preview-container ol.obsidian-list--decimal-paren > li::before {
+  content: attr(data-list-marker);
+  position: absolute;
+  right: calc(100% + 0.4em);
+  min-width: 2.2em;
+  text-align: right;
+  white-space: nowrap;
+  color: inherit;
+}
+/* 待辦清單原有的方框保留，不多加自訂編號。 */
+.obsidian-preview-container ol.obsidian-list--decimal-paren > li.task-list-item::before {
+  content: none;
+}
+
+/* 外部連結獨立於青綠色 Wikilink：使用暖金色，不覆蓋背景亮度或透明度設定。 */
+.obsidian-preview-container a.obsidian-external-link,
+.obsidian-preview-container a.obsidian-external-link:visited {
+  color: #e0b981 !important;
+  text-decoration: none !important;
+  border-bottom: 1px solid rgba(224, 185, 129, 0.58);
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.obsidian-preview-container a.obsidian-external-link:hover,
+.obsidian-preview-container a.obsidian-external-link:focus-visible {
+  color: #f5d4a2 !important;
+  border-bottom-color: #f5d4a2;
+}
+.obsidian-preview-container a.obsidian-external-link:focus-visible {
+  outline: 1px solid #e0b981;
+  outline-offset: 3px;
+}
