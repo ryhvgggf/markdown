@@ -98,8 +98,11 @@ export function MarkdownEditor(props: Props) {
   }
 
   useEffect(() => {
-    const wrapper = wrapperRef.current;
-    if (!wrapper) return;
+    const currentWrapper = wrapperRef.current;
+    if (!currentWrapper) return;
+    // 明確建立非 null 的固定參照，供非同步佇列與內部函式使用。
+    // 避免 TypeScript 在巢狀函式中將 wrapper 視為 HTMLDivElement | null。
+    const wrapper: HTMLDivElement = currentWrapper;
     let cancelled = false;
 
     // 從舊版熱更新殘留的 Mermaid 錯誤圖形只清除我們自己的臨時 ID。
