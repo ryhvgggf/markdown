@@ -58,7 +58,7 @@ type RenderEnvironment = {
   existingTitles: string[];
   currentNoteTitle: string;
   originalLines: string[];
-  customMarkers: Map<number, { marker: string; style: string }>;
+  listMarkers: Map<number, { marker: string; style: string }>;
 };
 
 type CalloutSpec = {
@@ -88,27 +88,38 @@ function readCallout(firstLine: string): { spec: CalloutSpec; rest: string } | n
   };
 }
 
-/** 兼容原本的中文／英文字母／羅馬數字清單，不改寫使用者儲存的 Markdown。 */
-function normalizeCustomLists(markdown: string): {
+/**
+ * 清單唯一入口：將所有清單的「原始標記」登錄到同一個 Map，
+ * 再交由 markdown-it 統一解析巢狀層級。資料庫裡的 Markdown 原文不變。
+ *
+ * 標準：1. / 1) / - / + / *
+ * Word 延伸：a) / A) / a. / i. / I. / 一、 / （一） / 甲、 / 子、
+ * 任一層皆使用 data-list-marker + 單一 CSS，而非分別使用瀏覽器編號和自訂偽元素。
+ */
+function normalizeListMarkers(markdown: string): {
   source: string;
-  customMarkers: RenderEnvironment["customMarkers"];
+  listMarkers: RenderEnvironment["listMarkers"];
 } {
-  const customMarkers = new Map<number, { marker: string; style: string }>();
-  const patterns: Array<[RegExp, string]> = [
-    // Word 式數字括號：保留原始 1)、2)、10) 等標記，不再交給瀏覽器顯示預設序號。
+  const listMarkers = new Map<number, { marker: string; style: string }>();
+  // 優先辨識羅馬數字，再判斷一般英文字母，避免 i. / I. 被當作 a. / A.。
+  const orderedPatterns: Array<[RegExp, string]> = [
+    [/^([ \t]*)(\d+\.)([ \t]+)(.*)$/, "decimal-dot"],
     [/^([ \t]*)(\d+\))([ \t]+)(.*)$/, "decimal-paren"],
-    [/^([ \t]*)([a-zA-Z]+\))([ \t]+)(.*)$/, "alpha"],
     [/^([ \t]*)([ivxlcdmIVXLCDM]+\.)([ \t]+)(.*)$/, "roman"],
+    [/^([ \t]*)([a-zA-Z]+\))([ \t]+)(.*)$/, "alpha-paren"],
+    [/^([ \t]*)([a-zA-Z]+\.)([ \t]+)(.*)$/, "alpha-dot"],
     [/^([ \t]*)([（(][一二三四五六七八九十百千零〇兩两]+[）)])([ \t]*)(.*)$/, "cn-parentheses"],
     [/^([ \t]*)([一二三四五六七八九十百千零〇兩两]+[、.])([ \t]*)(.*)$/, "cn-ideographic"],
     [/^([ \t]*)([甲乙丙丁戊己庚辛壬癸][、.])([ \t]*)(.*)$/, "cn-heavenly"],
     [/^([ \t]*)([子丑寅卯辰巳午未申酉戌亥][、.])([ \t]*)(.*)$/, "cn-earthly"],
   ];
+  const unorderedPattern = /^([ \t]*)([-+*])([ \t]+)(.*)$/;
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   let fenceChar = "";
   let fenceLength = 0;
+  // 用縮排堆疊辨識多層 Word 清單，不再一律忽略 4 個空白的子層項目。
+  const listIndentStack: number[] = [];
   const normalized = lines.map((line, number) => {
-    // 引用中的中文清單也要支援；保留 > 前綴與行數。
     const quotePrefix = /^( {0,3}(?:> ?)+)/.exec(line)?.[0] || "";
     const body = line.slice(quotePrefix.length);
     const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(body);
@@ -122,21 +133,42 @@ function normalizeCustomLists(markdown: string): {
       }
       return line;
     }
-    if (fenceChar || /^ {4,}\S/.test(body)) return line;
-    for (const [regex, kind] of patterns) {
-      const match = regex.exec(body);
-      if (!match) continue;
-      const marker = match[2];
-      let style = kind;
-      if (kind === "alpha") style = marker[0] === marker[0].toUpperCase() ? "upper-alpha-paren" : "lower-alpha-paren";
-      if (kind === "roman") style = marker[0] === marker[0].toUpperCase() ? "upper-roman" : "lower-roman";
-      customMarkers.set(number, { marker, style });
-      // 與標準 Markdown 共用清單解析，原文仍照原樣存入 IndexedDB。
-      return `${quotePrefix}${match[1]}1. ${match[4]}`;
+    if (fenceChar || !body.trim()) return line;
+
+    let match: RegExpExecArray | null = unorderedPattern.exec(body);
+    let style = "bullet";
+    if (!match) {
+      for (const [regex, kind] of orderedPatterns) {
+        match = regex.exec(body);
+        if (match) { style = kind; break; }
+      }
     }
-    return line;
+    if (!match) {
+      // 這行不是清單；縮排不大於當前層時，後續清單應重新判定。
+      const indent = (/^[ \t]*/.exec(body)?.[0] || "").replace(/\t/g, "    ").length;
+      if (indent === 0) listIndentStack.length = 0;
+      return line;
+    }
+
+    const indentText = match[1];
+    const indent = indentText.replace(/\t/g, "    ").length;
+    // 單獨的四空格縮排程式碼不能被轉成編號清單；
+    // 但若有上一層清單，四空格及更深的子清單必須正常解析。
+    if (indent >= 4 && !listIndentStack.some((level) => level < indent)) return line;
+    while (listIndentStack.length && listIndentStack[listIndentStack.length - 1] >= indent) {
+      listIndentStack.pop();
+    }
+    listIndentStack.push(indent);
+
+    const marker = style === "bullet" ? "•" : match[2];
+    listMarkers.set(number, { marker, style });
+    if (style === "bullet" || style === "decimal-dot") return line;
+
+    // 自訂 Word 編號只在「解析時」改成 markdown-it 認得的 1.；
+    // 預覽標記永遠從同一份 listMarkers 取回，不改動原始筆記內容。
+    return `${quotePrefix}${indentText}1. ${match[4]}`;
   });
-  return { source: normalized.join("\n"), customMarkers };
+  return { source: normalized.join("\n"), listMarkers };
 }
 
 const md = new MarkdownIt({ html: true, linkify: true, breaks: false, typographer: false });
@@ -357,7 +389,7 @@ md.core.ruler.after("inline", "obsidian_callouts", (state: any) => {
       existingTitles: state.env.existingTitles,
       currentNoteTitle: state.env.currentNoteTitle,
       originalLines: [],
-      customMarkers: new Map(),
+      listMarkers: new Map(),
     };
     const titleMarkup = md.renderInline(spec.title, titleEnv);
     const title = spec.collapsible
@@ -407,20 +439,19 @@ md.core.ruler.after("obsidian_callouts", "obsidian_tasks", (state: any) => {
   }
 });
 
-md.core.ruler.after("obsidian_tasks", "obsidian_custom_lists", (state: any) => {
+md.core.ruler.after("obsidian_tasks", "obsidian_list_markers", (state: any) => {
   const env = state.env as RenderEnvironment;
   const tokens: any[] = state.tokens;
-  for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i];
-    if (token.type === "ordered_list_open") {
-      const firstLine = token.map?.[0];
-      const custom = firstLine === undefined ? undefined : env.customMarkers.get(firstLine);
-      if (custom) token.attrJoin("class", `obsidian-list obsidian-list--custom obsidian-list--${custom.style}`);
+  // 無序 / 標準數字 / Word 自訂數字 / 中文 / 羅馬數字都套用同一 class。
+  // 也由同一個 data-list-marker 顯示；不保留另一套 ::marker 編號方式。
+  for (const token of tokens) {
+    if (token.type === "ordered_list_open" || token.type === "bullet_list_open") {
+      token.attrJoin("class", "obsidian-list");
     }
     if (token.type === "list_item_open") {
       const line = token.map?.[0];
-      const custom = line === undefined ? undefined : env.customMarkers.get(line);
-      if (custom) token.attrSet("data-list-marker", custom.marker);
+      const info = typeof line === "number" ? env.listMarkers.get(line) : undefined;
+      if (info) token.attrSet("data-list-marker", info.marker);
     }
   }
 });
@@ -435,12 +466,12 @@ export function renderMarkdownToHtml(
 ): string {
   if (!markdownText) return "";
   const original = markdownText.replace(/\r\n?/g, "\n");
-  const normalized = normalizeCustomLists(original);
+  const normalized = normalizeListMarkers(original);
   const env: RenderEnvironment = {
     existingTitles,
     currentNoteTitle,
     originalLines: original.split("\n"),
-    customMarkers: normalized.customMarkers,
+    listMarkers: normalized.listMarkers,
   };
   return md.render(normalized.source, env);
 }
