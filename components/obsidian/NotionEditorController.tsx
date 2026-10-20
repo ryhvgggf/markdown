@@ -4,7 +4,7 @@
  * 在既有 textarea MarkdownEditor 外增加 Notion 快捷輸入。
  * 不建立新編輯器、不變動資料庫；所有編輯交回同一個 onUpdateContent。
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode, type KeyboardEvent, type FormEvent, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type KeyboardEvent, type CompositionEvent, type FormEvent, type MouseEvent } from "react";
 import {
   type EditResult, type NumberStyle, lineStart, lineEnd, parseItem,
   replaceRange, renumberLists, indentSubtree, orderedMarker, numberStyleAt,
@@ -104,9 +104,26 @@ function makeBlock(command: string, selected: string, indent: string): { body: s
   return { body, cursor };
 }
 
+/**
+ * `/` 指令的單一觸發條件，供 keydown 與中文輸入法文字確認後共用。
+ * 必須在字詞邊界；網址協定、檔案路徑、程式碼範圍不能觸發。
+ */
+function canOpenSlashMenu(source: string, origin: number): boolean {
+  if (isInsideCode(source, origin)) return false;
+  const before = source.slice(lineStart(source, origin), origin);
+  const preceding = before.slice(-1);
+  if (preceding && !/[\s([{（，,:：]/u.test(preceding)) return false;
+  if (/(?:https?|ftp|file):$/i.test(before)) return false;
+  const currentWord = before.split(/\s/u).pop() || "";
+  if (/(?:https?:\/\/|ftp:\/\/|www\.|[A-Z]:\\|\.\/|\.\.\/)/i.test(currentWord)) return false;
+  return true;
+}
+
 export function NotionEditorController({ content, noteId, onUpdateContent, children }: Props) {
   const [slash, setSlash] = useState<Slash | null>(null);
   const [highlight, setHighlight] = useState(0);
+  // Windows 中文輸入法等 IME 會先組字，keydown 可能只有 Process / 229。
+  const composingRef = useRef(false);
   const undoRef = useRef<Snapshot[]>([]);
   const redoRef = useRef<Snapshot[]>([]);
   const lastEditRef = useRef({ at: 0, type: "" });
@@ -213,22 +230,70 @@ export function NotionEditorController({ content, noteId, onUpdateContent, child
     }
   }
 
-  function handleInputCapture(event: FormEvent<HTMLDivElement>) {
+  /**
+   * 文字已確實插入 textarea 才判斷 IME 輸入；不要在組字過程開選單。
+   * 不接受貼上，且只處理本次提交的單一斜線，避免誤判既存文字。
+   */
+  function openSlashAfterTextInput(el: HTMLTextAreaElement, inserted: string | null | undefined): void {
+    if (slash || el.selectionStart !== el.selectionEnd) return;
+    if (inserted !== "/" && inserted !== "／") return;
+    const caret = el.selectionStart;
+    const origin = caret - 1;
+    if (origin < 0 || el.value.charAt(origin) !== inserted) return;
+    if (!canOpenSlashMenu(el.value, origin)) return;
+    setSlash({ origin, query: "" });
+    setHighlight(0);
+  }
+
+  /** 同一個搜尋同步函式供一般輸入與 IME compositionend 共用。 */
+  function syncActiveSlashQuery(el: HTMLTextAreaElement): void {
     if (!slash || slash.selected) return;
-    if (!(event.target instanceof HTMLTextAreaElement)) return;
-    const el = event.target;
     const end = el.selectionStart;
     if (end < slash.origin + 1) { setSlash(null); return; }
     const typed = el.value.slice(slash.origin, end);
-    if (!/^\/[\w-]*$/i.test(typed)) { setSlash(null); return; }
+    // 支援中文關鍵字，例如 /待辦、/表格，不再限定 ASCII 的 \w。
+    if (!/^[\/／][^\s\/／\\]*$/u.test(typed)) { setSlash(null); return; }
     setSlash({ ...slash, query: typed.slice(1) });
     setHighlight(0);
+  }
+
+  function handleCompositionStartCapture(event: CompositionEvent<HTMLDivElement>) {
+    if (event.target instanceof HTMLTextAreaElement) composingRef.current = true;
+  }
+
+  function handleCompositionEndCapture(event: CompositionEvent<HTMLDivElement>) {
+    if (!(event.target instanceof HTMLTextAreaElement)) return;
+    composingRef.current = false;
+    // 某些 IME 沒有後續 input 事件，必須直接依確認後文字更新搜尋。
+    if (slash) syncActiveSlashQuery(event.target);
+    else openSlashAfterTextInput(event.target, event.data);
+  }
+
+  function handleInputCapture(event: FormEvent<HTMLDivElement>) {
+    if (!(event.target instanceof HTMLTextAreaElement)) return;
+    const el = event.target;
+    const input = event.nativeEvent as InputEvent;
+    if (composingRef.current || input.isComposing) return;
+
+    if (!slash) {
+      // 英文 keydown 未攔截到的實體鍵、中文 IME 確認輸入與行動裝置文字輸入。
+      // 不允許 insertFromPaste，以維持「貼上原文不觸發快捷輸入」。
+      if (input.inputType === "insertText" ||
+          input.inputType === "insertFromComposition" ||
+          input.inputType === "insertCompositionText") {
+        openSlashAfterTextInput(el, input.data);
+      }
+      return;
+    }
+    syncActiveSlashQuery(el);
   }
 
   function handleKeyCapture(event: KeyboardEvent<HTMLDivElement>) {
     if (!(event.target instanceof HTMLTextAreaElement)) return;
     const el = event.target;
-    if (event.nativeEvent.isComposing || event.key === "Process") return;
+    // Enter 可能只是中文 IME 的選字確認，絕不能當成選單插入指令。
+    if (composingRef.current || event.nativeEvent.isComposing ||
+        event.key === "Process" || (event.nativeEvent as globalThis.KeyboardEvent).keyCode === 229) return;
     const src = content;
     const caret = el.selectionStart;
     const end = el.selectionEnd;
@@ -269,12 +334,9 @@ export function NotionEditorController({ content, noteId, onUpdateContent, child
         }
       }
     }
-    if (event.key === "/" && !event.altKey && !mod && !isInsideCode(src, caret) && !slash) {
-      const before = src.slice(lineStart(src, caret),caret);
-      const preceding = before.slice(-1);
-      const inUrl = /(?:https?:\/\/|www\.|[A-Z]:\\|\.\/|\.\.\/|\/[\w.-]+)$/i.test(before);
-      // 一般段落可用，但必須位於明確字詞邊界；避免檔案路徑與 URL 中的 / 誤觸。
-      if (!inUrl && (!preceding || /[\s([{（，,:：]/u.test(preceding))) {
+    if (event.key === "/" && !event.altKey && !mod && !slash) {
+      // 與 IME 提交文字共用相同邊界與程式碼判斷；防止 https: 後誤觸。
+      if (canOpenSlashMenu(src, caret)) {
         event.preventDefault(); event.stopPropagation();
         if (end !== caret) {
           setSlash({origin:caret,query:"",selected:{start:caret,end}});
@@ -457,7 +519,7 @@ export function NotionEditorController({ content, noteId, onUpdateContent, child
   }
 
   return (
-    <div ref={wrapperRef} className="notion-edit-controller relative h-full min-h-0" onKeyDownCapture={handleKeyCapture} onBeforeInputCapture={handleBeforeInputCapture} onInputCapture={handleInputCapture} onClickCapture={handleToolbarCapture}>
+    <div ref={wrapperRef} className="notion-edit-controller relative h-full min-h-0" onKeyDownCapture={handleKeyCapture} onBeforeInputCapture={handleBeforeInputCapture} onInputCapture={handleInputCapture} onCompositionStartCapture={handleCompositionStartCapture} onCompositionEndCapture={handleCompositionEndCapture} onClickCapture={handleToolbarCapture}>
       {children}
       {slash && (
         <div className="notion-slash-menu" role="listbox" aria-label="Markdown 快速指令">
