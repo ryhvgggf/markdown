@@ -4,16 +4,12 @@ import { AppearanceSettings } from "@/components/obsidian/AppearanceSettings";
 import "./globals.css";
 import "./mobile.css";
 import "./appearance.css";
+import "highlight.js/styles/github-dark.css";
+import "katex/dist/katex.min.css";
+import "./advanced-markdown.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Markdown 知識庫",
@@ -27,16 +23,9 @@ export const viewport: Viewport = {
   themeColor: "#08090a",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="zh-TW"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
-    >
+    <html lang="zh-TW" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}>
       <body className="ink-root min-h-full flex flex-col">
         {children}
         <AppearanceSettings />

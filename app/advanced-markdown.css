@@ -1,0 +1,52 @@
+/* 統一補充 Obsidian + GFM 預覽功能，不改動既有水墨主題。 */
+.advanced-markdown-wrapper { min-height: 0; }
+.obsidian-preview-container .obsidian-code-block { margin: .75rem 0; border-radius: .45rem; overflow: auto; }
+.obsidian-preview-container .obsidian-code-block code.hljs { display: block; padding: 1rem; line-height: 1.65; font-size: .84rem; background: #111823; }
+.obsidian-preview-container .obsidian-task-checkbox { width: 1rem; height: 1rem; margin: 0 .48rem 0 0; vertical-align: middle; cursor: pointer; accent-color: #52becb; }
+.obsidian-preview-container li.task-list-item { list-style: none; }
+.obsidian-preview-container li.task-list-item.is-checked > p { opacity: .75; }
+.obsidian-preview-container li.task-list-item.is-checked > p > .obsidian-task-checkbox + * { text-decoration: line-through; }
+.obsidian-preview-container .obsidian-math-block { max-width: 100%; overflow: auto hidden; margin: 1rem 0; padding: .45rem; text-align: center; }
+.obsidian-preview-container .katex { font-size: 1.05em; }
+.obsidian-preview-container .obsidian-mermaid { display: block; width: 100%; max-width: 100%; overflow: auto; margin: 1.25rem 0; padding: 1rem; border: 1px solid rgb(255 255 255 / .08); border-radius: .65rem; background: rgb(10 18 25 / .36); }
+.obsidian-preview-container .obsidian-mermaid svg { display: block; max-width: 100%; height: auto; margin-inline: auto; }
+.obsidian-preview-container .obsidian-mermaid-error { margin-bottom: .75rem; color: #fda4af; font-size: .8rem; }
+.obsidian-preview-container .obsidian-callout { --callout-color: #67b5ff; background: color-mix(in srgb, var(--callout-color) 9%, transparent); border: 1px solid color-mix(in srgb, var(--callout-color) 26%, transparent); border-left: 4px solid var(--callout-color); border-radius: .4rem; padding: .8rem 1rem; margin: 1rem 0; }
+.obsidian-preview-container .obsidian-callout-title { font-weight: 700; color: var(--callout-color); margin-bottom: .5rem; }
+.obsidian-preview-container details.obsidian-callout > summary.obsidian-callout-title { cursor: pointer; user-select: none; }
+.obsidian-preview-container .obsidian-callout > p:empty { display: none; }
+.obsidian-preview-container .obsidian-callout > :last-child { margin-bottom: 0; }
+.obsidian-preview-container .obsidian-callout--warning,
+.obsidian-preview-container .obsidian-callout--caution,
+.obsidian-preview-container .obsidian-callout--attention { --callout-color: #fbbf24; }
+.obsidian-preview-container .obsidian-callout--danger,
+.obsidian-preview-container .obsidian-callout--error,
+.obsidian-preview-container .obsidian-callout--bug,
+.obsidian-preview-container .obsidian-callout--failure,
+.obsidian-preview-container .obsidian-callout--fail { --callout-color: #fb7185; }
+.obsidian-preview-container .obsidian-callout--success,
+.obsidian-preview-container .obsidian-callout--check,
+.obsidian-preview-container .obsidian-callout--done,
+.obsidian-preview-container .obsidian-callout--tip,
+.obsidian-preview-container .obsidian-callout--hint { --callout-color: #4ade80; }
+.obsidian-preview-container .obsidian-callout--important,
+.obsidian-preview-container .obsidian-callout--question,
+.obsidian-preview-container .obsidian-callout--help { --callout-color: #c4b5fd; }
+.obsidian-preview-container .obsidian-callout--quote,
+.obsidian-preview-container .obsidian-callout--cite,
+.obsidian-preview-container .obsidian-callout--abstract { --callout-color: #a5b4c6; }
+/* 使用原本自訂清單 data-list-marker，不把中文清單強制轉成圓點。 */
+.obsidian-preview-container ol.obsidian-list--custom { list-style: none; padding-inline-start: 1.7rem; }
+.obsidian-preview-container ol.obsidian-list--custom > li { position: relative; }
+.obsidian-preview-container ol.obsidian-list--custom > li::before { content: attr(data-list-marker); position: absolute; right: calc(100% + .45rem); white-space: nowrap; color: inherit; }
+/* markdown-it-footnote 類名與原先的註腳樣式一致化。 */
+.obsidian-preview-container .footnotes { margin-top: 1.75rem; padding-top: .6rem; border-top: 1px solid rgb(255 255 255 / .1); font-size: .9em; color: #b6c4d5; }
+.obsidian-preview-container .footnotes .footnotes-sep { display: none; }
+.obsidian-preview-container .footnote-ref { margin-inline: .05rem; }
+.obsidian-preview-container .footnote-backref { margin-left: .35rem; }
+.obsidian-preview-container .obsidian-callout--warning .obsidian-callout-title::before,
+.obsidian-preview-container .obsidian-callout--caution .obsidian-callout-title::before { content: "⚠ "; }
+.obsidian-preview-container .obsidian-callout--tip .obsidian-callout-title::before { content: "✦ "; }
+.obsidian-preview-container .obsidian-callout--success .obsidian-callout-title::before { content: "✓ "; }
+.obsidian-preview-container .obsidian-callout--danger .obsidian-callout-title::before,
+.obsidian-preview-container .obsidian-callout--error .obsidian-callout-title::before { content: "✕ "; }
