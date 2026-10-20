@@ -59,6 +59,7 @@ type RenderEnvironment = {
   currentNoteTitle: string;
   originalLines: string[];
   listMarkers: Map<number, { marker: string; style: string }>;
+  lineOffset?: number;
 };
 
 type CalloutSpec = {
@@ -90,8 +91,8 @@ function readCallout(firstLine: string): { spec: CalloutSpec; rest: string } | n
 
 /**
  * 客製引用規則（僅影響預覽）：
- * `> 文字` 視為引用，`>文字` 保持一般文字。
- * 這是使用者指定的 CommonMark 例外，不改變原始 Markdown。
+ * `> 文字` 留給下方 Notion Toggle，`>文字` 保持一般文字。
+ * 這是使用者指定的 Notion 快捷輸入例外，不改變原始 Markdown。
  *
  * 不處理 fenced code 內的文字，並保留原始行數，避免影響
  * 待辦清單勾選時的 data-task-line 對應。
@@ -136,84 +137,54 @@ function requireSpaceAfterBlockquoteMarker(markdown: string): string {
 }
 
 /**
- * 清單唯一入口：將所有清單的「原始標記」登錄到同一個 Map，
- * 再交由 markdown-it 統一解析巢狀層級。資料庫裡的 Markdown 原文不變。
- *
- * 標準：1. / 1) / - / + / *
- * Word 延伸：a) / A) / a. / i. / I. / 一、 / （一） / 甲、 / 子、
- * 任一層皆使用 data-list-marker + 單一 CSS，而非分別使用瀏覽器編號和自訂偽元素。
+ * 統一清單前處理：不改 IndexedDB 內容，只將 Notion 的英文字母／羅馬數字
+ * 標記轉為 markdown-it 可理解的有序清單，並記住其顯示類型。
+ * 不再辨識舊 Word 中文、天干、地支與 1) 等自訂編號。
  */
 function normalizeListMarkers(markdown: string): {
   source: string;
   listMarkers: RenderEnvironment["listMarkers"];
 } {
   const listMarkers = new Map<number, { marker: string; style: string }>();
-  // 優先辨識羅馬數字，再判斷一般英文字母，避免 i. / I. 被當作 a. / A.。
-  const orderedPatterns: Array<[RegExp, string]> = [
-    [/^([ \t]*)(\d+\.)([ \t]+)(.*)$/, "decimal-dot"],
-    [/^([ \t]*)(\d+\))([ \t]+)(.*)$/, "decimal-paren"],
-    [/^([ \t]*)([ivxlcdmIVXLCDM]+\.)([ \t]+)(.*)$/, "roman"],
-    [/^([ \t]*)([a-zA-Z]+\))([ \t]+)(.*)$/, "alpha-paren"],
-    [/^([ \t]*)([a-zA-Z]+\.)([ \t]+)(.*)$/, "alpha-dot"],
-    [/^([ \t]*)([（(][一二三四五六七八九十百千零〇兩两]+[）)])([ \t]*)(.*)$/, "cn-parentheses"],
-    [/^([ \t]*)([一二三四五六七八九十百千零〇兩两]+[、.])([ \t]*)(.*)$/, "cn-ideographic"],
-    [/^([ \t]*)([甲乙丙丁戊己庚辛壬癸][、.])([ \t]*)(.*)$/, "cn-heavenly"],
-    [/^([ \t]*)([子丑寅卯辰巳午未申酉戌亥][、.])([ \t]*)(.*)$/, "cn-earthly"],
-  ];
-  const unorderedPattern = /^([ \t]*)([-+*])([ \t]+)(.*)$/;
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  let fenceChar = "";
-  let fenceLength = 0;
-  // 用縮排堆疊辨識多層 Word 清單，不再一律忽略 4 個空白的子層項目。
-  const listIndentStack: number[] = [];
-  const normalized = lines.map((line, number) => {
-    const quotePrefix = /^( {0,3}(?:> ?)+)/.exec(line)?.[0] || "";
-    const body = line.slice(quotePrefix.length);
-    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(body);
-    if (fence) {
-      if (!fenceChar) {
-        fenceChar = fence[1][0];
-        fenceLength = fence[1].length;
-      } else if (fence[1][0] === fenceChar && fence[1].length >= fenceLength && !fence[2].trim()) {
-        fenceChar = "";
-        fenceLength = 0;
+  let fence: { char: string; size: number } | null = null;
+  let previous: { indent: number; style: string; marker: string } | null = null;
+  const normalized = lines.map((line, index) => {
+    const matchFence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (matchFence) {
+      if (!fence) fence = { char: matchFence[1][0], size: matchFence[1].length };
+      else if (fence.char === matchFence[1][0] && matchFence[1].length >= fence.size && /^\s*$/.test(line.slice(matchFence[0].length))) fence = null;
+      return line;
+    }
+    if (fence || /^ {4,}\S/.test(line) && !previous) return line;
+    const m = /^([ \t]*)([-+*]|\d+\.|[A-Za-z]+\.)([ \t]+)(.*)$/.exec(line);
+    if (!m) {
+      if (line.trim() && !/^\s/.test(line)) previous = null;
+      if (previous && /^ {2,}/.test(line)) {
+        const spaces = /^ */.exec(line)?.[0].length || 0;
+        return "    ".repeat(Math.floor(spaces / 2)) + line.slice(spaces);
       }
       return line;
     }
-    if (fenceChar || !body.trim()) return line;
-
-    let match: RegExpExecArray | null = unorderedPattern.exec(body);
+    const indent = m[1].replace(/\t/g, "  ").length;
+    const marker = m[2];
     let style = "bullet";
-    if (!match) {
-      for (const [regex, kind] of orderedPatterns) {
-        match = regex.exec(body);
-        if (match) { style = kind; break; }
-      }
+    if (/^\d/.test(marker)) style = "decimal";
+    else if (/^[A-Za-z]+\.$/.test(marker)) {
+      const letters = marker.slice(0, -1);
+      const roman = /^[ivxlcdm]+$/i.test(letters);
+      const continuesAlpha = previous && previous.indent === indent && previous.style === "alpha" && letters.length === 1;
+      style = (roman && !continuesAlpha) ? "roman" : "alpha";
+      if (previous && previous.indent === indent && previous.style === "roman" && roman) style = "roman";
     }
-    if (!match) {
-      // 這行不是清單；縮排不大於當前層時，後續清單應重新判定。
-      const indent = (/^[ \t]*/.exec(body)?.[0] || "").replace(/\t/g, "    ").length;
-      if (indent === 0) listIndentStack.length = 0;
-      return line;
-    }
-
-    const indentText = match[1];
-    const indent = indentText.replace(/\t/g, "    ").length;
-    // 單獨的四空格縮排程式碼不能被轉成編號清單；
-    // 但若有上一層清單，四空格及更深的子清單必須正常解析。
-    if (indent >= 4 && !listIndentStack.some((level) => level < indent)) return line;
-    while (listIndentStack.length && listIndentStack[listIndentStack.length - 1] >= indent) {
-      listIndentStack.pop();
-    }
-    listIndentStack.push(indent);
-
-    const marker = style === "bullet" ? "•" : match[2];
-    listMarkers.set(number, { marker, style });
-    if (style === "bullet" || style === "decimal-dot") return line;
-
-    // 自訂 Word 編號只在「解析時」改成 markdown-it 認得的 1.；
-    // 預覽標記永遠從同一份 listMarkers 取回，不改動原始筆記內容。
-    return `${quotePrefix}${indentText}1. ${match[4]}`;
+    listMarkers.set(index, { marker, style });
+    const hadParent = previous !== null;
+    previous = { indent, style, marker };
+    // 編輯器使用兩格表示下一層；markdown-it 的巢狀有序清單需足夠縮排。
+    // 僅在預覽時放大縮排，不改使用者的原始兩格設定。
+    const renderIndent = indent >= 2 && hadParent ? "    ".repeat(Math.floor(indent / 2)) : m[1];
+    if (style === "alpha" || style === "roman") return `${renderIndent}1. ${m[4]}`;
+    return `${renderIndent}${marker}${m[3]}${m[4]}`;
   });
   return { source: normalized.join("\n"), listMarkers };
 }
@@ -224,6 +195,118 @@ md.linkify.set({ fuzzyLink: true });
 // markdown-it v15 暴露 Token constructor；用作 core 規則插入標題/勾選元件。
 const TokenConstructor = (MarkdownIt as unknown as { Token: new (type: string, tag: string, nesting: number) => any }).Token;
 md.use(markdownItFootnote);
+
+/** 把自訂區塊中的 Markdown 交回同一個 markdown-it，不建立第二套渲染器。 */
+function renderNestedMarkdown(content: string, env: RenderEnvironment, offset: number): string {
+  const normalized = normalizeListMarkers(content);
+  return md.render(normalized.source, {
+    ...env,
+    listMarkers: normalized.listMarkers,
+    lineOffset: (env.lineOffset || 0) + offset,
+  });
+}
+
+/** :::quote ... ::: — Notion 快捷鍵由編輯器自動建立，保留多段落及子清單。 */
+md.block.ruler.before("blockquote", "notion_quote", (state: any, startLine: number, endLine: number, silent: boolean) => {
+  const line = state.src.slice(state.bMarks[startLine] + state.tShift[startLine], state.eMarks[startLine]);
+  if (line.trim() !== ":::quote") return false;
+  let closing = -1;
+  let nested = 0;
+  let fenceChar = "";
+  for (let j = startLine + 1; j < endLine; j++) {
+    const candidate = state.src.slice(state.bMarks[j] + state.tShift[j], state.eMarks[j]);
+    const fence = /^(`{3,}|~{3,})/.exec(candidate.trimStart());
+    if (fence) {
+      if (!fenceChar) fenceChar = fence[1][0];
+      else if (fenceChar === fence[1][0]) fenceChar = "";
+    }
+    if (fenceChar) continue;
+    if (candidate.trim() === ":::quote") nested++;
+    if (candidate.trim() === ":::") {
+      if (nested) nested--;
+      else { closing = j; break; }
+    }
+  }
+  if (closing < 0) return false; // 不完整語法原樣顯示，不吞掉後續內容
+  if (silent) return true;
+  const body: string[] = [];
+  for (let j = startLine + 1; j < closing; j++) {
+    const raw = state.src.slice(state.bMarks[j], state.eMarks[j]);
+    const openIndent = state.sCount[startLine] || 0;
+    body.push(raw.slice(Math.min(openIndent, (/^ */.exec(raw)?.[0].length || 0))));
+  }
+  const token = state.push("notion_quote", "blockquote", 0);
+  token.content = renderNestedMarkdown(body.join("\n"), state.env as RenderEnvironment, startLine + 1);
+  token.map = [startLine, closing + 1];
+  state.line = closing + 1;
+  return true;
+}, { alt: ["paragraph", "reference", "blockquote", "list"] });
+md.renderer.rules.notion_quote = (tokens: any[], i: number) =>
+  `<blockquote class="notion-quote">${tokens[i].content}</blockquote>`;
+
+/**
+ * > 標題 + 兩格以上的內文為 Toggle。
+ * > [!note] 等原版 Callout 必須讓給 markdown-it/Obsidian 原規則。
+ * 沒有空格的 >123 不會被本規則接管。
+ */
+md.block.ruler.before("blockquote", "notion_toggle", (state: any, startLine: number, endLine: number, silent: boolean) => {
+  const indent = state.sCount[startLine];
+  const head = state.src.slice(state.bMarks[startLine] + state.tShift[startLine], state.eMarks[startLine]);
+  const match = /^>[ \t]+(.+)$/.exec(head);
+  if (!match || /^\[![A-Za-z]+\]/.test(match[1])) return false;
+  if (silent) return true;
+  let end = startLine + 1;
+  const collected: string[] = [];
+  while (end < endLine) {
+    const raw = state.src.slice(state.bMarks[end], state.eMarks[end]);
+    if (!raw.trim()) {
+      // 空行屬於 Toggle 的條件是後面還有縮排內文。
+      let look = end + 1;
+      while (look < endLine && !state.src.slice(state.bMarks[look], state.eMarks[look]).trim()) look++;
+      if (look < endLine && state.sCount[look] >= indent + 2) {
+        collected.push(""); end++; continue;
+      }
+      break;
+    }
+    if (state.sCount[end] < indent + 2) break;
+    // 移除相對於當前 Toggle 的兩格縮排，不破壞巢狀內文。
+    collected.push(raw.replace(/^ {0,2}/, ""));
+    end++;
+  }
+  const token = state.push("notion_toggle", "details", 0);
+  token.meta = {
+    title: md.renderInline(match[1].trim(), state.env),
+    body: collected.length ? renderNestedMarkdown(collected.join("\n"), state.env as RenderEnvironment, startLine + 1) : "",
+  };
+  token.map = [startLine, end];
+  state.line = end;
+  return true;
+}, { alt: ["paragraph", "reference", "blockquote", "list"] });
+md.renderer.rules.notion_toggle = (tokens: any[], i: number) => {
+  const { title, body } = tokens[i].meta;
+  return `<details class="notion-toggle"><summary class="notion-toggle-title">${title}</summary><div class="notion-toggle-body">${body}</div></details>`;
+};
+
+/** 唯一刪除線：~文字~；~~文字~~ 原樣顯示，不能誤解析其中一半。 */
+md.disable("strikethrough");
+md.inline.ruler.before("emphasis", "notion_strikethrough", (state: any, silent: boolean) => {
+  const pos = state.pos;
+  const src = state.src as string;
+  if (src[pos] !== "~" || src[pos + 1] === "~" || src[pos - 1] === "~") return false;
+  const end = src.indexOf("~", pos + 1);
+  if (end <= pos + 1 || src[end - 1] === "~" || src[end + 1] === "~") return false;
+  const content = src.slice(pos + 1, end);
+  if (/^\s|\s$|\n/.test(content)) return false;
+  if (!silent) {
+    const token = state.push("notion_strikethrough", "del", 0);
+    token.content = content;
+  }
+  state.pos = end + 1;
+  return true;
+});
+md.renderer.rules.notion_strikethrough = (tokens: any[], i: number, _opts: any, env: any) =>
+  `<del>${md.renderInline(tokens[i].content, env)}</del>`;
+
 
 // 數學區塊 $$...$$；放在 fenced code 前面檢查，但不改變 ``` 行為。
 md.block.ruler.before("fence", "obsidian_math_block", (state: any, startLine: number, endLine: number, silent: boolean) => {
@@ -288,7 +371,7 @@ md.renderer.rules.obsidian_math_inline = (tokens: any[], idx: number) => renderM
 md.renderer.rules.obsidian_math_block = (tokens: any[], idx: number) =>
   `<div class="obsidian-math-block">${renderMath(tokens[idx].content, true)}</div>`;
 
-// 依使用者的 Obsidian 相容性設定：不解析 ~單波浪線~；~~雙波浪線~~ 仍由 markdown-it 處理刪除線。
+// Notion 刪除線已在此檔案上方實作：~單波浪線~；~~雙波浪線~~ 原樣顯示。
 
 // 螢光標記 ==...==，保留你的原有 Obsidian 寫法。
 md.inline.ruler.before("emphasis", "obsidian_highlight", (state: any, silent: boolean) => {
@@ -307,7 +390,7 @@ md.inline.ruler.before("emphasis", "obsidian_highlight", (state: any, silent: bo
 md.renderer.rules.obsidian_highlight = (tokens: any[], i: number) =>
   `<mark>${md.renderInline(tokens[i].content)}</mark>`;
 
-// 單波浪線不解析；原版 ^上標^ 保留；下標仍可使用 <sub>文字</sub>。
+// 原版 ^上標^ 保留；下標仍可使用 <sub>文字</sub>。
 md.inline.ruler.before("emphasis", "obsidian_superscript", (state: any, silent: boolean) => {
   if (state.src[state.pos] !== "^") return false;
   const end = state.src.indexOf("^", state.pos + 1);
@@ -474,9 +557,10 @@ md.core.ruler.after("obsidian_callouts", "obsidian_tasks", (state: any) => {
     if (!task) continue;
     const line = tokens[i].map?.[0];
     if (typeof line !== "number") continue;
+    const sourceLine = line + ((state.env as RenderEnvironment).lineOffset || 0);
     const checked = task[1].toLowerCase() === "x";
     tokens[i].attrJoin("class", `task-list-item${checked ? " is-checked" : ""}`);
-    const checkbox = `<input type="checkbox" class="obsidian-task-checkbox" data-task-line="${line}" aria-label="切換待辦事項"${checked ? " checked" : ""} /> `;
+    const checkbox = `<input type="checkbox" class="obsidian-task-checkbox" data-task-line="${sourceLine}" aria-label="切換待辦事項"${checked ? " checked" : ""} /> `;
     const text = inline.content.slice(task[0].length);
     const newChildren = md.parseInline(text, state.env)[0]?.children || [];
     const prefix = new TokenConstructor("html_inline", "", 0);
@@ -489,11 +573,15 @@ md.core.ruler.after("obsidian_callouts", "obsidian_tasks", (state: any) => {
 md.core.ruler.after("obsidian_tasks", "obsidian_list_markers", (state: any) => {
   const env = state.env as RenderEnvironment;
   const tokens: any[] = state.tokens;
-  // 無序 / 標準數字 / Word 自訂數字 / 中文 / 羅馬數字都套用同一 class。
-  // 也由同一個 data-list-marker 顯示；不保留另一套 ::marker 編號方式。
   for (const token of tokens) {
     if (token.type === "ordered_list_open" || token.type === "bullet_list_open") {
       token.attrJoin("class", "obsidian-list");
+      if (token.type === "ordered_list_open") {
+        const line = token.map?.[0];
+        const info = typeof line === "number" ? env.listMarkers.get(line) : undefined;
+        const style = info?.style === "alpha" ? "lower-alpha" : info?.style === "roman" ? "lower-roman" : "decimal";
+        token.attrSet("data-number-style", style);
+      }
     }
     if (token.type === "list_item_open") {
       const line = token.map?.[0];
