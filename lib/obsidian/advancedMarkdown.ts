@@ -89,6 +89,53 @@ function readCallout(firstLine: string): { spec: CalloutSpec; rest: string } | n
 }
 
 /**
+ * 客製引用規則（僅影響預覽）：
+ * `> 文字` 視為引用，`>文字` 保持一般文字。
+ * 這是使用者指定的 CommonMark 例外，不改變原始 Markdown。
+ *
+ * 不處理 fenced code 內的文字，並保留原始行數，避免影響
+ * 待辦清單勾選時的 data-task-line 對應。
+ */
+function requireSpaceAfterBlockquoteMarker(markdown: string): string {
+  let fenceChar = "";
+  let fenceLength = 0;
+
+  return markdown.split("\n").map((line) => {
+    let pos = (/^ {0,3}/.exec(line)?.[0] || "").length;
+
+    // 逐層識別已合法的引用前綴，例如：> > 文字。
+    // 遇到沒有空格的 >文字，就保留這個 > 作為普通文字。
+    while (line[pos] === ">") {
+      const after = line[pos + 1];
+      if (after !== undefined && after !== " " && after !== "\t") break;
+      pos += 1;
+      while (line[pos] === " " || line[pos] === "\t") pos += 1;
+    }
+
+    const content = line.slice(pos);
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(content);
+    if (fence) {
+      if (!fenceChar) {
+        fenceChar = fence[1][0];
+        fenceLength = fence[1].length;
+      } else if (fence[1][0] === fenceChar &&
+                 fence[1].length >= fenceLength && !fence[2].trim()) {
+        fenceChar = "";
+        fenceLength = 0;
+      }
+    }
+
+    if (fenceChar || fence) return line;
+
+    if (line[pos] === ">" && line[pos + 1] !== undefined &&
+        line[pos + 1] !== " " && line[pos + 1] !== "\t") {
+      return `${line.slice(0, pos)}\\${line.slice(pos)}`;
+    }
+    return line;
+  }).join("\n");
+}
+
+/**
  * 清單唯一入口：將所有清單的「原始標記」登錄到同一個 Map，
  * 再交由 markdown-it 統一解析巢狀層級。資料庫裡的 Markdown 原文不變。
  *
@@ -466,7 +513,7 @@ export function renderMarkdownToHtml(
 ): string {
   if (!markdownText) return "";
   const original = markdownText.replace(/\r\n?/g, "\n");
-  const normalized = normalizeListMarkers(original);
+  const normalized = normalizeListMarkers(requireSpaceAfterBlockquoteMarker(original));
   const env: RenderEnvironment = {
     existingTitles,
     currentNoteTitle,
