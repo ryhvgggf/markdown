@@ -1,14 +1,14 @@
 /* 統一補充 Obsidian + GFM 預覽功能，不改動既有水墨主題。 */
 .advanced-markdown-wrapper { min-height: 0; }
 .obsidian-preview-container .obsidian-code-block { margin: .75rem 0; border-radius: .45rem; overflow: auto; }
-.obsidian-preview-container .obsidian-code-block code.hljs { display: block; padding: 1rem; line-height: 1.65; font-size: .84rem; background: #111823; }
+.obsidian-preview-container .obsidian-code-block code.hljs { display: block; padding: 1rem; line-height: 1.65; font-size: .84rem; background: transparent !important; }
 .obsidian-preview-container .obsidian-task-checkbox { width: 1rem; height: 1rem; margin: 0 .48rem 0 0; vertical-align: middle; cursor: pointer; accent-color: #52becb; }
 .obsidian-preview-container li.task-list-item { list-style: none; }
 .obsidian-preview-container li.task-list-item.is-checked > p { opacity: .75; }
 .obsidian-preview-container li.task-list-item.is-checked > p > .obsidian-task-checkbox + * { text-decoration: line-through; }
 .obsidian-preview-container .obsidian-math-block { max-width: 100%; overflow: auto hidden; margin: 1rem 0; padding: .45rem; text-align: center; }
 .obsidian-preview-container .katex { font-size: 1.05em; }
-.obsidian-preview-container .obsidian-mermaid { display: block; width: 100%; max-width: 100%; overflow: auto; margin: 1.25rem 0; padding: 1rem; border: 1px solid rgb(255 255 255 / .08); border-radius: .65rem; background: rgb(10 18 25 / .36); }
+.obsidian-preview-container .obsidian-mermaid { display: block; width: 100%; max-width: 100%; overflow: auto; margin: 1.25rem 0; padding: 1rem; border: 0; border-radius: 0; background: transparent !important; }
 .obsidian-preview-container .obsidian-mermaid svg { display: block; max-width: 100%; height: auto; margin-inline: auto; }
 .obsidian-preview-container .obsidian-mermaid-error { margin-bottom: .75rem; color: #fda4af; font-size: .8rem; }
 .obsidian-preview-container .obsidian-callout { --callout-color: #67b5ff; background: color-mix(in srgb, var(--callout-color) 9%, transparent); border: 1px solid color-mix(in srgb, var(--callout-color) 26%, transparent); border-left: 4px solid var(--callout-color); border-radius: .4rem; padding: .8rem 1rem; margin: 1rem 0; }
@@ -50,3 +50,32 @@
 .obsidian-preview-container .obsidian-callout--success .obsidian-callout-title::before { content: "✓ "; }
 .obsidian-preview-container .obsidian-callout--danger .obsidian-callout-title::before,
 .obsidian-preview-container .obsidian-callout--error .obsidian-callout-title::before { content: "✕ "; }
+
+/* Mermaid 字體可見性：只調整圖表內部，不改動筆記／水墨背景。 */
+.obsidian-preview-container .obsidian-mermaid svg .nodeLabel,
+.obsidian-preview-container .obsidian-mermaid svg .nodeLabel *,
+.obsidian-preview-container .obsidian-mermaid svg .label text,
+.obsidian-preview-container .obsidian-mermaid svg .label foreignObject,
+.obsidian-preview-container .obsidian-mermaid svg .edgeLabel {
+  color: #f2f2f0 !important;
+  fill: #f2f2f0 !important;
+  opacity: 1 !important;
+}
+.obsidian-preview-container .obsidian-mermaid svg foreignObject div,
+.obsidian-preview-container .obsidian-mermaid svg foreignObject span,
+.obsidian-preview-container .obsidian-mermaid svg foreignObject p {
+  color: #f2f2f0 !important;
+  opacity: 1 !important;
+}
+/* 防止高亮主題額外覆蓋使用者原本在 globals.css 裡設定的 code/pre 底色。 */
+.obsidian-preview-container .obsidian-code-block code.hljs { background-color: transparent !important; }
+.obsidian-preview-container .obsidian-code-block .hljs-keyword,
+.obsidian-preview-container .obsidian-code-block .hljs-selector-tag,
+.obsidian-preview-container .obsidian-code-block .hljs-literal { color: #d5bafa; }
+.obsidian-preview-container .obsidian-code-block .hljs-string,
+.obsidian-preview-container .obsidian-code-block .hljs-attr { color: #a4d7a8; }
+.obsidian-preview-container .obsidian-code-block .hljs-number,
+.obsidian-preview-container .obsidian-code-block .hljs-built_in { color: #d8b98c; }
+.obsidian-preview-container .obsidian-code-block .hljs-comment { color: #89949b; }
+.obsidian-preview-container .obsidian-code-block .hljs-title,
+.obsidian-preview-container .obsidian-code-block .hljs-function { color: #93cbde; }

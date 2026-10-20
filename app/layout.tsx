@@ -4,7 +4,6 @@ import { AppearanceSettings } from "@/components/obsidian/AppearanceSettings";
 import "./globals.css";
 import "./mobile.css";
 import "./appearance.css";
-import "highlight.js/styles/github-dark.css";
 import "katex/dist/katex.min.css";
 import "./advanced-markdown.css";
 
