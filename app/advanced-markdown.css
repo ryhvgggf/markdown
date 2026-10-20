@@ -95,35 +95,75 @@
   outline-offset: 3px;
 }
 
-/* ============================================================
-   唯一清單排版系統：所有 markdown-it 產生的清單皆共用此處。
-   1.、1)、a)、i.、一、及 • 只使用 data-list-marker，
-   不混用 native list-style、特殊 decimal-paren CSS 或舊自訂 CSS。
-   多層清單繼承同一套縮排與標記定位。
-   ============================================================ */
-.obsidian-preview-container :is(ol, ul).obsidian-list {
-  list-style: none;
-  padding-inline-start: 3rem;
-  margin-block: 0.4rem 1.1rem;
+/* Notion 清單共用 markdown-it 產生的單一 ol/ul DOM 系統。 */
+.obsidian-preview-container :is(ol,ul).obsidian-list {
+  margin-block: .45rem 1rem;
+  padding-inline-start: 2.2rem;
 }
-.obsidian-preview-container :is(ol, ul).obsidian-list > li {
+.obsidian-preview-container ol.obsidian-list[data-number-style="decimal"] { list-style-type: decimal; }
+.obsidian-preview-container ol.obsidian-list[data-number-style="lower-alpha"] { list-style-type: lower-alpha; }
+.obsidian-preview-container ol.obsidian-list[data-number-style="lower-roman"] { list-style-type: lower-roman; }
+.obsidian-preview-container ul.obsidian-list { list-style-type: disc; }
+.obsidian-preview-container :is(ol,ul).obsidian-list > li {
   display: list-item;
-  position: relative;
-  list-style: none;
+  list-style: inherit;
+  margin-block: .15rem;
 }
-.obsidian-preview-container :is(ol, ul).obsidian-list > li::before {
-  content: attr(data-list-marker);
+.obsidian-preview-container :is(ol,ul).obsidian-list > li::before { content: none; }
+.obsidian-preview-container :is(ol,ul).obsidian-list > li.task-list-item {
+  list-style-type: none;
+}
+.obsidian-preview-container .notion-quote {
+  margin: 1rem 0;
+  padding: .4rem 1rem;
+  border-inline-start: 3px solid var(--jade-light, #a1b9b3);
+  color: inherit;
+  background: rgb(255 255 255 / .02);
+}
+.obsidian-preview-container .notion-quote > :last-child { margin-bottom: 0; }
+.obsidian-preview-container details.notion-toggle {
+  margin: .6rem 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+.obsidian-preview-container .notion-toggle-title {
+  cursor: pointer;
+  font-weight: 600;
+  list-style-position: inside;
+  user-select: none;
+}
+.obsidian-preview-container .notion-toggle-body {
+  padding-inline-start: 1.5rem;
+  margin-block-start: .45rem;
+}
+.obsidian-preview-container .notion-toggle-body > :last-child { margin-bottom: 0; }
+/* 不更動水墨主題，只給新的編輯命令小選單必要的局部樣式。 */
+.advanced-markdown-wrapper .markdown-editor-toolbar select { display: none; }
+.advanced-markdown-wrapper .markdown-editor-toolbar button[title="引用區塊"] { display: none; }
+.advanced-markdown-wrapper .notion-edit-controller { position: relative; }
+.advanced-markdown-wrapper .notion-slash-menu {
   position: absolute;
-  width: 2.4rem;
-  inset-inline-end: calc(100% + 0.3rem);
-  top: 0;
-  text-align: end;
-  white-space: nowrap;
-  color: var(--jade-light, #a1b9b3);
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
+  z-index: 50;
+  top: 7rem;
+  left: min(20rem, 20%);
+  width: min(24rem, 72vw);
+  max-height: min(24rem, 55vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: .7rem;
+  border: 1px solid rgb(255 255 255 / .16);
+  background: #171c20;
+  box-shadow: 0 16px 45px #05090caa;
+  color: #e2e8ef;
 }
-/* Task 僅顯示可點擊 checkbox，禁止額外疊加 • 或 1. 編號。 */
-.obsidian-preview-container :is(ol, ul).obsidian-list > li.task-list-item::before {
-  content: none;
-}
+.advanced-markdown-wrapper .notion-slash-heading { padding: .7rem 1rem; font-size: .8rem; color: #aebfca; border-bottom: 1px solid #ffffff18; }
+.advanced-markdown-wrapper .notion-slash-scroll { overflow-y: auto; padding: .4rem; }
+.advanced-markdown-wrapper .notion-slash-row { width: 100%; text-align: left; display: flex; gap: .5rem; justify-content: space-between; padding: .55rem .7rem; border-radius: .35rem; align-items: center; }
+.advanced-markdown-wrapper .notion-slash-row.is-selected,
+.advanced-markdown-wrapper .notion-slash-row:hover { background: #ffffff14; }
+.advanced-markdown-wrapper .notion-slash-name { font-size: .85rem; }
+.advanced-markdown-wrapper .notion-slash-row small { font-size: .7rem; color: #a7b9c5; }
+.advanced-markdown-wrapper .notion-slash-empty { padding: .7rem; color: #9aaab7; }
+.advanced-markdown-wrapper .notion-slash-hint { padding: .55rem 1rem; font-size: .69rem; color: #8397a5; border-top: 1px solid #ffffff12; }
