@@ -207,24 +207,7 @@ md.renderer.rules.obsidian_math_inline = (tokens: any[], idx: number) => renderM
 md.renderer.rules.obsidian_math_block = (tokens: any[], idx: number) =>
   `<div class="obsidian-math-block">${renderMath(tokens[idx].content, true)}</div>`;
 
-// GFM 規範允許 ~單波浪線~ 刪除線；舊的 ~下標~ 改用 <sub>。
-md.inline.ruler.before("strikethrough", "gfm_single_tilde", (state: any, silent: boolean) => {
-  const src: string = state.src;
-  const pos: number = state.pos;
-  if (src[pos] !== "~" || src[pos + 1] === "~" || src[pos - 1] === "~") return false;
-  const end = src.indexOf("~", pos + 1);
-  if (end <= pos + 1 || src[end + 1] === "~") return false;
-  const inner = src.slice(pos + 1, end);
-  if (/^\s|\s$|\n/.test(inner)) return false;
-  if (!silent) {
-    const t = state.push("gfm_single_tilde", "del", 0);
-    t.content = inner;
-  }
-  state.pos = end + 1;
-  return true;
-});
-md.renderer.rules.gfm_single_tilde = (tokens: any[], idx: number, _opt: any, env: any) =>
-  `<del>${md.renderInline(tokens[idx].content, env)}</del>`;
+// 依使用者的 Obsidian 相容性設定：不解析 ~單波浪線~；~~雙波浪線~~ 仍由 markdown-it 處理刪除線。
 
 // 螢光標記 ==...==，保留你的原有 Obsidian 寫法。
 md.inline.ruler.before("emphasis", "obsidian_highlight", (state: any, silent: boolean) => {
@@ -243,8 +226,7 @@ md.inline.ruler.before("emphasis", "obsidian_highlight", (state: any, silent: bo
 md.renderer.rules.obsidian_highlight = (tokens: any[], i: number) =>
   `<mark>${md.renderInline(tokens[i].content)}</mark>`;
 
-// GFM 使用單個 ~ 作刪除線，避免與舊版 ~下標~ 衝突。
-// 原版 ^上標^ 保留；下標可用安全的 <sub>文字</sub> HTML 寫法。
+// 單波浪線不解析；原版 ^上標^ 保留；下標仍可使用 <sub>文字</sub>。
 md.inline.ruler.before("emphasis", "obsidian_superscript", (state: any, silent: boolean) => {
   if (state.src[state.pos] !== "^") return false;
   const end = state.src.indexOf("^", state.pos + 1);
@@ -364,7 +346,16 @@ md.core.ruler.after("inline", "obsidian_callouts", (state: any) => {
     const fullBody = rest;
     const opener = tokens[i];
     opener.attrJoin("class", `obsidian-callout obsidian-callout--${spec.cssType}`);
-    const titleMarkup = md.renderInline(spec.title, state.env);
+    // Callout 標題使用獨立環境：不得重用整篇筆記的 footnotes 狀態。
+    // markdown-it-footnote 會在 renderInline 的 core 階段附加 footnote_tail，
+    // 如果沿用 state.env，註腳的分隔線與 ↩ 可能重複出現在每個 Callout。
+    const titleEnv: RenderEnvironment = {
+      existingTitles: state.env.existingTitles,
+      currentNoteTitle: state.env.currentNoteTitle,
+      originalLines: [],
+      customMarkers: new Map(),
+    };
+    const titleMarkup = md.renderInline(spec.title, titleEnv);
     const title = spec.collapsible
       ? `<summary class="obsidian-callout-title">${titleMarkup}</summary>`
       : `<div class="obsidian-callout-title">${titleMarkup}</div>`;
