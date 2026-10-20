@@ -41,7 +41,8 @@
 .obsidian-preview-container ol.obsidian-list--custom > li::before { content: attr(data-list-marker); position: absolute; right: calc(100% + .45rem); white-space: nowrap; color: inherit; }
 /* markdown-it-footnote 類名與原先的註腳樣式一致化。 */
 .obsidian-preview-container .footnotes { margin-top: 1.75rem; padding-top: .6rem; border-top: 1px solid rgb(255 255 255 / .1); font-size: .9em; color: #b6c4d5; }
-.obsidian-preview-container .footnotes .footnotes-sep { display: none; }
+/* footnotes-sep 是 .footnotes 前一個同層 <hr>，不是內部子元素；隱藏它避免與 section 上框線重複。 */
+.obsidian-preview-container hr.footnotes-sep { display: none; }
 .obsidian-preview-container .footnote-ref { margin-inline: .05rem; }
 .obsidian-preview-container .footnote-backref { margin-left: .35rem; }
 .obsidian-preview-container .obsidian-callout--warning .obsidian-callout-title::before,
