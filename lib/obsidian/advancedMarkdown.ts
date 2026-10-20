@@ -95,6 +95,8 @@ function normalizeCustomLists(markdown: string): {
 } {
   const customMarkers = new Map<number, { marker: string; style: string }>();
   const patterns: Array<[RegExp, string]> = [
+    // Word 式數字括號：保留原始 1)、2)、10) 等標記，不再交給瀏覽器顯示預設序號。
+    [/^([ \t]*)(\d+\))([ \t]+)(.*)$/, "decimal-paren"],
     [/^([ \t]*)([a-zA-Z]+\))([ \t]+)(.*)$/, "alpha"],
     [/^([ \t]*)([ivxlcdmIVXLCDM]+\.)([ \t]+)(.*)$/, "roman"],
     [/^([ \t]*)([（(][一二三四五六七八九十百千零〇兩两]+[）)])([ \t]*)(.*)$/, "cn-parentheses"],
@@ -320,6 +322,8 @@ md.renderer.rules.link_open = (tokens: any[], idx: number, options: any, _env: a
   const t = tokens[idx];
   const href = t.attrGet("href") || "";
   if (/^(?:https?:|mailto:)/i.test(href)) {
+    // 外部網址（包含裸網址與參照連結）採獨立色系；Obsidian Wikilink 不受影響。
+    t.attrJoin("class", "obsidian-external-link");
     t.attrSet("target", "_blank");
     t.attrSet("rel", "noopener noreferrer");
   }
