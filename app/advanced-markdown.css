@@ -122,3 +122,26 @@
   outline: 1px solid #e0b981;
   outline-offset: 3px;
 }
+
+
+/* ============================================================
+   修正：標準 Markdown 多層數字清單（1. / 2. / 3.）
+
+   Tailwind Preflight 會將 ol 的 list-style 清除；先前只有
+   Word 自訂清單（1) / a) / 中文等）用 ::before 補回編號，
+   導致標準 1. 清單在預覽時沒有數字。
+
+   僅恢復「非自訂」ol 的標準 decimal marker。
+   自訂清單保留原有的 ::before 和 data-list-marker 邏輯。
+   不改動頁面背景、透明度或其他 Markdown 功能。
+   ============================================================ */
+.obsidian-preview-container ol:not(.obsidian-list--custom) {
+  list-style-type: decimal;
+  list-style-position: outside;
+}
+
+.obsidian-preview-container ol:not(.obsidian-list--custom) > li:not(.task-list-item) {
+  display: list-item;
+  list-style-type: decimal;
+  list-style-position: outside;
+}
