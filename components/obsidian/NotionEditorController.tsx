@@ -112,6 +112,8 @@ export function NotionEditorController({ content, noteId, onUpdateContent, child
   const lastEditRef = useRef({ at: 0, type: "" });
   const lastNoteId = useRef(noteId);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  // 選單的捲動容器獨立於編輯器，方向鍵只需要捲動此區域。
+  const slashScrollRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (lastNoteId.current !== noteId) {
       lastNoteId.current = noteId;
@@ -182,7 +184,26 @@ export function NotionEditorController({ content, noteId, onUpdateContent, child
     commit(result, from, to);
   }
 
-  const filtered = COMMANDS.filter(x => (x.name + " " + x.label).toLowerCase().includes((slash?.query || "").toLowerCase())).slice(0, 15);
+  // 不截斷選單：所有命令都可透過方向鍵捲動到達，仍可輸入文字篩選。
+  const filtered = COMMANDS.filter(x => (x.name + " " + x.label).toLowerCase().includes((slash?.query || "").toLowerCase()));
+
+  useEffect(() => {
+    if (!slash) return;
+    const viewport = slashScrollRef.current;
+    const active = viewport?.querySelector<HTMLElement>(".notion-slash-row.is-selected");
+    if (!viewport || !active) return;
+
+    // 僅更新選單內部的 scrollTop；不要使用 scrollIntoView，
+    // 否則有機會把整個頁面或編輯器也一起捲動。
+    const visible = viewport.getBoundingClientRect();
+    const selected = active.getBoundingClientRect();
+    const inset = 4;
+    if (selected.top < visible.top + inset) {
+      viewport.scrollTop -= visible.top + inset - selected.top;
+    } else if (selected.bottom > visible.bottom - inset) {
+      viewport.scrollTop += selected.bottom - (visible.bottom - inset);
+    }
+  }, [slash?.origin, slash?.query, highlight, filtered.length]);
 
   function handleBeforeInputCapture(event: FormEvent<HTMLDivElement>) {
     if (!(event.target instanceof HTMLTextAreaElement)) return;
@@ -441,7 +462,7 @@ export function NotionEditorController({ content, noteId, onUpdateContent, child
       {slash && (
         <div className="notion-slash-menu" role="listbox" aria-label="Markdown 快速指令">
           <div className="notion-slash-heading">/ 快速插入 {slash.query && <span>· {slash.query}</span>}</div>
-          <div className="notion-slash-scroll">
+          <div className="notion-slash-scroll" ref={slashScrollRef}>
             {filtered.length ? filtered.map((cmd,index)=>(
               <button type="button" key={cmd.name} role="option" aria-selected={highlight===index}
                 className={`notion-slash-row ${highlight===index ? "is-selected" : ""}`}
