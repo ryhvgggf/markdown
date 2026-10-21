@@ -82,7 +82,15 @@ describe('markdown paste', () => {
   it('leaves pastes inside a code block alone', () => {
     const editor = make()
     editor.commands.setCodeBlock()
-    expect(paste(editor, { 'text/plain': '# comment\n- item' })).toBe(false)
+    const event = new Event('paste', { bubbles: true, cancelable: true })
+    const data = { 'text/plain': '# comment\n- item' } as Record<string, string>
+    Object.defineProperty(event, 'clipboardData', {
+      value: { getData: (t: string) => data[t] ?? '', types: Object.keys(data), files: [], items: [] },
+    })
+    editor.view.dom.dispatchEvent(event) // full PM paste path: our handler, then the default
     expect(names(editor)).toEqual(['codeBlock'])
+    const text = editor.state.doc.firstChild!.textContent
+    expect(text).toContain('# comment')
+    expect(text).toContain('- item')
   })
 })
