@@ -13,7 +13,11 @@ import { Dropcursor, Gapcursor, Placeholder } from '@tiptap/extensions'
 import type { NotesDb, BlockRow } from '@/adapters/storage/db'
 import type { StorageAdapter } from '@/adapters/storage/types'
 import type { Vault } from '@/core/vault/vault'
+import { BulletList, ListItem, ListKeymap, TaskList } from '@tiptap/extension-list'
 import { BLOCK_TYPES, BlockId } from './blocks/block-id'
+import { ListMoves } from './blocks/list-moves'
+import { OrderedList } from './blocks/ordered-list'
+import { TaskItem } from './blocks/task-item'
 import { focusTitleEnd } from './focus-bridge'
 import { isComposingEvent } from './ime'
 
@@ -73,6 +77,13 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     Blockquote,
     HorizontalRule,
     HardBreak,
+    BulletList,
+    OrderedList,
+    ListItem,
+    TaskList,
+    TaskItem,
+    ListKeymap,
+    ListMoves,
     Dropcursor.configure({ width: 2 }),
     Gapcursor,
     Placeholder.configure({ placeholder: ({ editor }) => (editor.isEmpty ? EMPTY_PLACEHOLDER : '') }),
