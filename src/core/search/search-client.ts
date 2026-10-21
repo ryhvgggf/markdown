@@ -1,4 +1,5 @@
 import type { SearchHit } from './search'
+import type { SearchService } from './search-service'
 
 type Pending = { resolve: (h: SearchHit[]) => void; reject: (e: Error) => void }
 type Reply = { id: number; hits?: SearchHit[]; error?: string }
@@ -9,7 +10,7 @@ export interface SearchClientOptions {
   createWorker?: () => Worker
 }
 
-export class SearchClient {
+export class SearchClient implements SearchService {
   private worker: Worker
   private nextId = 1
   private pending = new Map<number, Pending>()

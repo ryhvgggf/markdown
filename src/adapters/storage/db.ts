@@ -26,8 +26,8 @@ export class NotesDb extends Dexie {
   tags!: Table<TagRow, [string, string]>
   meta!: Table<MetaRow, string>
 
-  constructor(name: string) {
-    super(name)
+  constructor(name: string, deps?: { indexedDB: IDBFactory; IDBKeyRange: typeof IDBKeyRange }) {
+    super(name, deps)
     this.version(1).stores({
       updates: '++seq, docId',
       snapshots: 'docId',
@@ -41,6 +41,9 @@ export class NotesDb extends Dexie {
   }
 }
 
-export function createDb(name = 'notes-v2'): NotesDb {
-  return new NotesDb(name)
+export function createDb(
+  name = 'notes-v2',
+  deps?: { indexedDB: IDBFactory; IDBKeyRange: typeof IDBKeyRange },
+): NotesDb {
+  return new NotesDb(name, deps)
 }
