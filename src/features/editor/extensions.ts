@@ -18,6 +18,9 @@ import { BLOCK_TYPES, BlockId } from './blocks/block-id'
 import { ListMoves } from './blocks/list-moves'
 import { OrderedList } from './blocks/ordered-list'
 import { TaskItem } from './blocks/task-item'
+import { Callout } from './blocks/callout'
+import { CodeBlock, CodeTab } from './blocks/code-block'
+import { Table, TableCell, TableHeader, TableRow, TableTab } from './blocks/table'
 import { focusTitleEnd } from './focus-bridge'
 import { isComposingEvent } from './ime'
 
@@ -84,6 +87,14 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     Blockquote,
     HorizontalRule,
     HardBreak,
+    Callout,
+    CodeBlock,
+    CodeTab,
+    Table,
+    TableRow,
+    TableHeader,
+    TableCell,
+    TableTab,
     BulletList,
     OrderedList,
     ListItem,

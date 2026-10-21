@@ -57,3 +57,52 @@
 .note-editor li[data-type='taskItem'][data-checked='true'] > .task-content > div > p {
   text-decoration: line-through; color: var(--color-fg-tertiary);
 }
+
+/* Callout */
+.note-editor .callout {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: #f5f5f7; border-radius: 12px; padding: 14px 16px;
+}
+.note-editor .callout-icon {
+  flex: none; width: 24px; height: 28px; padding: 0; border: 0; background: transparent;
+  font-size: 16px; line-height: 28px; cursor: pointer; border-radius: 6px; user-select: none;
+}
+.note-editor .callout-icon:hover { background: var(--color-fill); }
+.note-editor .callout-content { flex: 1; min-width: 0; }
+.note-editor .callout-content > * + * { margin-top: 0.3em; }
+
+/* Code blocks */
+.note-editor .code-block { position: relative; background: #f5f5f7; border-radius: 12px; }
+.note-editor .code-block pre {
+  margin: 0; padding: 14px 16px; overflow-x: auto;
+  font: 13.5px/1.7 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+.note-editor .code-block pre code { font: inherit; white-space: pre; }
+.note-editor .code-lang {
+  position: absolute; top: 6px; right: 8px; z-index: 1; max-width: 120px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--color-fg-tertiary);
+  font: 12px var(--font-sans); cursor: pointer; opacity: 0.7;
+}
+.note-editor .code-block:hover .code-lang, .note-editor .code-lang:focus { opacity: 1; background: var(--color-fill); }
+.hljs-comment { color: #6e7781; font-style: italic; }
+.hljs-keyword, .hljs-built_in { color: #a626a4; }
+.hljs-string { color: #0a7d3e; }
+.hljs-number, .hljs-literal { color: #b45309; }
+.hljs-title, .hljs-section, .hljs-name { color: #1a5fb4; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-type { color: #0f766e; }
+.hljs-subst { color: inherit; }
+
+/* Tables */
+.note-editor .tableWrapper { overflow-x: auto; margin: 0.6em 0; }
+.note-editor table { border-collapse: collapse; table-layout: fixed; width: 100%; overflow: hidden; }
+.note-editor th, .note-editor td {
+  position: relative; border: 1px solid rgba(0, 0, 0, 0.08); padding: 8px 12px;
+  vertical-align: top; text-align: left; min-width: 1em;
+}
+.note-editor th { font-weight: 600; background: var(--color-fill); }
+.note-editor td > p, .note-editor th > p { margin: 0; }
+.note-editor .selectedCell::after { content: ''; position: absolute; inset: 0; background: rgba(79, 75, 201, 0.12); pointer-events: none; }
+.note-editor .column-resize-handle {
+  position: absolute; right: -2px; top: 0; bottom: -1px; width: 4px; background: var(--accent); pointer-events: none;
+}
+.note-editor.resize-cursor, .resize-cursor { cursor: col-resize; }
