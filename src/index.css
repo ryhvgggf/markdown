@@ -1,6 +1,3 @@
 @import 'tailwindcss';
-@import '@fontsource/noto-sans-tc';
-
-body {
-  font-family: 'Noto Sans TC', system-ui, sans-serif;
-}
+@import './ui/tokens.css';
+@import './ui/glass.css';

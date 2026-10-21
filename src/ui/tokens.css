@@ -1,0 +1,41 @@
+@theme {
+  --spacing: 4px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang TC', 'Noto Sans TC', sans-serif;
+
+  --radius-control: 8px;
+  --radius-card: 16px;
+
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-title: 22px;
+  --text-display: 38px;
+
+  --color-fg: #1d1d1f;
+  --color-fg-secondary: #6e6e73;
+  --color-fg-tertiary: #86868b;
+  --color-surface: #ffffff;
+  --color-fill: rgba(0, 0, 0, 0.05);
+  --color-accent: var(--accent);
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-float: 0 2px 6px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(0, 0, 0, 0.14);
+
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+:root {
+  /* Overridden at runtime by user preference (Task 23). */
+  --accent: #4f4bc9;
+  --page-background:
+    radial-gradient(60% 50% at 15% 10%, rgba(160, 196, 255, 0.55), transparent 70%),
+    radial-gradient(50% 45% at 90% 90%, rgba(255, 205, 178, 0.55), transparent 70%),
+    linear-gradient(135deg, #e4e9f0, #ece8e4);
+}
+
+html {
+  font-family: var(--font-sans);
+  color: var(--color-fg);
+}
