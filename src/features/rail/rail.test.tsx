@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { ServicesProvider } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
@@ -19,7 +19,11 @@ function setup(railMode: Prefs['railMode'] = 'hover') {
 const press = (init: KeyboardEventInit) => act(() => void fireEvent.keyDown(window, { key: '\\', ...init }))
 
 describe('Rail', () => {
-  beforeEach(() => useUi.setState({ railHover: false }))
+  beforeEach(() => {
+    vi.useFakeTimers()
+    useUi.setState({ railHover: false })
+  })
+  afterEach(() => vi.useRealTimers())
 
   it('opens on the edge zone and closes when leaving the rail', () => {
     const nav = setup()
@@ -27,6 +31,24 @@ describe('Rail', () => {
     fireEvent.pointerEnter(screen.getByTestId('rail-hover-zone'))
     expect(nav).toHaveAttribute('data-open', 'true')
     fireEvent.pointerLeave(nav)
+    act(() => void vi.advanceTimersByTime(160))
+    expect(nav).toHaveAttribute('data-open', 'false')
+  })
+
+  it('closes after a short delay, cancelled by entering the nav', () => {
+    const nav = setup()
+    const zone = screen.getByTestId('rail-hover-zone')
+    fireEvent.pointerEnter(zone)
+    fireEvent.pointerLeave(zone)
+    act(() => void vi.advanceTimersByTime(100))
+    expect(nav).toHaveAttribute('data-open', 'true')
+    fireEvent.pointerEnter(nav)
+    act(() => void vi.advanceTimersByTime(300))
+    expect(nav).toHaveAttribute('data-open', 'true')
+    fireEvent.pointerLeave(nav)
+    act(() => void vi.advanceTimersByTime(100))
+    expect(nav).toHaveAttribute('data-open', 'true')
+    act(() => void vi.advanceTimersByTime(60))
     expect(nav).toHaveAttribute('data-open', 'false')
   })
 
@@ -49,6 +71,7 @@ describe('Rail', () => {
     const nav = setup('pinned')
     expect(nav).toHaveAttribute('data-open', 'true')
     fireEvent.pointerLeave(nav)
+    act(() => void vi.advanceTimersByTime(300))
     expect(nav).toHaveAttribute('data-open', 'true')
   })
 

@@ -61,6 +61,17 @@ test('dragging the sidebar edge resizes it, capped at 360px', async ({ page }) =
   expect((await box(page, '資料夾')).width).toBeLessThanOrEqual(360)
 })
 
+test('rail closes on leave even after clicking a rail button', async ({ page }) => {
+  await boot(page, 1500)
+  const nav = page.getByRole('navigation', { name: '主要功能' })
+  await page.mouse.move(300, 450)
+  await page.mouse.move(3, 450, { steps: 4 })
+  await expect(nav).toHaveAttribute('data-open', 'true')
+  await page.getByRole('button', { name: '檔案' }).click()
+  await page.mouse.move(700, 450, { steps: 6 })
+  await expect(nav).toHaveAttribute('data-open', 'false')
+})
+
 test('screenshots', async ({ page }, info) => {
   test.skip(info.project.name !== 'chromium' || !process.env.SHOTS)
   const dir = process.env.SHOTS!

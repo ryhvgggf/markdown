@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useUi } from '@/app/ui-store'
 import { IconButton } from '@/ui/components/IconButton'
 import { Folder, Search, Settings, Tag } from '@/ui/icons'
@@ -10,6 +10,28 @@ export function Rail() {
   const mode = useLayoutMode()
   const navRef = useRef<HTMLElement>(null)
   const ui = useUi
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelClose = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+  }, [])
+  const scheduleClose = useCallback(() => {
+    cancelClose()
+    if (pinned) return
+    timer.current = setTimeout(() => {
+      timer.current = null
+      const el = document.activeElement
+      let keyboardFocus = false
+      try {
+        keyboardFocus = !!el && !!navRef.current?.contains(el) && el.matches(':focus-visible')
+      } catch {
+        // :focus-visible unsupported
+      }
+      if (!keyboardFocus) setOpen(false)
+    }, 150)
+  }, [cancelClose, pinned, setOpen])
+  useEffect(() => cancelClose, [cancelClose])
 
   const files = () => {
     if (mode === 'narrow') ui.getState().setSidebarOverlay(!ui.getState().sidebarOverlayOpen)
@@ -23,10 +45,11 @@ export function Rail() {
       <div
         data-testid="rail-hover-zone"
         className="fixed top-0 bottom-0 left-0 z-40 w-[14px]"
-        onPointerEnter={() => setOpen(true)}
-        onPointerLeave={(e) => {
-          if (!navRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false)
+        onPointerEnter={() => {
+          cancelClose()
+          setOpen(true)
         }}
+        onPointerLeave={scheduleClose}
       />
       {!open && (
         <div
@@ -41,9 +64,8 @@ export function Rail() {
         className={`glass-float fixed top-1/2 left-[10px] z-50 flex -translate-y-1/2 flex-col items-center gap-1 p-1.5 transition-transform duration-[320ms] ease-spring ${
           open ? 'translate-x-0' : 'pointer-events-none -translate-x-[calc(100%+16px)]'
         }`}
-        onPointerLeave={() => {
-          if (!pinned && !navRef.current?.contains(document.activeElement)) setOpen(false)
-        }}
+        onPointerEnter={cancelClose}
+        onPointerLeave={scheduleClose}
         onFocus={() => setOpen(true)}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false)
