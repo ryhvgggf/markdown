@@ -61,7 +61,7 @@ export const MarkdownPaste = Extension.create({
         key: new PluginKey('markdownPaste'),
         props: {
           handlePaste(view, event) {
-            if (view.composing) return false
+            if (view.composing || view.state.selection.$from.parent.type.spec.code) return false
             const data = event.clipboardData
             if (!data || data.getData('text/html')) return false // Tiptap + schema filter HTML
             if (data.files?.length) return false

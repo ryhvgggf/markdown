@@ -79,4 +79,10 @@ describe('markdown paste', () => {
     Object.defineProperty(editor.view, 'composing', { value: true })
     expect(paste(editor, { 'text/plain': '# x' })).toBe(false)
   })
+  it('leaves pastes inside a code block alone', () => {
+    const editor = make()
+    editor.commands.setCodeBlock()
+    expect(paste(editor, { 'text/plain': '# comment\n- item' })).toBe(false)
+    expect(names(editor)).toEqual(['codeBlock'])
+  })
 })
