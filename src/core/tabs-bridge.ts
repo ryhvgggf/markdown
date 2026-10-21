@@ -8,6 +8,18 @@ type Msg =
   | { type: 'sync-step1'; sv: Uint8Array; reply: boolean }
   | { type: 'sync-step2'; data: Uint8Array }
 
+function parseMsg(d: unknown): Msg | null {
+  if (typeof d !== 'object' || d === null) return null
+  const m = d as Record<string, unknown>
+  if ((m.type === 'update' || m.type === 'sync-step2') && m.data instanceof Uint8Array) {
+    return { type: m.type, data: m.data }
+  }
+  if (m.type === 'sync-step1' && m.sv instanceof Uint8Array) {
+    return { type: 'sync-step1', sv: m.sv, reply: m.reply === true }
+  }
+  return null
+}
+
 /** Syncs `doc` with other tabs of the same docId over BroadcastChannel. Returns a disconnect function. */
 export function connectTabs(
   doc: Y.Doc,
@@ -27,17 +39,22 @@ export function connectTabs(
 
   channel.onmessage = (ev: MessageEvent) => {
     if (closed) return
-    const m = ev.data as Msg
-    switch (m.type) {
-      case 'update':
-      case 'sync-step2':
-        Y.applyUpdate(doc, m.data, TAB_ORIGIN)
-        break
-      case 'sync-step1':
-        send({ type: 'sync-step2', data: Y.encodeStateAsUpdate(doc, m.sv) })
-        // Ask for what the peer has that we lack (only once, to avoid ping-pong).
-        if (m.reply) send({ type: 'sync-step1', sv: Y.encodeStateVector(doc), reply: false })
-        break
+    try {
+      const m = parseMsg(ev.data)
+      if (!m) return
+      switch (m.type) {
+        case 'update':
+        case 'sync-step2':
+          Y.applyUpdate(doc, m.data, TAB_ORIGIN)
+          break
+        case 'sync-step1':
+          send({ type: 'sync-step2', data: Y.encodeStateAsUpdate(doc, m.sv) })
+          // Ask for what the peer has that we lack (only once, to avoid ping-pong).
+          if (m.reply) send({ type: 'sync-step1', sv: Y.encodeStateVector(doc), reply: false })
+          break
+      }
+    } catch {
+      // A malformed or corrupt message from a peer must never break this tab.
     }
   }
 

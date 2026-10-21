@@ -9,11 +9,13 @@ class FakeChannel {
   static all = new Set<FakeChannel>()
   onmessage: Listener | null = null
   closed = false
+  posted: unknown[] = []
   constructor(public name: string) {
     FakeChannel.all.add(this)
   }
   postMessage(data: unknown) {
     if (this.closed) throw new Error('closed')
+    this.posted.push(data)
     for (const c of FakeChannel.all) {
       if (c === this || c.name !== this.name) continue
       queueMicrotask(() => {
@@ -27,6 +29,7 @@ class FakeChannel {
   }
 }
 const factory = (name: string) => new FakeChannel(name) as unknown as BroadcastChannel
+const lastChannel = () => [...FakeChannel.all].at(-1)!
 const settle = () => new Promise((r) => setTimeout(r, 10))
 
 describe('connectTabs', () => {
@@ -43,20 +46,40 @@ describe('connectTabs', () => {
     offB()
   })
 
-  it('applies remote updates with TAB_ORIGIN and does not rebroadcast', async () => {
+  it('applies remote updates with TAB_ORIGIN and never rebroadcasts them', async () => {
     const a = new Y.Doc()
     const b = new Y.Doc()
     const origins: unknown[] = []
-    b.on('update', (_u: Uint8Array, origin: unknown) => origins.push(origin))
     const offA = connectTabs(a, 'n2', factory)
     const offB = connectTabs(b, 'n2', factory)
+    const chB = lastChannel()
     await settle()
-    let aUpdates = 0
+    b.on('update', (_u: Uint8Array, origin: unknown) => origins.push(origin))
+    chB.posted.length = 0
     a.getText('t').insert(0, 'x')
-    a.on('update', () => aUpdates++)
     await settle()
+    expect(b.getText('t').toString()).toBe('x')
     expect(origins).toEqual([TAB_ORIGIN])
-    expect(aUpdates).toBe(0)
+    expect(chB.posted).toEqual([])
+    offA()
+    offB()
+  })
+
+  it('ignores malformed messages and keeps syncing', async () => {
+    const a = new Y.Doc()
+    const b = new Y.Doc()
+    const offB = connectTabs(b, 'n5', factory)
+    const raw = new FakeChannel('n5')
+    for (const junk of [null, 'str', 42, { type: 'update', data: 'x' }, { type: 'sync-step1', sv: 123 }, { type: 'sync-step2', data: new Uint8Array([9, 9, 9]) }, { type: 'nope' }]) {
+      expect(() => raw.postMessage(junk)).not.toThrow()
+    }
+    await settle()
+    raw.close()
+    const offA = connectTabs(a, 'n5', factory)
+    await settle()
+    a.getText('t').insert(0, 'ok')
+    await settle()
+    expect(b.getText('t').toString()).toBe('ok')
     offA()
     offB()
   })
