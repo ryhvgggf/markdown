@@ -136,6 +136,7 @@ export const SlashCommand = Extension.create({
           return {
             onStart: mount,
             onUpdate: mount,
+            // Esc during composition is handled by ProseMirror's composition filter before the suggestion plugin sees it.
             onKeyDown: ({ event, view }: SuggestionKeyDownProps) => {
               if (isComposingEvent(event, view)) return false
               return renderer?.ref?.onKeyDown(event) ?? false

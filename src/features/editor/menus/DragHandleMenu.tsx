@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
+import { TextSelection } from '@tiptap/pm/state'
 import { DragHandle } from '@tiptap/extension-drag-handle-react'
 import { Menu } from '@/ui/components/Menu'
 import { Grip, Link, Swap, Trash } from '@/ui/icons'
@@ -42,13 +43,16 @@ export function DragHandleMenu({ editor }: { editor: Editor | null }) {
     const t = target.current
     if (!t) return null
     const node = editor.state.doc.nodeAt(t.pos)
-    return node === t.node ? t : selectionBlock(editor)
+    // Unresolvable target: do nothing rather than act on a different block.
+    return node && node.type === t.node.type ? { node, pos: t.pos } : null
   }
 
   const convert = (run: (e: Editor) => boolean) => {
     const t = current()
     if (!t) return
-    editor.commands.setTextSelection(t.pos + 1)
+    // pos + 1 is not a text position inside containers (lists, callout, table): find the first one.
+    const { state } = editor
+    editor.view.dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(t.pos + 1))))
     run(editor)
   }
 

@@ -55,4 +55,33 @@ describe('DragHandleMenu', () => {
     await userEvent.click(await screen.findByRole('menuitem', { name: '刪除' }))
     expect(editor!.getText()).toBe('two')
   })
+
+  async function convertVia(html: string, cursor: number, entry: string) {
+    render(<Harness />)
+    await act(async () => {
+      editor!.commands.setContent(html)
+      editor!.commands.setTextSelection(cursor)
+    })
+    const grip = await screen.findByLabelText('拖曳以移動，點擊開啟選單')
+    await userEvent.click(grip)
+    await userEvent.click(await screen.findByRole('menuitem', { name: /轉換類型/ }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: entry }))
+  }
+
+  it('converts a paragraph to 標題 1', async () => {
+    await convertVia('<p>one</p><p>two</p>', 2, '標題 1')
+    expect(editor!.getHTML()).toMatch(/^<h1[^>]*>one<\/h1><p/)
+  })
+
+  it('converts a bullet list to 段落, keeping the text', async () => {
+    await convertVia('<ul><li><p>item</p></li></ul>', 3, '段落')
+    expect(editor!.getHTML()).not.toContain('<ul')
+    expect(editor!.getText()).toBe('item')
+  })
+
+  it('converts a paragraph to 項目清單', async () => {
+    await convertVia('<p>one</p><p>two</p>', 2, '項目清單')
+    expect(editor!.getHTML()).toMatch(/^<ul/)
+    expect(editor!.getText()).toContain('one')
+  })
 })
