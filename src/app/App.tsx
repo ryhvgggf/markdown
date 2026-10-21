@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Shell } from '@/features/shell/Shell'
 import { StorageBanner } from '@/features/shell/StorageBanner'
 import { bootstrap, type AppServices } from './bootstrap'
 import { ServicesProvider } from './services-context'
@@ -54,7 +55,30 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
   return (
     <ServicesProvider services={state.services}>
       <StorageBanner />
-      <main className="p-4">筆記</main>
+      <Shell
+        sidebar={<p className="p-4 text-sm text-fg-secondary">資料夾</p>}
+        main={<p className="p-6 text-fg-secondary">選擇或新增一篇筆記</p>}
+        panel={<p className="p-4 text-sm text-fg-secondary">筆記資訊</p>}
+        headerActions={<PlaceholderPanelButtons />}
+      />
     </ServicesProvider>
+  )
+}
+
+/** Temporary until Task 21 supplies the real 大綱 / 反向連結 pills. */
+function PlaceholderPanelButtons() {
+  const panel = useUi((s) => s.panel)
+  const toggle = useUi((s) => s.togglePanel)
+  const cls = (on: boolean) =>
+    `rounded-full px-3 py-1 text-xs ${on ? 'bg-fill text-fg' : 'text-fg-secondary hover:bg-fill'}`
+  return (
+    <>
+      <button type="button" aria-pressed={panel === 'outline'} className={cls(panel === 'outline')} onClick={() => toggle('outline')}>
+        大綱
+      </button>
+      <button type="button" aria-pressed={panel === 'backlinks'} className={cls(panel === 'backlinks')} onClick={() => toggle('backlinks')}>
+        反向連結
+      </button>
+    </>
   )
 }
