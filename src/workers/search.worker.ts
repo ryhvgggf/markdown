@@ -1,57 +1,71 @@
 /// <reference lib="webworker" />
 // Data freshness: Dexie liveQuery keeps an in-memory cache of noteText rows and
 // the tag map; Dexie 4 propagates changes made in other browser contexts.
+// On liveQuery error the source is flagged (requests reply with an error) and
+// re-subscribed after a delay so the cache can recover.
 import { liveQuery } from 'dexie'
-import { createDb, type NoteTextRow } from '../adapters/storage/db'
-import { findMentions, searchNotes } from '../core/search/search'
+import { createDb } from '../adapters/storage/db'
+import { handleRequest, type SearchRequest, type SearchState } from './search-handler'
 
-export type SearchRequest =
-  | { kind: 'init'; dbName: string }
-  | { id: number; kind: 'search'; query: string }
-  | { id: number; kind: 'mentions'; title: string; excludeNoteIds: string[] }
+const RETRY_MS = 1000
+const state: SearchState = { rows: [], tags: new Map(), error: null }
+const errors = new Map<string, string>()
 
-let rows: NoteTextRow[] = []
-let tags = new Map<string, string[]>()
 let resolveInit: (name: string) => void = () => {}
 const initialized = new Promise<string>((r) => (resolveInit = r))
+
+function syncError(): void {
+  const first = errors.values().next()
+  state.error = first.done ? null : first.value
+}
+
+function watch<T>(
+  name: string,
+  query: () => Promise<T>,
+  apply: (v: T) => void,
+  settled: () => void,
+): void {
+  const sub = liveQuery(query).subscribe({
+    next: (v) => {
+      apply(v)
+      errors.delete(name)
+      syncError()
+      settled()
+    },
+    error: (e: unknown) => {
+      errors.set(name, `Search index unavailable: ${e instanceof Error ? e.message : String(e)}`)
+      syncError()
+      settled()
+      sub.unsubscribe()
+      setTimeout(() => watch(name, query, apply, settled), RETRY_MS)
+    },
+  })
+}
 
 const ready: Promise<void> = initialized.then(
   (dbName) =>
     new Promise<void>((resolve) => {
       const db = createDb(dbName)
-      let gotRows = false
-      let gotTags = false
-      const check = () => {
-        if (gotRows && gotTags) resolve()
+      const done = new Set<string>()
+      const settle = (n: string) => () => {
+        done.add(n)
+        if (done.size === 2) resolve()
       }
-      liveQuery(() => db.noteText.toArray()).subscribe({
-        next: (v) => {
-          rows = v
-          gotRows = true
-          check()
-        },
-        error: () => {
-          gotRows = true
-          check()
-        },
-      })
-      liveQuery(() => db.tags.toArray()).subscribe({
-        next: (v) => {
+      watch('noteText', () => db.noteText.toArray(), (v) => (state.rows = v), settle('noteText'))
+      watch(
+        'tags',
+        () => db.tags.toArray(),
+        (v) => {
           const m = new Map<string, string[]>()
           for (const t of v) {
             const list = m.get(t.noteId)
             if (list) list.push(t.tag)
             else m.set(t.noteId, [t.tag])
           }
-          tags = m
-          gotTags = true
-          check()
+          state.tags = m
         },
-        error: () => {
-          gotTags = true
-          check()
-        },
-      })
+        settle('tags'),
+      )
     }),
 )
 
@@ -61,14 +75,6 @@ self.onmessage = async (e: MessageEvent<SearchRequest>) => {
     resolveInit(req.dbName)
     return
   }
-  try {
-    await ready
-    const hits =
-      req.kind === 'search'
-        ? searchNotes(req.query, rows, tags)
-        : findMentions(req.title, rows, new Set(req.excludeNoteIds))
-    self.postMessage({ id: req.id, hits })
-  } catch (err) {
-    self.postMessage({ id: req.id, error: err instanceof Error ? err.message : String(err) })
-  }
+  await ready
+  self.postMessage(handleRequest(state, req))
 }
