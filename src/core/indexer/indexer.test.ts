@@ -128,4 +128,31 @@ describe('Indexer', () => {
     vault.trashNote(b.id)
     expect(await indexer.referencedAttachmentIds()).toEqual(new Set(['att1', 'att2']))
   })
+
+  it('creates a title-only row for untouched notes and follows renames', async () => {
+    const n = vault.createNote({ title: 'Fresh' })
+    stop = indexer.start()
+    vault.touchNote(n.id)
+    await vi.waitFor(async () => expect(await db.noteText.get(n.id)).toMatchObject({ title: 'Fresh', text: '' }))
+    vault.renameNote(n.id, 'Renamed')
+    await vi.waitFor(async () => expect((await db.noteText.get(n.id))?.title).toBe('Renamed'))
+  })
+
+  it('does not recreate rows when the note is purged during indexing', async () => {
+    const n = vault.createNote({ title: 'A' })
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const slow = new Proxy(storage, {
+      get: (t, k) =>
+        k === 'loadDoc' ? async (id: string) => (await gate, t.loadDoc(id)) : (t as never)[k as never],
+    }) as MemoryStorage
+    const ix = new Indexer(db, vault, cache, slow)
+    const p = ix.indexNote(n.id)
+    vault.purgeNote(n.id)
+    await ix.removeNote(n.id)
+    release()
+    await p
+    expect(await db.noteText.get(n.id)).toBeUndefined()
+    expect(await db.blocks.where('noteId').equals(n.id).count()).toBe(0)
+  })
 })

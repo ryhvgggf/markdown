@@ -110,13 +110,23 @@ export class Indexer {
     )
   }
 
-  /** Vault changed: refresh renamed titles and drop rows of notes purged from the vault. */
+  /**
+   * Vault changed: drop rows of purged notes, and make sure every vault note (trashed included) has a
+   * row whose title/updatedAt match the vault, creating a title-only row when none exists yet.
+   */
   private async syncWithVault(): Promise<void> {
     const metas = new Map(this.vault.listNotes({ includeTrashed: true }).map((n) => [n.id, n]))
-    for (const row of await this.db.noteText.toArray()) {
-      const meta = metas.get(row.noteId)
-      if (!meta) await this.removeNote(row.noteId)
-      else if (meta.title !== row.title) await this.db.noteText.update(row.noteId, { title: meta.title })
+    const rows = new Map((await this.db.noteText.toArray()).map((r) => [r.noteId, r]))
+    for (const id of rows.keys()) if (!metas.has(id)) await this.removeNote(id)
+    for (const meta of metas.values()) {
+      const row = rows.get(meta.id)
+      if (row && row.title === meta.title && row.updatedAt === meta.updatedAt) continue
+      await this.db.transaction('rw', this.db.noteText, async () => {
+        const cur = await this.db.noteText.get(meta.id)
+        if (!this.vault.getNote(meta.id)) return
+        if (!cur) await this.db.noteText.put({ noteId: meta.id, title: meta.title, text: '', updatedAt: meta.updatedAt })
+        else await this.db.noteText.update(meta.id, { title: meta.title, updatedAt: meta.updatedAt })
+      })
     }
   }
 
@@ -134,6 +144,11 @@ export class Indexer {
     const blockRows: BlockRow[] = x.blocks.map((b) => ({ noteId, blockId: b.id, type: b.type, text: b.text }))
     const tagRows: TagRow[] = x.tags.map((tag) => ({ noteId, tag }))
     await this.db.transaction('rw', [noteText, links, blocks, tags], async () => {
+      // The note may have been purged while we were loading; never recreate rows for it.
+      const live = this.vault.getNote(noteId)
+      if (!live) return
+      title = live.title
+      updatedAt = live.updatedAt
       await noteText.put({ noteId, title, text: x.text, updatedAt })
       await links.where('sourceNoteId').equals(noteId).delete()
       await blocks.where('noteId').equals(noteId).delete()
