@@ -1,46 +1,32 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import { Node, mergeAttributes } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
-import { liveQuery } from 'dexie'
-import type { NotesDb } from '@/adapters/storage/db'
 import type { Vault } from '@/core/vault/vault'
 import { displayTitle } from '@/core/vault/titles'
 import type { EditorContext } from '../extensions'
 import { formatBlockLink, type LinkTarget } from './block-link-clipboard'
+import { useBlockText, type BlockTextResult } from './block-status'
 
 export type LinkState = 'ok' | 'deleted-note' | 'deleted-block'
 
 const BLOCK_SNIPPET = 20
 
-export function noteLinkLabel(vault: Vault, target: LinkTarget, blockText?: string): { text: string; state: LinkState } {
+/**
+ * `blockText`: the block's text; `null` = unknown (not indexed yet) → title only, state ok;
+ * `undefined` (or omitted) = the block is known to be gone → 已刪除的區塊.
+ */
+export function noteLinkLabel(vault: Vault, target: LinkTarget, blockText?: BlockTextResult): { text: string; state: LinkState } {
   const note = vault.getNote(target.noteId)
   if (!note || note.deletedAt !== null) return { text: '已刪除的筆記', state: 'deleted-note' }
   const title = displayTitle(note.title)
   if (target.blockId === null) return { text: title, state: 'ok' }
   if (blockText === undefined) return { text: '已刪除的區塊', state: 'deleted-block' }
+  if (blockText === null) return { text: title, state: 'ok' }
   const chars = Array.from(blockText.trim())
   if (chars.length === 0) return { text: title, state: 'ok' }
   const snippet = chars.length > BLOCK_SNIPPET ? `${chars.slice(0, BLOCK_SNIPPET).join('')}…` : chars.join('')
   return { text: `${title} › ${snippet}`, state: 'ok' }
-}
-
-type BlockText = { key: string; text: string | undefined }
-
-/** Live text of an indexed block; `loading` until the first query result for this target. */
-function useBlockText(db: NotesDb | undefined, noteId: string, blockId: string | null) {
-  const key = `${noteId}#${blockId ?? ''}`
-  const [result, setResult] = useState<BlockText | null>(null)
-  useEffect(() => {
-    if (!db || !blockId) return
-    const sub = liveQuery(() => db.blocks.get([noteId, blockId])).subscribe({
-      next: (row) => setResult({ key, text: row?.text }),
-      error: () => setResult({ key, text: undefined }),
-    })
-    return () => sub.unsubscribe()
-  }, [db, noteId, blockId, key])
-  const current = result?.key === key ? result : null
-  return { loading: Boolean(blockId && db) && !current, text: current?.text }
 }
 
 const noop = () => () => {}
@@ -57,12 +43,8 @@ function NoteLinkView({ node, extension }: ReactNodeViewProps) {
   const ctx = (extension.options as NoteLinkOptions).ctx
   const target: LinkTarget = { noteId: node.attrs.noteId as string, blockId: (node.attrs.blockId as string | null) ?? null }
   useNoteSnapshot(ctx?.vault, target.noteId)
-  const block = useBlockText(ctx?.db, target.noteId, target.blockId)
-  const label = ctx?.vault
-    ? block.loading
-      ? noteLinkLabel(ctx.vault, { ...target, blockId: null })
-      : noteLinkLabel(ctx.vault, target, block.text)
-    : { text: '已刪除的筆記', state: 'deleted-note' as const }
+  const blockText = useBlockText(ctx?.db, target.noteId, target.blockId, ctx?.peekNoteDoc)
+  const label = ctx?.vault ? noteLinkLabel(ctx.vault, target, blockText) : { text: '已刪除的筆記', state: 'deleted-note' as const }
   const ok = label.state === 'ok'
   return (
     <NodeViewWrapper as="span" className="note-link-wrapper">
@@ -122,7 +104,18 @@ export const NoteLink = Node.create<NoteLinkOptions>({
   },
 
   parseHTML() {
-    return [{ tag: 'span[data-note-link]' }]
+    const ctx = this.options.ctx
+    return [
+      {
+        tag: 'span[data-note-link]',
+        // Links can never point at a note that does not exist (e.g. foreign HTML).
+        getAttrs: (el) => {
+          const id = (el as HTMLElement).getAttribute('data-note-id')
+          if (!id) return false
+          return ctx?.vault && !ctx.vault.getNote(id) ? false : null
+        },
+      },
+    ]
   },
 
   renderHTML({ HTMLAttributes }) {

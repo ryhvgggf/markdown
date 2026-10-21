@@ -119,6 +119,7 @@ const LinkList = forwardRef<PopupListHandle, ListProps>(function LinkList({ item
         return true
       }
       if (e.key === 'Enter') {
+        if (!items.length) return false
         const item = items[selected]
         if (item) command(item)
         return true

@@ -1,5 +1,6 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import type { EditorContext } from '../extensions'
 
 export type LinkTarget = { noteId: string; blockId: string | null }
 
@@ -23,13 +24,18 @@ export function copyBlockLink(noteId: string, blockId: string): Promise<void> {
 
 /**
  * Pasting a lone block-link token inserts a noteLink. Runs before the Markdown paste plugin
- * (higher priority) and stays out of code blocks and IME composition.
+ * (higher priority) and stays out of code blocks and IME composition. Tokens for notes that do not
+ * exist or are in the trash paste as plain text.
  */
-export const BlockLinkPaste = Extension.create({
+export const BlockLinkPaste = Extension.create<{ ctx: EditorContext | null }>({
   name: 'blockLinkPaste',
   priority: 200,
+  addOptions() {
+    return { ctx: null }
+  },
   addProseMirrorPlugins() {
     const editor = this.editor
+    const ctx = this.options.ctx
     return [
       new Plugin({
         key: new PluginKey('blockLinkPaste'),
@@ -38,6 +44,8 @@ export const BlockLinkPaste = Extension.create({
             if (view.composing || view.state.selection.$from.parent.type.spec.code) return false
             const target = parseBlockLink(event.clipboardData?.getData('text/plain') ?? '')
             if (!target) return false
+            const note = ctx?.vault?.getNote(target.noteId)
+            if (!note || note.deletedAt !== null) return false
             event.preventDefault()
             return editor.commands.insertContent({ type: 'noteLink', attrs: target })
           },

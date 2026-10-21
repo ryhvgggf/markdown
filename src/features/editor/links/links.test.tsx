@@ -198,6 +198,16 @@ describe('[[ suggestion', () => {
     expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: 'p1' } })])
   })
 
+  it('Enter with no items is not swallowed', async () => {
+    vault.createNote({ title: '採購流程' })
+    await setup()
+    await insert('[[採購流程#zzz')
+    expect(await screen.findByText('沒有符合的區塊')).toBeInTheDocument()
+    await key('Enter')
+    expect(nodesOf('noteLink')).toEqual([])
+    expect(screen.queryByText('沒有符合的區塊')).toBeNull()
+  })
+
   it('Enter while composing does not insert', async () => {
     vault.createNote({ title: '採購流程' })
     await setup()
@@ -245,6 +255,7 @@ describe('noteLink node view', () => {
 
   it('renders deleted block and deleted note states, not clickable, and recovers on restore', async () => {
     const n = vault.createNote({ title: '採購流程' })
+    ctx.peekNoteDoc = (id) => (id === n.id ? new Y.Doc() : undefined) // loaded target doc without that block
     await setup({
       type: 'doc',
       content: [
@@ -264,6 +275,59 @@ describe('noteLink node view', () => {
     expect(ctx.openNote).not.toHaveBeenCalled()
     await act(async () => vault.restoreNote(n.id))
     expect(screen.getByRole('link', { name: '前往 採購流程' })).toBeInTheDocument()
+  })
+
+  it('a missing row in a never-indexed note is unknown: title label, clickable', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await setup(linkDoc(n.id, 'p1'))
+    const link = await screen.findByRole('link', { name: '前往 採購流程' })
+    await act(async () => new Promise((r) => setTimeout(r, 50)))
+    expect(link).toHaveAttribute('data-state', 'ok')
+    fireEvent.click(link)
+    expect(ctx.openNote).toHaveBeenCalledWith(n.id, 'p1')
+  })
+
+  it('a loaded doc that still has the block keeps the link unknown, not deleted', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await db.blocks.put({ noteId: n.id, blockId: 'other', type: 'paragraph', text: 'x' })
+    const doc = new Y.Doc()
+    const p = new Y.XmlElement('paragraph')
+    p.setAttribute('id', 'p1')
+    doc.getXmlFragment('content').insert(0, [p])
+    ctx.peekNoteDoc = () => doc
+    await setup(linkDoc(n.id, 'p1'))
+    expect(await screen.findByRole('link', { name: '前往 採購流程' })).toHaveAttribute('data-state', 'ok')
+  })
+
+  it('a missing row in an indexed note becomes deleted after the grace period; a late row shows text', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await db.blocks.put({ noteId: n.id, blockId: 'other', type: 'paragraph', text: 'x' })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+    try {
+      await setup({
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'noteLink', attrs: { noteId: n.id, blockId: 'gone' } }] },
+          { type: 'paragraph', content: [{ type: 'noteLink', attrs: { noteId: n.id, blockId: 'late' } }] },
+        ],
+      })
+      await waitFor(() => expect(screen.getAllByRole('link', { name: '前往 採購流程' })).toHaveLength(2))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+      })
+      await act(async () => {
+        await db.blocks.put({ noteId: n.id, blockId: 'late', type: 'paragraph', text: '後來索引的段落' })
+      })
+      await waitFor(() => expect(screen.getByRole('link', { name: '前往 採購流程 › 後來索引的段落' })).toBeInTheDocument())
+      expect(screen.queryByText('已刪除的區塊')).toBeNull()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500) // past the grace period wherever it started
+      })
+      await waitFor(() => expect(screen.getByText('已刪除的區塊')).toHaveAttribute('data-state', 'deleted-block'))
+      expect(screen.getByRole('link', { name: '前往 採購流程 › 後來索引的段落' })).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('Enter on a selected link opens it', async () => {
@@ -288,6 +352,22 @@ describe('block link paste', () => {
     expect(handled).toBe(true)
     expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: 'p1' } })])
     expect(nodesOf('text').map((t) => t.text ?? '').join('')).not.toContain('[[note:')
+  })
+  it('pastes tokens for missing or trashed notes as plain text', async () => {
+    const t = vault.createNote({ title: '舊筆記' })
+    vault.trashNote(t.id)
+    await setup()
+    expect(paste('[[note:nope#b1]]')).toBe(false)
+    expect(paste(formatBlockLink(t.id, null))).toBe(false)
+    expect(nodesOf('noteLink')).toEqual([])
+  })
+  it('drops HTML noteLinks to notes that do not exist', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await setup()
+    await act(async () => {
+      editor!.commands.insertContent(`<p>a <span data-note-link data-note-id="ghost">x</span> b <span data-note-link data-note-id="${n.id}">y</span></p>`)
+    })
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: null } })])
   })
   it('leaves other text and code blocks alone', async () => {
     await setup('<pre><code></code></pre>')
@@ -314,6 +394,7 @@ describe('tags', () => {
     for (const [content, text] of [
       ['<p></p>', 'https://a.com/#frag '],
       ['<p></p>', 'abc#def '],
+      ['<p></p>', 'example.com#frag '],
       ['<pre><code></code></pre>', '#include '],
       ['<p>x <code>c</code></p>', ''],
       ['<p></p>', '# '],

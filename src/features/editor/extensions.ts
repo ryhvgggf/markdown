@@ -43,6 +43,8 @@ export type EditorContext = {
   storage: StorageAdapter
   /** Tag pill clicked (filtering arrives with the sidebar/search tasks). */
   onTagClick?(name: string): void
+  /** The note's Y.Doc when it is loaded in the NoteDoc cache (confirms deleted block links). */
+  peekNoteDoc?(noteId: string): Y.Doc | undefined
 }
 
 /** Tab / Shift-Tab are owned by ListMoves (composition-guarded); drop the built-in bindings. */
@@ -121,7 +123,7 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     NoteLink.configure({ ctx }),
     Tag.configure({ ctx }),
     createLinkSuggestion(ctx),
-    BlockLinkPaste,
+    BlockLinkPaste.configure({ ctx }),
     BlockHighlight,
     BlockId,
     Collaboration.configure({ document: doc, field: 'content' }),

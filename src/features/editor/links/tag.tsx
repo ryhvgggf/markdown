@@ -3,11 +3,11 @@ import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from 
 import type { EditorContext } from '../extensions'
 
 /**
- * `#name` + space → tag. The `#` must not follow an ASCII letter/digit, `/`, `:` or `#`
+ * `#name` + space → tag. The `#` must not follow an ASCII letter/digit, `/`, `:`, `.`, `&` or `#`
  * (URLs, anchors, `##`); the name is letters/digits/marks plus inner `_`/`-` and needs at least
  * one letter, so `# ` (heading) and `#1 ` stay text. Code is excluded by Tiptap's input rules.
  */
-export const TAG_INPUT = /(?<![A-Za-z0-9_/:#&])#((?=[\p{N}_-]*\p{L})[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}_-]*) $/u
+export const TAG_INPUT = /(?<![A-Za-z0-9_/:#&.])#((?=[\p{N}_-]*\p{L})[\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}_-]*) $/u
 
 /** True when the text before `pos` in its textblock has an unclosed `[[` (a link query in progress). */
 function inLinkQuery(textBefore: string): boolean {

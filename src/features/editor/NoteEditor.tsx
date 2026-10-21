@@ -67,8 +67,9 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
         },
         db: services.db,
         storage: services.storage,
+        peekNoteDoc: (id) => services.notes.peek(id),
       }),
-    [doc, vault, noteId, services.db, services.storage],
+    [doc, vault, noteId, services.db, services.storage, services.notes],
   )
 
   const editor = useEditor(
