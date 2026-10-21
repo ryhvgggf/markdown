@@ -108,3 +108,23 @@ export const Lightbulb = make(
     <path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z" />
   </>,
 )
+
+export const Bold = make('Bold', <path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z" />)
+export const Italic = make('Italic', <path d="M14 5h-4M14 19h-4M15 5l-6 14" />)
+export const Underline = make('Underline', <path d="M7 5v6a5 5 0 0 0 10 0V5M5 20h14" />)
+export const Strikethrough = make('Strikethrough', <path d="M5 12h14M16.5 7.5A4.5 3 0 0 0 12 5c-2.5 0-4.5 1.2-4.5 3s2 2.5 4.5 3M7.5 16.5A4.5 3 0 0 0 12 19c2.5 0 4.5-1.2 4.5-3" />)
+export const CodeInline = make('CodeInline', <path d="m9 7-5 5 5 5M15 7l5 5-5 5" />)
+export const TextColor = make(
+  'TextColor',
+  <>
+    <path d="m6 16 6-11 6 11M8.5 12h7" />
+    <path d="M5 20h14" />
+  </>,
+)
+export const Highlighter = make(
+  'Highlighter',
+  <>
+    <path d="m14 4 6 6-8 8H8l-4-4v-3z" />
+    <path d="M5 21h14" />
+  </>,
+)

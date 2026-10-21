@@ -6,6 +6,7 @@ import { useUi } from '@/app/ui-store'
 import { NoteDocError } from '@/core/note-doc/cache'
 import { createExtensions } from './extensions'
 import { registerEditor } from './focus-bridge'
+import { FormatToolbar } from './menus/FormatToolbar'
 
 type Load = { status: 'loading' } | { status: 'corrupted' } | { status: 'error' } | { status: 'ready'; doc: Y.Doc }
 
@@ -91,6 +92,7 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
   return (
     <div data-note-editor className="px-6 pb-32">
       <EditorContent editor={editor} />
+      <FormatToolbar editor={editor} />
     </div>
   )
 }

@@ -21,6 +21,8 @@ import { TaskItem } from './blocks/task-item'
 import { Callout } from './blocks/callout'
 import { CodeBlock, CodeTab } from './blocks/code-block'
 import { Table, TableCell, TableHeader, TableRow, TableTab } from './blocks/table'
+import { formattingExtensions } from './marks/formatting'
+import { MarkdownPaste } from './paste/markdown-paste'
 import { focusTitleEnd } from './focus-bridge'
 import { isComposingEvent } from './ime'
 
@@ -105,6 +107,8 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     Dropcursor.configure({ width: 2 }),
     Gapcursor,
     Placeholder.configure({ placeholder: ({ editor }) => (editor.isEmpty ? EMPTY_PLACEHOLDER : '') }),
+    ...formattingExtensions(),
+    MarkdownPaste,
     BlockId,
     Collaboration.configure({ document: doc, field: 'content' }),
     titleNavigation(ctx.noteId),
