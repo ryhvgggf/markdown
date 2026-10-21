@@ -119,17 +119,24 @@ describe('Vault', () => {
     expect(v.getNote(recent.id)).toBeDefined()
   })
 
-  it('purgeExpired returns attachments not referenced', async () => {
+  it('purgeExpired only removes old unreferenced attachments', async () => {
     const v = await open()
-    const n = v.createNote({ title: 'x' })
-    v.trashNote(n.id)
-    const a1 = v.addAttachment({ filename: 'a', mimeType: 'image/png', size: 1 })
-    const a2 = v.addAttachment({ filename: 'b', mimeType: 'image/png', size: 1 })
-    const r = v.purgeExpired(Date.now() + 31 * DAY, new Set([a1.id]))
-    expect(r.noteIds).toEqual([n.id])
-    expect(r.attachmentIds).toEqual([a2.id])
-    expect(v.doc.getMap('attachments').has(a2.id)).toBe(false)
-    expect(v.doc.getMap('attachments').has(a1.id)).toBe(true)
+    const now = Date.now()
+    const fresh = v.addAttachment({ filename: 'f', mimeType: 'image/png', size: 1 })
+    const oldUnref = v.addAttachment({ filename: 'o', mimeType: 'image/png', size: 1 })
+    const oldRef = v.addAttachment({ filename: 'r', mimeType: 'image/png', size: 1 })
+    v.doc.transact(() => {
+      const att = v.doc.getMap<import('yjs').Map<unknown>>('attachments')
+      att.get(oldUnref.id)!.set('createdAt', now - 31 * DAY)
+      att.get(oldRef.id)!.set('createdAt', now - 31 * DAY)
+    })
+    expect(v.purgeExpired(now).attachmentIds).toEqual([])
+    const r = v.purgeExpired(now, new Set([oldRef.id]))
+    expect(r.attachmentIds).toEqual([oldUnref.id])
+    const att = v.doc.getMap('attachments')
+    expect(att.has(oldUnref.id)).toBe(false)
+    expect(att.has(fresh.id)).toBe(true)
+    expect(att.has(oldRef.id)).toBe(true)
   })
 
   it('resolveDuplicateTitles renames the later-created note', async () => {

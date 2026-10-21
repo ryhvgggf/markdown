@@ -4,5 +4,12 @@ import { generateKeyBetween } from 'fractional-indexing'
 export function orderForIndex(siblingOrders: string[], index: number): string {
   const sorted = [...siblingOrders].sort()
   const i = Math.max(0, Math.min(index, sorted.length))
-  return generateKeyBetween(sorted[i - 1] ?? null, sorted[i] ?? null)
+  const prev = sorted[i - 1] ?? null
+  const next = sorted[i] ?? null
+  if (prev !== null && next !== null && prev >= next) {
+    // Duplicate keys (e.g. from concurrent inserts): go after the run of equal keys.
+    const greater = sorted.find((k) => k > prev) ?? null
+    return generateKeyBetween(prev, greater)
+  }
+  return generateKeyBetween(prev, next)
 }

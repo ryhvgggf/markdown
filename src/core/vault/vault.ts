@@ -217,6 +217,11 @@ export class Vault {
   }
 
   // ---- maintenance ----
+  /**
+   * Removes notes/folders trashed more than 30 days ago. Attachments are returned and removed only if
+   * they are older than 30 days AND absent from `referencedAttachmentIds`; that set must include
+   * references from trashed-but-unexpired notes too. Omitted set: no attachments are touched.
+   */
   purgeExpired(now: number, referencedAttachmentIds?: Set<string>): { noteIds: string[]; attachmentIds: string[] } {
     const expired = (m: YM) => {
       const d = m.get('deletedAt') as number | null | undefined
@@ -225,7 +230,9 @@ export class Vault {
     const noteIds = [...this.notes.entries()].filter(([, m]) => expired(m)).map(([k]) => k)
     const folderIds = [...this.folders.entries()].filter(([, m]) => expired(m)).map(([k]) => k)
     const attachmentIds = referencedAttachmentIds
-      ? [...this.attachments.keys()].filter((k) => !referencedAttachmentIds.has(k))
+      ? [...this.attachments.entries()]
+          .filter(([k, m]) => !referencedAttachmentIds.has(k) && now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS)
+          .map(([k]) => k)
       : []
     this.doc.transact(() => {
       noteIds.forEach((k) => this.notes.delete(k))
