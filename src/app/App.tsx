@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { NoteEditor } from '@/features/editor/NoteEditor'
+import { TitleBlock } from '@/features/editor/TitleBlock'
 import { Shell } from '@/features/shell/Shell'
 import { StorageBanner } from '@/features/shell/StorageBanner'
 import { bootstrap, type AppServices } from './bootstrap'
-import { ServicesProvider } from './services-context'
+import { ServicesProvider, useServices } from './services-context'
 import { setPersistLastNote, useUi } from './ui-store'
 
 type State =
@@ -57,7 +59,7 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
       <StorageBanner />
       <Shell
         sidebar={<p className="p-4 text-sm text-fg-secondary">資料夾</p>}
-        main={<p className="p-6 text-fg-secondary">選擇或新增一篇筆記</p>}
+        main={<MainNote />}
         panel={<p className="p-4 text-sm text-fg-secondary">筆記資訊</p>}
         headerActions={<PlaceholderPanelButtons />}
       />
@@ -80,5 +82,21 @@ function PlaceholderPanelButtons() {
         反向連結
       </button>
     </>
+  )
+}
+
+function MainNote() {
+  const { vault } = useServices()
+  const openNoteId = useUi((s) => s.openNoteId)
+  const [, bump] = useState(0)
+  useEffect(() => vault.observe(() => bump((n) => n + 1)), [vault])
+  if (!openNoteId || !vault.getNote(openNoteId)) {
+    return <p className="p-6 text-fg-secondary">選擇或新增一篇筆記</p>
+  }
+  return (
+    <div key={openNoteId}>
+      <TitleBlock noteId={openNoteId} />
+      <NoteEditor noteId={openNoteId} />
+    </div>
   )
 }
