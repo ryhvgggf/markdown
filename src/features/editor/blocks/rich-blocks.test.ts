@@ -129,3 +129,4 @@ describe('table', () => {
     expect(next).not.toBe(start)
   })
 })
+

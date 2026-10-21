@@ -23,7 +23,13 @@ export { CODE_LANGUAGES }
 export const lowlight = createLowlight()
 lowlight.register({ abap: abapLanguage, javascript, typescript, java, sql, xml, json, css, bash, python, markdown })
 
-export const CodeBlock = CodeBlockLowlight.configure({ lowlight, defaultLanguage: null }).extend({
+/** A null language means plain text: tiptap would otherwise call highlightAuto, so neutralise it. */
+const plainLowlight: typeof lowlight = {
+  ...lowlight,
+  highlightAuto: () => ({ type: 'root', children: [], data: { language: undefined, relevance: 0 } }),
+}
+
+export const CodeBlock = CodeBlockLowlight.configure({ lowlight: plainLowlight, defaultLanguage: null }).extend({
   addNodeView() {
     return ReactNodeViewRenderer(CodeBlockView)
   },

@@ -84,3 +84,27 @@ export const Grip = make(
     <circle cx="15" cy="18" r="1" />
   </>,
 )
+
+export const Info = make(
+  'Info',
+  <>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5.5" />
+    <circle cx="12" cy="7.8" r="0.6" />
+  </>,
+)
+export const Warning = make(
+  'Warning',
+  <>
+    <path d="M10.3 4.2 2.9 17.3A2 2 0 0 0 4.6 20.3h14.8a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z" />
+    <path d="M12 9.5v4.2" />
+    <circle cx="12" cy="16.8" r="0.6" />
+  </>,
+)
+export const Lightbulb = make(
+  'Lightbulb',
+  <>
+    <path d="M9 18h6M10 21h4" />
+    <path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z" />
+  </>,
+)

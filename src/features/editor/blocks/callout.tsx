@@ -1,10 +1,12 @@
 import { mergeAttributes, Node } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
+import { Info, Lightbulb, Warning } from '@/ui/icons'
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
 
 export type CalloutIcon = 'info' | 'warning' | 'tip'
 const ICONS: CalloutIcon[] = ['info', 'warning', 'tip']
-const GLYPH: Record<CalloutIcon, string> = { info: 'ℹ️', warning: '⚠️', tip: '💡' }
+const GLYPH = { info: Info, warning: Warning, tip: Lightbulb }
+const COLOR: Record<CalloutIcon, string> = { info: 'var(--accent)', warning: '#B45309', tip: '#1F7A4D' }
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -16,12 +18,14 @@ declare module '@tiptap/core' {
 
 function CalloutView({ node, updateAttributes, editor }: ReactNodeViewProps) {
   const icon = (ICONS.includes(node.attrs.icon) ? node.attrs.icon : 'info') as CalloutIcon
+  const Glyph = GLYPH[icon]
   return (
     <NodeViewWrapper className="callout" data-type="callout" data-icon={icon}>
       <button
         type="button"
         className="callout-icon"
         contentEditable={false}
+        style={{ color: COLOR[icon] }}
         aria-label="切換提示框圖示"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
@@ -29,7 +33,7 @@ function CalloutView({ node, updateAttributes, editor }: ReactNodeViewProps) {
           updateAttributes({ icon: ICONS[(ICONS.indexOf(icon) + 1) % ICONS.length] })
         }}
       >
-        {GLYPH[icon]}
+        <Glyph size={18} />
       </button>
       <NodeViewContent className="callout-content" />
     </NodeViewWrapper>

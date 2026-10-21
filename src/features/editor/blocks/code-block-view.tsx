@@ -1,7 +1,7 @@
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { CODE_LANGUAGES } from './code-languages'
 
-export function CodeBlockView({ node, updateAttributes, editor }: ReactNodeViewProps) {
+export function CodeBlockView({ node, updateAttributes, editor, getPos }: ReactNodeViewProps) {
   const language = (node.attrs.language as string | null) ?? ''
   return (
     <NodeViewWrapper className="code-block">
@@ -11,7 +11,14 @@ export function CodeBlockView({ node, updateAttributes, editor }: ReactNodeViewP
         aria-label="程式語言"
         value={language}
         disabled={!editor.isEditable}
-        onChange={(e) => updateAttributes({ language: e.target.value || null })}
+        onChange={(e) => {
+          updateAttributes({ language: e.target.value || null })
+          // Return focus to the code so following keystrokes are not select type-ahead.
+          const pos = getPos()
+          if (typeof pos !== 'number') return
+          const end = pos + editor.state.doc.nodeAt(pos)!.nodeSize - 1
+          editor.chain().focus(undefined, { scrollIntoView: false }).setTextSelection(end).run()
+        }}
       >
         <option value="">純文字</option>
         {CODE_LANGUAGES.map((l) => (

@@ -65,7 +65,7 @@
 }
 .note-editor .callout-icon {
   flex: none; width: 24px; height: 28px; padding: 0; border: 0; background: transparent;
-  font-size: 16px; line-height: 28px; cursor: pointer; border-radius: 6px; user-select: none;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 6px; user-select: none;
 }
 .note-editor .callout-icon:hover { background: var(--color-fill); }
 .note-editor .callout-content { flex: 1; min-width: 0; }
