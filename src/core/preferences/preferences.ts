@@ -2,6 +2,7 @@ import * as Y from 'yjs'
 import type { StorageAdapter, StorageError } from '@/adapters/storage/types'
 import { bindPersistence } from '../persist'
 import { TAB_ORIGIN, connectTabs } from '../tabs-bridge'
+import { ACCENTS } from './accents'
 
 export type Tri = 'system' | 'on' | 'off'
 export type Prefs = {
@@ -61,7 +62,13 @@ function valid(key: keyof Prefs, v: unknown): boolean {
   const en = ENUMS[key]
   if (en) return typeof v === 'string' && en.includes(v)
   if (key === 'backgroundBlobId') return v === null || typeof v === 'string'
+  if (key === 'accent') return canonicalAccent(v) !== null
   return typeof v === 'string' && v !== ''
+}
+
+function canonicalAccent(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  return ACCENTS.find((a) => a.hex.toLowerCase() === v.toLowerCase())?.hex ?? null
 }
 
 export class Preferences {
@@ -96,7 +103,7 @@ export class Preferences {
       const v = this.map.get(key)
       if (v === undefined || !valid(key, v)) continue
       const range = RANGES[key]
-      out[key] = range ? clamp(v as number, range[0], range[1]) : v
+      out[key] = range ? clamp(v as number, range[0], range[1]) : key === 'accent' ? canonicalAccent(v) : v
     }
     return out as Prefs
   }

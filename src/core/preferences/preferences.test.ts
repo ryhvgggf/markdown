@@ -44,6 +44,16 @@ describe('Preferences', () => {
     expect(p.get().sidebarWidth).toBe(256)
   })
 
+  it('only accepts palette accents, canonicalizing case', async () => {
+    const p = await open()
+    p.set({ accent: 'banana' })
+    expect(p.get().accent).toBe('#4F4BC9')
+    p.set({ accent: '#123456' })
+    expect(p.get().accent).toBe('#4F4BC9')
+    p.set({ accent: '#1f63d6' })
+    expect(p.get().accent).toBe('#1F63D6')
+  })
+
   it('observe fires with merged prefs and can unsubscribe', async () => {
     const p = await open()
     const cb = vi.fn()
