@@ -1,0 +1,344 @@
+import { useEffect } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import * as Y from 'yjs'
+import { EditorContent, useEditor } from '@tiptap/react'
+import type { Editor, JSONContent } from '@tiptap/core'
+import { MemoryStorage } from '@/adapters/storage/memory-storage'
+import { createDb, type NotesDb } from '@/adapters/storage/db'
+import { Vault } from '@/core/vault/vault'
+import { createExtensions, type EditorContext } from '../extensions'
+import { copyBlockLink, formatBlockLink, parseBlockLink } from './block-link-clipboard'
+import { noteLinkLabel } from './note-link'
+import { setBlockHighlight } from './block-highlight'
+
+const fakeChannel = () =>
+  ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
+
+let vault: Vault
+let db: NotesDb
+let ctx: EditorContext
+let editor: Editor | null = null
+
+beforeEach(async () => {
+  vault = await Vault.open(new MemoryStorage(), 'v1', { channelFactory: fakeChannel })
+  db = createDb('links-' + Math.random().toString(36).slice(2))
+  await db.open()
+  ctx = {
+    vault,
+    noteId: 'current',
+    openNote: vi.fn(),
+    searchBlocks: (id, q) =>
+      db.blocks
+        .where('noteId')
+        .equals(id)
+        .filter((b) => b.text.toLowerCase().includes(q.toLowerCase()))
+        .toArray(),
+    db,
+    storage: new MemoryStorage(),
+  }
+})
+afterEach(() => {
+  cleanup()
+  editor = null
+  vault.close()
+  db.close()
+})
+
+function Harness() {
+  const e = useEditor({ extensions: createExtensions(new Y.Doc(), ctx) })
+  useEffect(() => {
+    editor = e
+  }, [e])
+  return <EditorContent editor={e} />
+}
+async function setup(content: string | JSONContent = '<p></p>') {
+  render(<Harness />)
+  await act(async () => {
+    editor!.commands.setContent(content)
+    editor!.commands.focus('end')
+  })
+}
+const insert = (text: string) =>
+  act(async () => {
+    editor!.commands.insertContent(text)
+  })
+const key = (k: string) =>
+  act(async () => {
+    fireEvent.keyDown(editor!.view.dom, { key: k })
+  })
+/** Types like a user: each character goes through handleTextInput, so input rules run. */
+const typeChars = (text: string) =>
+  act(async () => {
+    for (const ch of text) {
+      const view = editor!.view
+      const { from, to } = view.state.selection
+      const handled = view.someProp('handleTextInput', (f) => f(view, from, to, ch, () => view.state.tr.insertText(ch, from, to)))
+      if (!handled) view.dispatch(view.state.tr.insertText(ch, from, to))
+    }
+  })
+function nodesOf(type: string): JSONContent[] {
+  const out: JSONContent[] = []
+  const walk = (n: JSONContent) => {
+    if (n.type === type) out.push(n)
+    n.content?.forEach(walk)
+  }
+  walk(editor!.getJSON())
+  return out
+}
+function paste(text: string) {
+  const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent
+  Object.defineProperty(event, 'clipboardData', {
+    value: { getData: (t: string) => (t === 'text/plain' ? text : ''), types: ['text/plain'], files: [], items: [] },
+  })
+  return Boolean(editor!.view.someProp('handlePaste', (f) => f(editor!.view, event, null as never)))
+}
+const linkDoc = (noteId: string, blockId: string | null = null): JSONContent => ({
+  type: 'doc',
+  content: [{ type: 'paragraph', content: [{ type: 'text', text: '見 ' }, { type: 'noteLink', attrs: { noteId, blockId } }] }],
+})
+
+describe('noteLinkLabel', () => {
+  it('labels notes, blocks and deleted targets', () => {
+    const n = vault.createNote({ title: '採購流程' })
+    expect(noteLinkLabel(vault, { noteId: n.id, blockId: null })).toEqual({ text: '採購流程', state: 'ok' })
+    expect(noteLinkLabel(vault, { noteId: n.id, blockId: 'b1' }, '核准層級依金額決定，超過十萬元需要經理簽核')).toEqual({
+      text: '採購流程 › 核准層級依金額決定，超過十萬元需要經理簽…',
+      state: 'ok',
+    })
+    expect(noteLinkLabel(vault, { noteId: n.id, blockId: 'b1' }, '核准層級')).toEqual({ text: '採購流程 › 核准層級', state: 'ok' })
+    expect(noteLinkLabel(vault, { noteId: n.id, blockId: 'b1' })).toEqual({ text: '已刪除的區塊', state: 'deleted-block' })
+    vault.trashNote(n.id)
+    expect(noteLinkLabel(vault, { noteId: n.id, blockId: null })).toEqual({ text: '已刪除的筆記', state: 'deleted-note' })
+    expect(noteLinkLabel(vault, { noteId: 'missing', blockId: 'b1' }, 'x')).toEqual({ text: '已刪除的筆記', state: 'deleted-note' })
+  })
+  it('uses 未命名 for blank titles', () => {
+    const n = vault.createNote({ title: '' })
+    expect(noteLinkLabel(vault, { noteId: n.id, blockId: null }).text).toBe('未命名')
+  })
+})
+
+describe('block link format', () => {
+  it('round-trips and rejects malformed text', () => {
+    expect(formatBlockLink('n1', 'b1')).toBe('[[note:n1#b1]]')
+    expect(formatBlockLink('n1', null)).toBe('[[note:n1]]')
+    expect(parseBlockLink(formatBlockLink('n1', 'b1'))).toEqual({ noteId: 'n1', blockId: 'b1' })
+    expect(parseBlockLink(formatBlockLink('V1StGXR8_Z5jdHi6B-myT', null))).toEqual({ noteId: 'V1StGXR8_Z5jdHi6B-myT', blockId: null })
+    expect(parseBlockLink('  [[note:n1#b1]]\n')).toEqual({ noteId: 'n1', blockId: 'b1' })
+    for (const bad of ['[[n1#b1]]', '[[note:]]', '[[note:n1#]]', 'x [[note:n1]]', '[[note:n 1]]', '[[note:n1]] [[note:n2]]', '']) {
+      expect(parseBlockLink(bad)).toBeNull()
+    }
+  })
+  it('copyBlockLink writes the token to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await copyBlockLink('n1', 'b1')
+    expect(writeText).toHaveBeenCalledWith('[[note:n1#b1]]')
+  })
+})
+
+describe('[[ suggestion', () => {
+  it('lists matching notes with folder path and inserts a noteLink', async () => {
+    const folder = vault.createFolder({ name: '工作', parentId: null })
+    const n = vault.createNote({ title: '採購流程', folderId: folder.id })
+    vault.createNote({ title: '會議紀錄' })
+    await setup()
+    await insert('[[採')
+    const options = await screen.findAllByRole('option')
+    expect(options[0]).toHaveTextContent('採購流程')
+    expect(options[0]).toHaveTextContent('工作')
+    expect(options.map((o) => o.textContent)).not.toContainEqual(expect.stringContaining('會議紀錄'))
+    expect(options.at(-1)).toHaveTextContent('建立新筆記「採」')
+    await key('Enter')
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: null } })])
+    expect(nodesOf('text').map((t) => t.text).join('')).not.toContain('[[')
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('hides trashed notes and omits the create row on an exact title match', async () => {
+    const t = vault.createNote({ title: '採購舊版' })
+    vault.trashNote(t.id)
+    vault.createNote({ title: '採購' })
+    await setup()
+    await insert('[[採購')
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(1)
+    expect(options[0]).toHaveTextContent('採購')
+  })
+
+  it('creates a new note from the last row and links it', async () => {
+    vault.createNote({ title: '採購流程' })
+    await setup()
+    await insert('[[採')
+    const create = await screen.findByRole('option', { name: /建立新筆記「採」/ })
+    await act(async () => {
+      fireEvent.click(create)
+    })
+    const created = vault.listNotes().find((x) => x.title === '採')
+    expect(created).toBeDefined()
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: created!.id, blockId: null } })])
+    expect(ctx.openNote).not.toHaveBeenCalled()
+  })
+
+  it('lists blocks of the named note after # and links the block', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await db.blocks.bulkPut([
+      { noteId: n.id, blockId: 'h1', type: 'heading', text: '核准' },
+      { noteId: n.id, blockId: 'p1', type: 'paragraph', text: '核准層級依金額決定' },
+      { noteId: n.id, blockId: 'p2', type: 'paragraph', text: '其他內容' },
+      { noteId: 'other', blockId: 'x', type: 'paragraph', text: '核准別處' },
+    ])
+    await setup()
+    await insert('[[採購流程#核准層')
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(1)
+    expect(options[0]).toHaveTextContent('段落')
+    expect(options[0]).toHaveTextContent('核准層級依金額決定')
+    await key('Enter')
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: 'p1' } })])
+  })
+
+  it('Enter while composing does not insert', async () => {
+    vault.createNote({ title: '採購流程' })
+    await setup()
+    await insert('[[採')
+    await screen.findAllByRole('option')
+    const view = editor!.view
+    const plugin = view.state.plugins.find((p) => (p as unknown as { key: string }).key.startsWith('noteLinkSuggestion'))!
+    await act(async () => {
+      plugin.props.handleKeyDown!.call(plugin, view, new KeyboardEvent('keydown', { key: 'Enter', isComposing: true }))
+    })
+    expect(nodesOf('noteLink')).toEqual([])
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+  })
+
+  it('does not open inside a code block', async () => {
+    vault.createNote({ title: '採購流程' })
+    await setup('<pre><code></code></pre>')
+    await insert('[[採')
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+})
+
+describe('noteLink node view', () => {
+  it('follows renames and opens the target on click', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await setup(linkDoc(n.id))
+    const link = await screen.findByRole('link', { name: '前往 採購流程' })
+    await act(async () => {
+      vault.renameNote(n.id, '請購流程')
+    })
+    expect(link).toHaveTextContent('請購流程')
+    expect(link).toHaveAttribute('aria-label', '前往 請購流程')
+    fireEvent.click(link)
+    expect(ctx.openNote).toHaveBeenCalledWith(n.id, undefined)
+  })
+
+  it('shows block text from the index and passes the block id', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await db.blocks.put({ noteId: n.id, blockId: 'p1', type: 'paragraph', text: '核准層級依金額決定' })
+    await setup(linkDoc(n.id, 'p1'))
+    const link = await screen.findByRole('link', { name: '前往 採購流程 › 核准層級依金額決定' })
+    fireEvent.click(link)
+    expect(ctx.openNote).toHaveBeenCalledWith(n.id, 'p1')
+  })
+
+  it('renders deleted block and deleted note states, not clickable, and recovers on restore', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await setup({
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'noteLink', attrs: { noteId: n.id, blockId: 'gone' } }] },
+        { type: 'paragraph', content: [{ type: 'noteLink', attrs: { noteId: n.id, blockId: null } }] },
+      ],
+    })
+    expect(await screen.findByText('已刪除的區塊')).toHaveAttribute('data-state', 'deleted-block')
+    await act(async () => vault.trashNote(n.id))
+    const deleted = screen.getAllByText('已刪除的筆記')
+    expect(deleted).toHaveLength(2)
+    deleted.forEach((el) => {
+      expect(el).toHaveAttribute('data-state', 'deleted-note')
+      expect(el).toHaveClass('line-through')
+    })
+    fireEvent.click(deleted[1])
+    expect(ctx.openNote).not.toHaveBeenCalled()
+    await act(async () => vault.restoreNote(n.id))
+    expect(screen.getByRole('link', { name: '前往 採購流程' })).toBeInTheDocument()
+  })
+
+  it('Enter on a selected link opens it', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await setup(linkDoc(n.id))
+    await act(async () => {
+      editor!.commands.setNodeSelection(3)
+    })
+    await key('Enter')
+    expect(ctx.openNote).toHaveBeenCalledWith(n.id, undefined)
+  })
+})
+
+describe('block link paste', () => {
+  it('pasting a block-link token inserts a noteLink', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await setup()
+    let handled = false
+    await act(async () => {
+      handled = paste(`  ${formatBlockLink(n.id, 'p1')}\n`)
+    })
+    expect(handled).toBe(true)
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: 'p1' } })])
+    expect(nodesOf('text').map((t) => t.text ?? '').join('')).not.toContain('[[note:')
+  })
+  it('leaves other text and code blocks alone', async () => {
+    await setup('<pre><code></code></pre>')
+    expect(paste('[[note:n1#b1]]')).toBe(false)
+    await act(async () => editor!.commands.setContent('<p></p>'))
+    expect(paste('see [[note:n1#b1]]')).toBe(false)
+  })
+})
+
+describe('tags', () => {
+  it('#name followed by space becomes a tag node', async () => {
+    await setup()
+    await typeChars('看 #採購 ')
+    expect(nodesOf('tag')).toEqual([expect.objectContaining({ attrs: { name: '採購' } })])
+    expect(editor!.getText()).toBe('看 #採購 ')
+    expect(document.querySelector('[data-tag="採購"]')).toHaveTextContent('#採購')
+  })
+  it('stores lowercase and works at line start', async () => {
+    await setup()
+    await typeChars('#SAP ')
+    expect(nodesOf('tag')).toEqual([expect.objectContaining({ attrs: { name: 'sap' } })])
+  })
+  it('does not convert in URLs, code, headings or [[ queries', async () => {
+    for (const [content, text] of [
+      ['<p></p>', 'https://a.com/#frag '],
+      ['<p></p>', 'abc#def '],
+      ['<pre><code></code></pre>', '#include '],
+      ['<p>x <code>c</code></p>', ''],
+      ['<p></p>', '# '],
+      ['<p></p>', '#1 '],
+    ] as const) {
+      cleanup()
+      await setup(content)
+      if (text) await typeChars(text)
+      expect(nodesOf('tag')).toEqual([])
+    }
+    cleanup()
+    vault.createNote({ title: '採購流程' })
+    await setup()
+    await typeChars('[[採購流程#核准 ')
+    expect(nodesOf('tag')).toEqual([])
+  })
+})
+
+describe('block highlight', () => {
+  it('marks the block with data-highlight until cleared', async () => {
+    await setup('<p data-block-id="b1">one</p><p data-block-id="b2">two</p>')
+    await act(async () => setBlockHighlight(editor!, 'b2'))
+    await waitFor(() => expect(document.querySelector('[data-block-id="b2"]')).toHaveAttribute('data-highlight', 'true'))
+    expect(document.querySelector('[data-block-id="b1"]')).not.toHaveAttribute('data-highlight')
+    await act(async () => setBlockHighlight(editor!, null))
+    expect(document.querySelector('[data-block-id="b2"]')).not.toHaveAttribute('data-highlight')
+  })
+})

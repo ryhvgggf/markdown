@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import * as Y from 'yjs'
@@ -19,7 +19,7 @@ function Harness() {
   return (
     <>
       <EditorContent editor={e} />
-      <DragHandleMenu editor={e} />
+      <DragHandleMenu editor={e} noteId="n1" />
     </>
   )
 }
@@ -37,8 +37,26 @@ describe('DragHandleMenu', () => {
     const grip = await screen.findByLabelText('拖曳以移動，點擊開啟選單')
     await userEvent.click(grip)
     expect(await screen.findByRole('menuitem', { name: /轉換類型/ })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: '複製區塊連結' })).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('menuitem', { name: '複製區塊連結' })).not.toHaveAttribute('aria-disabled')
     expect(screen.getByRole('menuitem', { name: '刪除' })).toBeInTheDocument()
+  })
+
+  it('複製區塊連結 copies the target block link and confirms', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render(<Harness />)
+    await act(async () => {
+      editor!.commands.setContent('<p>one</p><p>two</p>')
+    })
+    await act(async () => {
+      editor!.commands.setTextSelection(7) // inside "two"
+    })
+    const id = editor!.state.doc.child(1).attrs.id as string
+    expect(id).toBeTruthy()
+    await userEvent.click(await screen.findByLabelText('拖曳以移動，點擊開啟選單'))
+    await userEvent.click(await screen.findByRole('menuitem', { name: '複製區塊連結' }))
+    expect(writeText).toHaveBeenCalledWith(`[[note:n1#${id}]]`)
+    expect(await screen.findByText('已複製')).toBeInTheDocument()
   })
 
   it('刪除 removes the block the handle points at', async () => {

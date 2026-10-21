@@ -113,3 +113,16 @@
   padding-right: 4px;
   z-index: 20;
 }
+
+/* Links, tags and block highlight */
+.note-editor [data-block-id] { transition: background-color 0.6s ease; border-radius: 6px; }
+.note-editor [data-highlight='true'] {
+  background-color: color-mix(in srgb, var(--accent) 14%, transparent);
+  transition-duration: 0.15s;
+}
+.note-editor .ProseMirror-selectednode .note-link,
+.note-editor .ProseMirror-selectednode .tag-pill {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}

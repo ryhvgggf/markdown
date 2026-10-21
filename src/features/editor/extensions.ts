@@ -26,6 +26,11 @@ import { MarkdownPaste } from './paste/markdown-paste'
 import { focusTitleEnd } from './focus-bridge'
 import { isComposingEvent } from './ime'
 import { SlashCommand } from './menus/SlashMenu'
+import { BlockLinkPaste } from './links/block-link-clipboard'
+import { BlockHighlight } from './links/block-highlight'
+import { createLinkSuggestion } from './links/link-suggestion'
+import { NoteLink } from './links/note-link'
+import { Tag } from './links/tag'
 
 export { BLOCK_TYPES }
 
@@ -36,6 +41,8 @@ export type EditorContext = {
   searchBlocks(noteId: string, q: string): Promise<BlockRow[]>
   db: NotesDb
   storage: StorageAdapter
+  /** Tag pill clicked (filtering arrives with the sidebar/search tasks). */
+  onTagClick?(name: string): void
 }
 
 /** Tab / Shift-Tab are owned by ListMoves (composition-guarded); drop the built-in bindings. */
@@ -111,6 +118,11 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     ...formattingExtensions(),
     MarkdownPaste,
     SlashCommand,
+    NoteLink.configure({ ctx }),
+    Tag.configure({ ctx }),
+    createLinkSuggestion(ctx),
+    BlockLinkPaste,
+    BlockHighlight,
     BlockId,
     Collaboration.configure({ document: doc, field: 'content' }),
     titleNavigation(ctx.noteId),

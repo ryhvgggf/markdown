@@ -1,10 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { TextSelection } from '@tiptap/pm/state'
 import { DragHandle } from '@tiptap/extension-drag-handle-react'
 import { Menu } from '@/ui/components/Menu'
 import { Grip, Link, Swap, Trash } from '@/ui/icons'
+import { copyBlockLink } from '../links/block-link-clipboard'
 import { CONVERT_ENTRIES } from './ConvertMenu'
 
 type Target = { node: PMNode; pos: number }
@@ -18,9 +19,16 @@ function selectionBlock(editor: Editor): Target | null {
   return node ? { node, pos } : null
 }
 
-export function DragHandleMenu({ editor }: { editor: Editor | null }) {
+const COPIED_MS = 700
+
+export function DragHandleMenu({ editor, noteId }: { editor: Editor | null; noteId: string }) {
   const hovered = useRef<Target | null>(null)
   const target = useRef<Target | null>(null)
+  const [open, setOpen] = useState(false)
+  const [targetBlockId, setTargetBlockId] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(closeTimer.current), [])
 
   // Hide the grip while an IME composition is in progress.
   useEffect(() => {
@@ -33,10 +41,16 @@ export function DragHandleMenu({ editor }: { editor: Editor | null }) {
 
   if (!editor) return null
 
-  const onOpenChange = (open: boolean) => {
-    if (open) target.current = hovered.current ?? selectionBlock(editor)
+  const onOpenChange = (next: boolean) => {
+    clearTimeout(closeTimer.current)
+    if (next) {
+      target.current = hovered.current ?? selectionBlock(editor)
+      setTargetBlockId((target.current?.node.attrs.id as string | null | undefined) ?? null)
+      setCopied(false)
+    }
+    setOpen(next)
     // keep the handle visible while its menu is open
-    editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', open).setMeta('addToHistory', false))
+    if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', next).setMeta('addToHistory', false))
   }
 
   const current = (): Target | null => {
@@ -62,6 +76,19 @@ export function DragHandleMenu({ editor }: { editor: Editor | null }) {
     editor.chain().focus().deleteRange({ from: t.pos, to: t.pos + t.node.nodeSize }).run()
   }
 
+  const copyLink = (e: Event) => {
+    e.preventDefault() // keep the menu open to show 已複製
+    const id = current()?.node.attrs.id as string | null | undefined
+    if (!id) return
+    void copyBlockLink(noteId, id).then(
+      () => {
+        setCopied(true)
+        closeTimer.current = setTimeout(() => onOpenChange(false), COPIED_MS)
+      },
+      () => setCopied(false),
+    )
+  }
+
   return (
     <DragHandle
       editor={editor}
@@ -72,6 +99,7 @@ export function DragHandleMenu({ editor }: { editor: Editor | null }) {
     >
       <Menu
         align="start"
+        open={open}
         onOpenChange={onOpenChange}
         onCloseAutoFocus={(e) => e.preventDefault()}
         trigger={
@@ -98,10 +126,9 @@ export function DragHandleMenu({ editor }: { editor: Editor | null }) {
             </Menu.Item>
           ))}
         </Menu.Sub>
-        <Menu.Item disabled aria-label="複製區塊連結">
+        <Menu.Item disabled={!targetBlockId} onSelect={copyLink} aria-label="複製區塊連結">
           <Link size={16} />
-          複製區塊連結
-          <span className="ml-auto text-xs text-fg-tertiary">即將推出</span>
+          {copied ? '已複製' : '複製區塊連結'}
         </Menu.Item>
         <Menu.Separator />
         <Menu.Item onSelect={remove} aria-label="刪除">

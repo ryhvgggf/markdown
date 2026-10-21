@@ -1,15 +1,13 @@
 import { forwardRef, useEffect, useImperativeHandle, useState, type ComponentType } from 'react'
 import { Extension, type Editor, type Range } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
-import { ReactRenderer } from '@tiptap/react'
-import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion'
-import { computePosition, flip, offset, shift } from '@floating-ui/dom'
+import Suggestion from '@tiptap/suggestion'
 import {
   CheckSquare, CodeBlock, Heading1, Heading2, Heading3, ImageIcon, Lightbulb, ListBullet, ListOrdered, Minus, Quote, TableIcon, TextT,
   type IconProps,
 } from '@/ui/icons'
-import { isComposingEvent } from '../ime'
 import { filterSlashItems, type SlashItem } from './slash-items'
+import { suggestionPopup, type PopupListHandle } from './suggestion-popup'
 
 const ICONS: Record<string, ComponentType<IconProps>> = {
   text: TextT, h1: Heading1, h2: Heading2, h3: Heading3, bullet: ListBullet, ordered: ListOrdered, task: CheckSquare,
@@ -17,9 +15,8 @@ const ICONS: Record<string, ComponentType<IconProps>> = {
 }
 
 type ListProps = { items: SlashItem[]; command: (item: SlashItem) => void }
-type ListHandle = { onKeyDown(e: KeyboardEvent): boolean }
 
-const SlashList = forwardRef<ListHandle, ListProps>(function SlashList({ items, command }, ref) {
+const SlashList = forwardRef<PopupListHandle, ListProps>(function SlashList({ items, command }, ref) {
   const [selected, setSelected] = useState(0)
   const [prevItems, setPrevItems] = useState(items)
   if (prevItems !== items) {
@@ -92,19 +89,6 @@ function runItem(editor: Editor, range: Range, item: SlashItem) {
   item.run(editor)
 }
 
-function place(el: HTMLElement, props: SuggestionProps<SlashItem>) {
-  const rect = props.clientRect?.()
-  if (!rect) return
-  void computePosition(
-    { getBoundingClientRect: () => rect },
-    el,
-    { placement: 'bottom-start', strategy: 'fixed', middleware: [offset(6), flip(), shift({ padding: 8 })] },
-  ).then(({ x, y }) => {
-    el.style.left = `${x}px`
-    el.style.top = `${y}px`
-  })
-}
-
 export const SlashCommand = Extension.create({
   name: 'slashCommand',
   addProseMirrorPlugins() {
@@ -117,37 +101,7 @@ export const SlashCommand = Extension.create({
         allow: ({ state, range }) => !state.doc.resolve(range.from).parent.type.spec.code,
         items: ({ query }) => filterSlashItems(query),
         command: ({ editor, range, props }) => runItem(editor, range, props),
-        render: () => {
-          let renderer: ReactRenderer<ListHandle, ListProps> | null = null
-          const mount = (props: SuggestionProps<SlashItem, SlashItem>) => {
-            const p = { items: props.items, command: props.command }
-            if (renderer) renderer.updateProps(p)
-            else {
-              renderer = new ReactRenderer(SlashList, { props: p, editor: props.editor })
-              const el = renderer.element as HTMLElement
-              el.style.position = 'fixed'
-              el.style.zIndex = '60'
-              el.style.left = '0'
-              el.style.top = '0'
-              document.body.appendChild(el)
-            }
-            place(renderer.element as HTMLElement, props)
-          }
-          return {
-            onStart: mount,
-            onUpdate: mount,
-            // Esc during composition is handled by ProseMirror's composition filter before the suggestion plugin sees it.
-            onKeyDown: ({ event, view }: SuggestionKeyDownProps) => {
-              if (isComposingEvent(event, view)) return false
-              return renderer?.ref?.onKeyDown(event) ?? false
-            },
-            onExit: () => {
-              renderer?.element.remove()
-              renderer?.destroy()
-              renderer = null
-            },
-          }
-        },
+        render: suggestionPopup<SlashItem, ListProps>(SlashList, (props) => ({ items: props.items, command: props.command })),
       }),
     ]
   },

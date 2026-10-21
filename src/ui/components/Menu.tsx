@@ -18,17 +18,20 @@ export function Menu({
   trigger,
   children,
   align = 'end',
+  open,
   onOpenChange,
   onCloseAutoFocus,
 }: {
   trigger: ReactElement
   children: ReactNode
   align?: 'start' | 'center' | 'end'
+  /** Controlled open state (optional). */
+  open?: boolean
   onOpenChange?: (open: boolean) => void
   onCloseAutoFocus?: (event: Event) => void
 }) {
   return (
-    <DM.Root onOpenChange={onOpenChange}>
+    <DM.Root open={open} onOpenChange={onOpenChange}>
       <DM.Trigger asChild>{trigger}</DM.Trigger>
       <DM.Portal>
         <DM.Content align={align} onCloseAutoFocus={onCloseAutoFocus} sideOffset={6} className="glass-float z-50 min-w-40 p-1">

@@ -8,6 +8,7 @@ import { createExtensions } from './extensions'
 import { registerEditor } from './focus-bridge'
 import { FormatToolbar } from './menus/FormatToolbar'
 import { DragHandleMenu } from './menus/DragHandleMenu'
+import { useBlockHighlight } from './links/block-highlight'
 
 type Load = { status: 'loading' } | { status: 'corrupted' } | { status: 'error' } | { status: 'ready'; doc: Y.Doc }
 
@@ -85,6 +86,8 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
     [extensions],
   )
 
+  useBlockHighlight(editor)
+
   useEffect(() => {
     registerEditor(noteId, editor)
     return () => registerEditor(noteId, null)
@@ -94,7 +97,7 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
     <div data-note-editor className="px-6 pb-32">
       <EditorContent editor={editor} />
       <FormatToolbar editor={editor} />
-      <DragHandleMenu editor={editor} />
+      <DragHandleMenu editor={editor} noteId={noteId} />
     </div>
   )
 }

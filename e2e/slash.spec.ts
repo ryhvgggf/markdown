@@ -32,7 +32,7 @@ test('拖曳把手：懸停顯示，選單可刪除區塊', async ({ page }, inf
   const grip = page.getByLabel('拖曳以移動，點擊開啟選單')
   await expect(grip).toBeVisible()
   await grip.click()
-  await expect(page.getByRole('menuitem', { name: '複製區塊連結' })).toBeDisabled()
+  await expect(page.getByRole('menuitem', { name: '複製區塊連結' })).toBeEnabled()
   await page.getByRole('menuitem', { name: '轉換類型' }).hover()
   await expect(page.getByRole('menuitem', { name: '標題 1' })).toBeVisible()
   if (info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-17-grip.png` })
