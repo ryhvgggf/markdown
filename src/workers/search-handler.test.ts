@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { handleRequest, type SearchState } from './search-handler'
+import { handleRequest, respond, type SearchState } from './search-handler'
 
 const state = (error: string | null): SearchState => ({
   rows: [{ noteId: 'a', title: 't', text: 'hello', updatedAt: 1 }],
@@ -21,5 +21,16 @@ describe('handleRequest', () => {
       id: 3,
       error: 'e',
     })
+  })
+})
+
+describe('respond', () => {
+  it('replies {id, error} when ready rejects', async () => {
+    const r = await respond(state(null), { id: 7, kind: 'search', query: 'x' }, Promise.reject(new Error('db open failed')))
+    expect(r).toEqual({ id: 7, error: 'db open failed' })
+  })
+  it('answers once ready resolves', async () => {
+    const r = await respond(state(null), { id: 8, kind: 'search', query: 'hel' }, Promise.resolve())
+    expect('hits' in r && r.hits).toHaveLength(1)
   })
 })

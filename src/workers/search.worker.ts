@@ -5,7 +5,7 @@
 // re-subscribed after a delay so the cache can recover.
 import { liveQuery } from 'dexie'
 import { createDb } from '../adapters/storage/db'
-import { handleRequest, type SearchRequest, type SearchState } from './search-handler'
+import { respond, type SearchRequest, type SearchState } from './search-handler'
 
 const RETRY_MS = 1000
 const state: SearchState = { rows: [], tags: new Map(), error: null }
@@ -75,6 +75,5 @@ self.onmessage = async (e: MessageEvent<SearchRequest>) => {
     resolveInit(req.dbName)
     return
   }
-  await ready
-  self.postMessage(handleRequest(state, req))
+  self.postMessage(await respond(state, req, ready))
 }

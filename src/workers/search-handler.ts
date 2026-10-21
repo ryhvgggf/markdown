@@ -30,3 +30,17 @@ export function handleRequest(
     return { id: req.id, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+/** Waits for the data cache, then answers; any failure becomes an `{id, error}` reply. */
+export async function respond(
+  state: SearchState,
+  req: Exclude<SearchRequest, { kind: 'init' }>,
+  ready: Promise<void>,
+): Promise<SearchReply> {
+  try {
+    await ready
+    return handleRequest(state, req)
+  } catch (err) {
+    return { id: req.id, error: err instanceof Error ? err.message : String(err) }
+  }
+}
