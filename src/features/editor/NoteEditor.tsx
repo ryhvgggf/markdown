@@ -7,6 +7,7 @@ import { NoteDocError } from '@/core/note-doc/cache'
 import { createExtensions } from './extensions'
 import { registerEditor } from './focus-bridge'
 import { FormatToolbar } from './menus/FormatToolbar'
+import { DragHandleMenu } from './menus/DragHandleMenu'
 
 type Load = { status: 'loading' } | { status: 'corrupted' } | { status: 'error' } | { status: 'ready'; doc: Y.Doc }
 
@@ -93,6 +94,7 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
     <div data-note-editor className="px-6 pb-32">
       <EditorContent editor={editor} />
       <FormatToolbar editor={editor} />
+      <DragHandleMenu editor={editor} />
     </div>
   )
 }

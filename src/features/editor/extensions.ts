@@ -25,6 +25,7 @@ import { formattingExtensions } from './marks/formatting'
 import { MarkdownPaste } from './paste/markdown-paste'
 import { focusTitleEnd } from './focus-bridge'
 import { isComposingEvent } from './ime'
+import { SlashCommand } from './menus/SlashMenu'
 
 export { BLOCK_TYPES }
 
@@ -109,6 +110,7 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     Placeholder.configure({ placeholder: ({ editor }) => (editor.isEmpty ? EMPTY_PLACEHOLDER : '') }),
     ...formattingExtensions(),
     MarkdownPaste,
+    SlashCommand,
     BlockId,
     Collaboration.configure({ document: doc, field: 'content' }),
     titleNavigation(ctx.noteId),

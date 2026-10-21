@@ -106,3 +106,10 @@
   position: absolute; right: -2px; top: 0; bottom: -1px; width: 4px; background: var(--accent); pointer-events: none;
 }
 .note-editor.resize-cursor, .resize-cursor { cursor: col-resize; }
+
+.note-drag-handle {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+  z-index: 20;
+}

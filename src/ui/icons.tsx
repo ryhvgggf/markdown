@@ -128,3 +128,42 @@ export const Highlighter = make(
     <path d="M5 21h14" />
   </>,
 )
+
+export const TextT = make('TextT', <path d="M5 7V5h14v2M12 5v14M9 19h6" />)
+export const Heading1 = make('Heading1', <path d="M4 5v14M4 12h8M12 5v14M17 9l3-2v12" />)
+export const Heading2 = make('Heading2', <path d="M4 5v14M4 12h8M12 5v14M16 9a2.5 2.5 0 0 1 5 0c0 2-5 5-5 8h5" />)
+export const Heading3 = make('Heading3', <path d="M4 5v14M4 12h8M12 5v14M16 8h4l-2.5 3.5a2.7 2.7 0 1 1-2 4.5" />)
+export const ListBullet = make('ListBullet', <path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" />)
+export const ListOrdered = make('ListOrdered', <path d="M10 6h10M10 12h10M10 18h10M4 5l1.5-1v4M4 14h3l-3 4h3" />)
+export const CheckSquare = make(
+  'CheckSquare',
+  <>
+    <rect x="4" y="4" width="16" height="16" rx="3" />
+    <path d="m8.5 12 2.5 2.5 4.5-5" />
+  </>,
+)
+export const Quote = make('Quote', <path d="M5 6v12M10 8h9M10 12h9M10 16h6" />)
+export const CodeBlock = make(
+  'CodeBlock',
+  <>
+    <rect x="3" y="4" width="18" height="16" rx="3" />
+    <path d="m10 9-3 3 3 3M14 9l3 3-3 3" />
+  </>,
+)
+export const TableIcon = make(
+  'TableIcon',
+  <>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M3 10h18M9 5v14M15 5v14" />
+  </>,
+)
+export const Minus = make('Minus', <path d="M5 12h14" />)
+export const ImageIcon = make(
+  'ImageIcon',
+  <>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <circle cx="9" cy="10" r="1.5" />
+    <path d="m21 16-5-5-9 8" />
+  </>,
+)
+export const Swap = make('Swap', <path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" />)

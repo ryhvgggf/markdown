@@ -2,9 +2,9 @@ import type { Editor } from '@tiptap/core'
 import { Menu } from '@/ui/components/Menu'
 import { ChevronDown } from '@/ui/icons'
 
-type Entry = { label: string; run: (e: Editor) => boolean; active?: (e: Editor) => boolean }
+export type ConvertEntry = { label: string; run: (e: Editor) => boolean; active?: (e: Editor) => boolean }
 
-const ENTRIES: Entry[] = [
+export const CONVERT_ENTRIES: ConvertEntry[] = [
   { label: '段落', run: (e) => e.chain().focus().clearNodes().run(), active: (e) => e.isActive('paragraph') },
   { label: '標題 1', run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run(), active: (e) => e.isActive('heading', { level: 1 }) },
   { label: '標題 2', run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run(), active: (e) => e.isActive('heading', { level: 2 }) },
@@ -35,7 +35,7 @@ export function ConvertMenu({ editor, onOpenChange }: { editor: Editor; onOpenCh
         </button>
       }
     >
-      {ENTRIES.map((en) => (
+      {CONVERT_ENTRIES.map((en) => (
         <Menu.Item key={en.label} onSelect={() => en.run(editor)} aria-checked={en.active?.(editor) ? true : undefined}>
           {en.label}
         </Menu.Item>
