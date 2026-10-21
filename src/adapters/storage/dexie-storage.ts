@@ -1,3 +1,4 @@
+import * as Y from 'yjs'
 import type { NotesDb } from './db'
 import { StorageError, type StorageAdapter } from './types'
 
@@ -46,8 +47,12 @@ export class DexieStorage implements StorageAdapter {
   compact(docId: string, state: Uint8Array): Promise<void> {
     return guard(() =>
       this.db.transaction('rw', this.db.snapshots, this.db.updates, async () => {
-        await this.db.snapshots.put({ docId, state })
-        await this.db.updates.where('docId').equals(docId).delete()
+        // Merge with whatever is stored so updates from other tabs are not lost.
+        const snap = await this.db.snapshots.get(docId)
+        const rows = await this.db.updates.where('docId').equals(docId).sortBy('seq')
+        const merged = Y.mergeUpdates([...(snap ? [snap.state] : []), ...rows.map((r) => r.update), state])
+        await this.db.snapshots.put({ docId, state: merged })
+        await this.db.updates.bulkDelete(rows.map((r) => r.seq!))
       }),
     )
   }

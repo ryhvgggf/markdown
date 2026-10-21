@@ -1,3 +1,4 @@
+import * as Y from 'yjs'
 import type { StorageAdapter } from './types'
 
 export class MemoryStorage implements StorageAdapter {
@@ -18,7 +19,9 @@ export class MemoryStorage implements StorageAdapter {
   }
 
   async compact(docId: string, state: Uint8Array): Promise<void> {
-    this.snapshots.set(docId, state)
+    const snap = this.snapshots.get(docId)
+    const stored = this.updates.get(docId) ?? []
+    this.snapshots.set(docId, Y.mergeUpdates([...(snap ? [snap] : []), ...stored, state]))
     this.updates.delete(docId)
   }
 
