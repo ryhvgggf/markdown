@@ -108,6 +108,22 @@ describe('Tab / Shift-Tab', () => {
   })
 })
 
+describe('Tab during composition', () => {
+  for (const [name, init] of [
+    ['isComposing', { isComposing: true }],
+    ['keyCode 229', { keyCode: 229 }],
+  ] as const) {
+    it(`does nothing and is not handled (${name})`, () => {
+      const editor = make(tree)
+      placeCursorIn(editor, 'b')
+      const before = JSON.stringify(editor.getJSON())
+      expect(key(editor, { key: 'Tab', ...init })).toBe(false)
+      expect(key(editor, { key: 'Tab', shiftKey: true, ...init })).toBe(false)
+      expect(JSON.stringify(editor.getJSON())).toBe(before)
+    })
+  }
+})
+
 describe('moveSubtree', () => {
   it('swaps an item (with children) with the next sibling', () => {
     const editor = make(tree)

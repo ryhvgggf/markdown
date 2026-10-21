@@ -83,7 +83,7 @@ export const ListMoves = Extension.create({
             const tab = event.key === 'Tab' && !event.altKey && !event.metaKey && !event.ctrlKey
             const move = arrow && (event.key === 'ArrowUp' || event.key === 'ArrowDown')
             if (!move && !tab) return false
-            if (isComposingEvent(event, view)) return tab // swallow Tab so the default list shortcut cannot run mid-composition
+            if (isComposingEvent(event, view)) return false
             if (move) {
               if (event.key === 'ArrowUp') editor.commands.moveSubtreeUp()
               else editor.commands.moveSubtreeDown()

@@ -40,6 +40,10 @@ function TaskItemView({ node, editor, getPos, HTMLAttributes }: ReactNodeViewPro
 }
 
 export const TaskItem = BaseTaskItem.configure({ nested: true }).extend({
+  addKeyboardShortcuts() {
+    // Tab / Shift-Tab are handled by the composition-guarded ListMoves plugin.
+    return { Enter: () => this.editor.commands.splitListItem(this.name) }
+  },
   addNodeView() {
     return ReactNodeViewRenderer(TaskItemView)
   },

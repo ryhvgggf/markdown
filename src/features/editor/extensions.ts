@@ -13,7 +13,7 @@ import { Dropcursor, Gapcursor, Placeholder } from '@tiptap/extensions'
 import type { NotesDb, BlockRow } from '@/adapters/storage/db'
 import type { StorageAdapter } from '@/adapters/storage/types'
 import type { Vault } from '@/core/vault/vault'
-import { BulletList, ListItem, ListKeymap, TaskList } from '@tiptap/extension-list'
+import { BulletList, ListItem as BaseListItem, ListKeymap, TaskList } from '@tiptap/extension-list'
 import { BLOCK_TYPES, BlockId } from './blocks/block-id'
 import { ListMoves } from './blocks/list-moves'
 import { OrderedList } from './blocks/ordered-list'
@@ -31,6 +31,13 @@ export type EditorContext = {
   db: NotesDb
   storage: StorageAdapter
 }
+
+/** Tab / Shift-Tab are owned by ListMoves (composition-guarded); drop the built-in bindings. */
+const ListItem = BaseListItem.extend({
+  addKeyboardShortcuts() {
+    return { Enter: () => this.editor.commands.splitListItem(this.name) }
+  },
+})
 
 export const EMPTY_PLACEHOLDER = '輸入 / 插入區塊，或直接開始寫作'
 
