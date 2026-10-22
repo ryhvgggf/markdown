@@ -15,8 +15,7 @@ test('歡迎筆記：內文與標題重新整理後仍在', async ({ page }) => 
   await title.press('Enter')
   await expect(editor).toBeFocused()
 
-  await page.waitForTimeout(800) // let persistence flush
-  await page.reload()
+  await page.reload() // no wait: unsaved updates are stashed synchronously on pagehide
   await expect(page.getByLabel('筆記標題')).toHaveValue('我的第一篇')
   await expect(page.locator('.ProseMirror')).toContainText('第一行 hello')
   await expect(page.locator('.ProseMirror')).toContainText('第二行 world')

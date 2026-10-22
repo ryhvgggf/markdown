@@ -11,11 +11,9 @@ test('快速切換：Ctrl/⌘+K 搜尋內文並開啟，找不到時可新增', 
   await expect(title).toBeFocused()
   await page.keyboard.type('採購筆記')
   await page.keyboard.press('Enter')
+  await expect(page.locator('.ProseMirror')).toBeFocused() // Enter hands focus over once the editor has loaded
   await page.keyboard.type('請先建立採購申請再送簽')
   await expect(page.getByRole('treeitem', { name: '採購筆記' })).toBeVisible()
-
-  // the indexer debounces edits by 1s before the text becomes searchable
-  await page.waitForTimeout(1500)
 
   // focus is inside the editor; the shortcut still opens the switcher
   const isMacLike = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform))
@@ -25,8 +23,13 @@ test('快速切換：Ctrl/⌘+K 搜尋內文並開啟，找不到時可新增', 
   const box = page.getByRole('combobox')
   await expect(box).toBeFocused()
 
-  await box.fill('購申')
+  // the indexer debounces edits by 1 s before the text becomes searchable: retype until it is
   const hit = dialog.getByRole('option', { name: /採購筆記/ })
+  await expect(async () => {
+    await box.fill('')
+    await box.fill('購申')
+    await expect(hit).toContainText('內文提到「', { timeout: 500 })
+  }).toPass({ timeout: 10000 })
   await expect(hit).toContainText('內文提到「')
   await expect(hit).toContainText('建立採購申請')
   await expect(dialog.getByRole('option', { name: '新增筆記「購申」' })).toBeVisible()

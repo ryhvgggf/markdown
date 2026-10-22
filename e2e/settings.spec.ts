@@ -41,8 +41,7 @@ test('設定：強調色與字級立即套用並在重新載入後保留', async
   await expect(dialog).toBeHidden()
   await expect(page.getByRole('button', { name: '設定' })).toBeFocused()
 
-  await page.waitForTimeout(500)
-  await page.reload()
+  await page.reload() // no wait: unsaved updates are stashed synchronously on pagehide
   await expect(page.locator('.ProseMirror')).toHaveCSS('font-size', '18px')
   expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'))).toBe('#0B7A75')
 })
