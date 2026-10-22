@@ -93,7 +93,7 @@ export class Indexer {
   }
 
   /**
-   * Recomputes every derived table from storage (bypasses the doc cache) and drops rows of vanished notes.
+   * Recomputes every derived table (from the cached doc when open, else storage) and drops rows of vanished notes.
    * A note that cannot be read is skipped (its old rows stay) and reported in `failed`.
    */
   async rebuildAll(opts: BulkOptions = {}): Promise<IndexPassResult> {
@@ -102,9 +102,11 @@ export class Indexer {
     const failed: string[] = []
     for (const id of live) {
       await opts.pause?.()
+      // An open doc may hold edits not stored yet: index those, never older stored text.
+      const cached = this.notes.peek(id)
       let doc: Y.Doc
       try {
-        doc = await this.loadTemp(id)
+        doc = cached ?? (await this.loadTemp(id))
       } catch {
         failed.push(id)
         continue
@@ -113,7 +115,7 @@ export class Indexer {
         const meta = this.vault.getNote(id)
         if (meta) await this.write(id, meta.title, meta.updatedAt, doc)
       } finally {
-        doc.destroy()
+        if (!cached) doc.destroy()
       }
     }
     return { failed }

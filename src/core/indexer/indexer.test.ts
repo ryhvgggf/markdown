@@ -275,3 +275,14 @@ describe('Indexer row mirror (M4)', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 })
+
+describe('rebuildAll with an open doc (round 2)', () => {
+  it('uses the cached doc, which may hold edits not yet stored', async () => {
+    const n = vault.createNote({ title: 'Open' })
+    const doc = await cache.acquire(n.id)
+    vi.spyOn(storage, 'appendUpdate').mockImplementation(() => new Promise(() => {})) // writes stuck
+    doc.getXmlFragment('content').insert(0, [para('b1', ['newest text'])])
+    await indexer.rebuildAll()
+    expect((await db.noteText.get(n.id))?.text).toBe('newest text')
+  })
+})
