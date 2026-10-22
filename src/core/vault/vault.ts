@@ -250,6 +250,14 @@ export class Vault {
     })
     return meta
   }
+  getAttachment(id: string): AttachmentMeta | undefined {
+    const m = this.attachments.get(id)
+    return m ? ({ id, ...Object.fromEntries(m.entries()) } as AttachmentMeta) : undefined
+  }
+  /** Drops attachment metadata only (the blob is the caller's concern). */
+  removeAttachment(id: string): void {
+    this.attachments.delete(id)
+  }
   resolveDuplicateTitles(): string[] {
     const live = this.listNotes()
       .filter((n) => normalizeTitle(n.title) !== '')

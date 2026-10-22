@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import * as Y from 'yjs'
 import { EditorContent, useEditor } from '@tiptap/react'
@@ -43,7 +43,8 @@ describe('SLASH_ITEMS / filterSlashItems', () => {
     expect(SLASH_ITEMS.map((i) => i.label)).toEqual([
       '文字', '標題 1', '標題 2', '標題 3', '項目清單', '編號清單', '待辦清單', '引用', '提示框', '程式碼', '表格', '分隔線', '圖片或影片',
     ])
-    expect(SLASH_ITEMS.find((i) => i.label === '圖片或影片')).toMatchObject({ disabled: true, hint: '即將推出' })
+    expect(SLASH_ITEMS.find((i) => i.label === '圖片或影片')).toMatchObject({ hint: '上傳或拖入圖片、影片' })
+    expect(SLASH_ITEMS.find((i) => i.label === '圖片或影片')?.disabled).toBeUndefined()
   })
   it('matches label and aliases case-insensitively', () => {
     expect(filterSlashItems('標題').map((i) => i.label)).toEqual(['標題 1', '標題 2', '標題 3'])
@@ -116,12 +117,15 @@ describe('slash menu', () => {
     expect(editor!.getText()).not.toContain('/表格')
   })
 
-  it('does not run the disabled media item', async () => {
+  it('runs the media item by opening the file picker', async () => {
     await setup()
+    const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
     await type('/圖片')
     await screen.findByRole('option')
     await key('Enter')
-    expect(editor!.getText()).toBe('/圖片')
+    expect(click).toHaveBeenCalledTimes(1)
+    expect(editor!.getText()).toBe('')
+    click.mockRestore()
   })
 
   it('does not open after existing text on the line', async () => {

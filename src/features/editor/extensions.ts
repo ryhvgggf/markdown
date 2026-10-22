@@ -31,6 +31,7 @@ import { BlockHighlight } from './links/block-highlight'
 import { createLinkSuggestion } from './links/link-suggestion'
 import { NoteLink } from './links/note-link'
 import { Tag } from './links/tag'
+import { Media } from './blocks/media'
 
 export { BLOCK_TYPES }
 
@@ -45,6 +46,8 @@ export type EditorContext = {
   onTagClick?(name: string): void
   /** The note's Y.Doc when it is loaded in the NoteDoc cache (confirms deleted block links). */
   peekNoteDoc?(noteId: string): Y.Doc | undefined
+  /** Shown as a short inline banner when an image / video cannot be added. */
+  onMediaError?(message: string): void
 }
 
 /** Tab / Shift-Tab are owned by ListMoves (composition-guarded); drop the built-in bindings. */
@@ -125,6 +128,7 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     createLinkSuggestion(ctx),
     BlockLinkPaste.configure({ ctx }),
     BlockHighlight,
+    Media.configure({ ctx }),
     BlockId,
     Collaboration.configure({ document: doc, field: 'content' }),
     titleNavigation(ctx.noteId),

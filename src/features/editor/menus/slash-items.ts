@@ -25,7 +25,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: 'code', label: '程式碼', hint: '含語法高亮的程式碼區塊', aliases: ['code'], run: (e) => void chain(e).toggleCodeBlock().run() },
   { id: 'table', label: '表格', hint: '插入 3 × 3 表格', aliases: ['table'], run: (e) => void chain(e).insertTable().run() },
   { id: 'divider', label: '分隔線', hint: '以水平線分隔內容', aliases: ['hr', 'divider'], run: (e) => void chain(e).setHorizontalRule().run() },
-  { id: 'media', label: '圖片或影片', hint: '即將推出', aliases: ['image', 'video', 'media'], disabled: true, run: () => {} },
+  { id: 'media', label: '圖片或影片', hint: '上傳或拖入圖片、影片', aliases: ['image', 'video', 'media', 'tu', 'pic'], run: (e) => void e.commands.pickMedia() },
 ]
 
 export function filterSlashItems(query: string): SlashItem[] {

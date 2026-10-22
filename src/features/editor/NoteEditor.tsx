@@ -8,6 +8,7 @@ import { createExtensions } from './extensions'
 import { registerEditor } from './focus-bridge'
 import { FormatToolbar } from './menus/FormatToolbar'
 import { DragHandleMenu } from './menus/DragHandleMenu'
+import { Banner } from '@/ui/components/Banner'
 import { useBlockHighlight } from './links/block-highlight'
 
 type Load = { status: 'loading' } | { status: 'corrupted' } | { status: 'error' } | { status: 'ready'; doc: Y.Doc }
@@ -49,6 +50,12 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
   const services = useServices()
   const { vault } = services
   const lastTouch = useRef(0)
+  const [mediaError, setMediaError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!mediaError) return
+    const t = window.setTimeout(() => setMediaError(null), 5000)
+    return () => window.clearTimeout(t)
+  }, [mediaError])
 
   const extensions = useMemo(
     () =>
@@ -68,6 +75,7 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
         db: services.db,
         storage: services.storage,
         peekNoteDoc: (id) => services.notes.peek(id),
+        onMediaError: setMediaError,
       }),
     [doc, vault, noteId, services.db, services.storage, services.notes],
   )
@@ -96,6 +104,13 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
 
   return (
     <div data-note-editor className="px-6 pb-32">
+      {mediaError && (
+        <div className="mb-2 overflow-hidden rounded-lg">
+          <Banner tone="error" onDismiss={() => setMediaError(null)}>
+            {mediaError}
+          </Banner>
+        </div>
+      )}
       <EditorContent editor={editor} />
       <FormatToolbar editor={editor} />
       <DragHandleMenu editor={editor} noteId={noteId} />
