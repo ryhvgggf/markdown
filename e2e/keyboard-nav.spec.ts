@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { newNote } from './helpers'
 
 test('標題按 ↓ 進入內文第一個區塊開頭；內文第一行按 ↑ 回到標題結尾', async ({ page }) => {
   await page.goto('/')
@@ -42,12 +43,8 @@ test('標題正下方的 / 選單：↑↓ 只移動選單，Enter 插入所選�
 
 test('標題正下方的 [[ 選單：↑ 不會跳進標題', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: '新增筆記' }).click()
-  await page.keyboard.type('連結目標')
-  await page.keyboard.press('Enter')
-  const editor = page.locator('.ProseMirror')
+  await newNote(page, '連結目標') // focus ends in the empty body, right below the title
   const title = page.getByLabel('筆記標題')
-  await expect(editor).toBeFocused()
   await page.keyboard.type('[[')
   const options = page.locator('[data-link-menu] [role="option"]')
   await expect(options.first()).toBeVisible()
