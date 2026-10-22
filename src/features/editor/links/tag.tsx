@@ -1,6 +1,8 @@
 import { InputRule, Node, mergeAttributes } from '@tiptap/core'
+import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state'
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
 import type { EditorContext } from '../extensions'
+import { isComposingEvent } from '../ime'
 
 /**
  * `#name` + space → tag. The `#` must not follow an ASCII letter/digit, `/`, `:`, `.`, `&` or `#`
@@ -19,14 +21,22 @@ function TagView({ node, extension }: ReactNodeViewProps) {
   const ctx = (extension.options as TagOptions).ctx
   return (
     <NodeViewWrapper as="span" className="tag-wrapper">
-      <span
+      {/* A button: ProseMirror leaves its events alone (no node selection on mousedown), it is focusable and
+          Enter / Space activate it. Ctrl/⌘+click does the same as a click (there is nothing to open in a new tab). */}
+      <button
+        type="button"
         contentEditable={false}
         data-tag={name}
-        className="tag-pill rounded-full bg-fill px-1.5 py-px text-[0.9em] text-fg-secondary"
-        onClick={() => ctx?.onTagClick?.(name)}
+        aria-label={`搜尋標籤 #${name}`}
+        className="tag-pill cursor-pointer rounded-full bg-fill px-1.5 py-px text-[0.9em] text-fg-secondary hover:bg-accent/10 hover:text-fg"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) => {
+          e.preventDefault()
+          ctx?.onTagClick?.(name)
+        }}
       >
         #{name}
-      </span>
+      </button>
     </NodeViewWrapper>
   )
 }
@@ -85,5 +95,26 @@ export const Tag = Node.create<TagOptions>({
 
   addNodeView() {
     return ReactNodeViewRenderer(TagView)
+  },
+
+  addProseMirrorPlugins() {
+    const ctx = this.options.ctx
+    const type = this.name
+    return [
+      new Plugin({
+        key: new PluginKey('tagActivate'),
+        props: {
+          // Enter on a selected tag node opens its search (instead of replacing the tag with a new line).
+          handleKeyDown(view, event) {
+            if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false
+            if (isComposingEvent(event, view)) return false
+            const sel = view.state.selection
+            if (!(sel instanceof NodeSelection) || sel.node.type.name !== type) return false
+            ctx?.onTagClick?.(sel.node.attrs.name as string)
+            return true
+          },
+        },
+      }),
+    ]
   },
 })

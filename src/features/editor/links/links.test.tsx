@@ -415,6 +415,46 @@ describe('tags', () => {
   })
 })
 
+describe('tag activation', () => {
+  const tagDoc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'see ' }, { type: 'tag', attrs: { name: 'sap' } }, { type: 'text', text: ' end' }] }] }
+
+  it('clicking a tag opens its search and leaves the selection alone', async () => {
+    ctx.onTagClick = vi.fn()
+    await setup(tagDoc)
+    const before = editor!.state.selection.toJSON()
+    const pill = screen.getByRole('button', { name: '搜尋標籤 #sap' })
+    fireEvent.mouseDown(pill)
+    fireEvent.click(pill)
+    expect(ctx.onTagClick).toHaveBeenCalledWith('sap')
+    expect(editor!.state.selection.toJSON()).toEqual(before)
+    expect(editor!.getText()).toBe('see #sap end')
+  })
+
+  it('Ctrl/⌘+click does the same (Enter on a focused tag: e2e, jsdom has no button activation)', async () => {
+    ctx.onTagClick = vi.fn()
+    await setup(tagDoc)
+    const pill = screen.getByRole('button', { name: '搜尋標籤 #sap' })
+    fireEvent.click(pill, { ctrlKey: true })
+    fireEvent.click(pill, { metaKey: true })
+    expect(ctx.onTagClick).toHaveBeenCalledTimes(2)
+  })
+
+  it('Enter with the tag node selected opens its search; never while composing', async () => {
+    ctx.onTagClick = vi.fn()
+    await setup(tagDoc)
+    await act(async () => void editor!.commands.setNodeSelection(5))
+    expect(editor!.state.selection.toJSON()).toMatchObject({ type: 'node', anchor: 5 })
+    // composing: call the handlers directly (ProseMirror itself drops keydown near a composition)
+    const composing = new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229 })
+    const plugin = editor!.view.state.plugins.find((p) => (p as unknown as { key: string }).key.startsWith('tagActivate'))!
+    expect(plugin.props.handleKeyDown!.call(plugin, editor!.view, composing)).toBe(false)
+    expect(ctx.onTagClick).not.toHaveBeenCalled()
+    await key('Enter')
+    expect(ctx.onTagClick).toHaveBeenCalledWith('sap')
+    expect(editor!.getText()).toBe('see #sap end') // Enter did not replace the tag
+  })
+})
+
 describe('block highlight', () => {
   it('marks the block with data-highlight until cleared', async () => {
     await setup('<p data-block-id="b1">one</p><p data-block-id="b2">two</p>')

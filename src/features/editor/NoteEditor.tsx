@@ -64,6 +64,7 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
         vault,
         noteId,
         openNote: (id, blockId) => useUi.getState().openNote(id, blockId),
+        onTagClick: (name) => useUi.getState().setQuickSwitcher(true, `#${name}`), // the switcher's tag search
         searchBlocks: (id, q) => {
           const needle = q.toLowerCase()
           return services.db.blocks
