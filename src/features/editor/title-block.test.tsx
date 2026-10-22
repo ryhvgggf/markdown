@@ -169,6 +169,16 @@ describe('TitleBlock saving (I3)', () => {
     localStorage.clear()
   })
 
+  it('drops the reload-safe draft once the commit is stored', async () => {
+    localStorage.clear()
+    render(wrap(<TitleBlock noteId={noteId} />))
+    title().focus()
+    fireEvent.change(title(), { target: { value: 'Stored' } })
+    expect(localStorage.length).toBe(1)
+    fireEvent.blur(title())
+    await waitFor(() => expect(localStorage.length).toBe(0))
+  })
+
   it('accepts a rename from another tab while focused but unedited, and blur does not revert it', () => {
     render(wrap(<TitleBlock noteId={noteId} />))
     title().focus()

@@ -30,6 +30,19 @@ export function saveTitleDraft(noteId: string, value: string, base: string): voi
   }
 }
 
+/** Forgets the draft once `value` is known to be stored (no-op when a newer draft replaced it). */
+export function clearTitleDraft(noteId: string, value: string): void {
+  try {
+    const ls = store()
+    const raw = ls?.getItem(PREFIX + noteId)
+    if (!ls || raw == null) return
+    const d = JSON.parse(raw) as Draft | null
+    if (d?.v === value) ls.removeItem(PREFIX + noteId)
+  } catch {
+    /* best-effort */
+  }
+}
+
 /** Applies drafts whose commit was lost (stored title still equals the draft's base); drops the rest. */
 export function applyTitleDrafts(vault: Vault): void {
   const ls = store()

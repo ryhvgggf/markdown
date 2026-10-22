@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { Vault } from '@/core/vault/vault'
-import { applyTitleDrafts, saveTitleDraft } from './title-drafts'
+import { applyTitleDrafts, clearTitleDraft, saveTitleDraft } from './title-drafts'
 
 const channelFactory = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
@@ -36,6 +36,14 @@ describe('title drafts', () => {
     saveTitleDraft('gone', 'Whatever', '')
     applyTitleDrafts(vault)
     expect(vault.getNote(n.id)?.title).toBe('X')
+    expect(localStorage.length).toBe(0)
+  })
+
+  it('clearTitleDraft forgets only the matching draft', () => {
+    saveTitleDraft('n', 'A', '')
+    clearTitleDraft('n', 'B')
+    expect(localStorage.length).toBe(1)
+    clearTitleDraft('n', 'A')
     expect(localStorage.length).toBe(0)
   })
 })

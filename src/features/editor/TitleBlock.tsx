@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useServices } from '@/app/services-context'
 import { VaultError } from '@/core/vault/types'
 import { focusEditorStart, registerTitle } from './focus-bridge'
-import { saveTitleDraft } from './title-drafts'
+import { clearTitleDraft, saveTitleDraft } from './title-drafts'
 import { isComposingEvent } from './ime'
 
 /** Typing pauses this long before the title is saved (also saved on blur, Enter, pagehide and unmount). */
@@ -30,13 +30,19 @@ export function TitleBlock({ noteId }: { noteId: string }) {
     const v = latest.current
     if (v.trim() !== '' && !vault.isTitleAvailable(v, noteId)) return // colliding draft stays, with its hint
     dirty.current = false
-    if (v.trim() === current.title) return
-    try {
-      vault.renameNote(noteId, v)
-    } catch (e) {
-      if (!(e instanceof VaultError)) throw e
-      dirty.current = true
+    if (v.trim() !== current.title) {
+      try {
+        vault.renameNote(noteId, v)
+      } catch (e) {
+        if (!(e instanceof VaultError)) throw e
+        dirty.current = true
+        return
+      }
     }
+    // Once the vault has stored it, the reload-safe draft is no longer needed.
+    void vault.flushWrites().then(() => {
+      if (!vault.hasPendingWrites()) clearTitleDraft(noteId, v)
+    })
   }, [vault, noteId])
 
   const schedule = () => {
