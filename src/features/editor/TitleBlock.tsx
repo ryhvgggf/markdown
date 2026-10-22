@@ -1,20 +1,67 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useServices } from '@/app/services-context'
+import { VaultError } from '@/core/vault/types'
 import { focusEditorStart, registerTitle } from './focus-bridge'
+import { saveTitleDraft } from './title-drafts'
 import { isComposingEvent } from './ime'
+
+/** Typing pauses this long before the title is saved (also saved on blur, Enter, pagehide and unmount). */
+export const TITLE_COMMIT_DELAY_MS = 500
 
 export function TitleBlock({ noteId }: { noteId: string }) {
   const { vault } = useServices()
   const [value, setValue] = useState(() => vault.getNote(noteId)?.title ?? '')
   const ref = useRef<HTMLInputElement>(null)
+  // Refs, so timers / pagehide / unmount see the latest state.
+  const latest = useRef(value)
+  /** The user edited the field since the last commit (only then do we write, so a stale value never overwrites another tab's rename). */
+  const dirty = useRef(false)
+  const composing = useRef(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Stored title when the current edit started (for the reload-safe draft). */
+  const base = useRef('')
+
+  const commit = useCallback(() => {
+    if (timer.current !== null) clearTimeout(timer.current)
+    timer.current = null
+    if (!dirty.current || composing.current) return // never commit mid-composition
+    const current = vault.getNote(noteId)
+    if (!current) return
+    const v = latest.current
+    if (v.trim() !== '' && !vault.isTitleAvailable(v, noteId)) return // colliding draft stays, with its hint
+    dirty.current = false
+    if (v.trim() === current.title) return
+    try {
+      vault.renameNote(noteId, v)
+    } catch (e) {
+      if (!(e instanceof VaultError)) throw e
+      dirty.current = true
+    }
+  }, [vault, noteId])
+
+  const schedule = () => {
+    if (timer.current !== null) clearTimeout(timer.current)
+    timer.current = setTimeout(commit, TITLE_COMMIT_DELAY_MS)
+  }
 
   useEffect(() => {
     const sync = () => {
-      if (document.activeElement === ref.current) return
-      setValue(vault.getNote(noteId)?.title ?? '')
+      if (dirty.current || composing.current) return // the user's draft wins until it is committed
+      const t = vault.getNote(noteId)?.title ?? ''
+      if (latest.current.trim() === t) return // e.g. our own commit of "hello " → keep the trailing space
+      latest.current = t
+      setValue(t)
     }
     return vault.observe(sync)
   }, [vault, noteId])
+
+  useEffect(() => {
+    window.addEventListener('pagehide', commit)
+    return () => {
+      window.removeEventListener('pagehide', commit)
+      commit() // switching notes unmounts the title: save what was typed
+    }
+  }, [commit])
 
   useEffect(() => {
     registerTitle(noteId, ref.current)
@@ -22,12 +69,6 @@ export function TitleBlock({ noteId }: { noteId: string }) {
   }, [noteId])
 
   const collides = value.trim() !== '' && !vault.isTitleAvailable(value, noteId)
-
-  const commit = () => {
-    const current = vault.getNote(noteId)
-    if (!current || collides) return
-    if (value.trim() !== current.title) vault.renameNote(noteId, value)
-  }
 
   return (
     <div className="px-6 pt-12">
@@ -38,7 +79,27 @@ export function TitleBlock({ noteId }: { noteId: string }) {
         aria-label="筆記標題"
         placeholder="未命名"
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          if (!dirty.current) base.current = vault.getNote(noteId)?.title ?? ''
+          latest.current = e.target.value
+          dirty.current = true
+          if (!composing.current) saveTitleDraft(noteId, e.target.value, base.current)
+          setValue(e.target.value)
+          if (!composing.current) schedule()
+        }}
+        onCompositionStart={() => {
+          composing.current = true
+          if (timer.current !== null) clearTimeout(timer.current)
+          timer.current = null
+        }}
+        onCompositionEnd={(e) => {
+          composing.current = false
+          if (!dirty.current) base.current = vault.getNote(noteId)?.title ?? ''
+          latest.current = e.currentTarget.value
+          dirty.current = true
+          saveTitleDraft(noteId, e.currentTarget.value, base.current)
+          schedule()
+        }}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key !== 'Enter' || isComposingEvent(e.nativeEvent)) return

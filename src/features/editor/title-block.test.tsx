@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { ServicesProvider } from '@/app/services-context'
@@ -74,10 +74,118 @@ describe('TitleBlock', () => {
     await waitFor(() => expect(document.querySelector('.ProseMirror')).toHaveFocus())
   })
 
+  it('Enter before the editor has loaded still hands focus over once it mounts', async () => {
+    render(
+      wrap(
+        <>
+          <TitleBlock noteId={noteId} />
+          <NoteEditor noteId={noteId} />
+        </>,
+      ),
+    )
+    expect(document.querySelector('.ProseMirror')).toBeNull()
+    title().focus()
+    fireEvent.change(title(), { target: { value: 'Early' } })
+    fireEvent.keyDown(title(), { key: 'Enter' })
+    await waitFor(() => expect(document.querySelector('.ProseMirror')).toHaveFocus())
+  })
+
   it('does not commit Enter during IME composition', () => {
     render(wrap(<TitleBlock noteId={noteId} />))
     fireEvent.change(title(), { target: { value: 'Composing' } })
     fireEvent.keyDown(title(), { key: 'Enter', keyCode: 229 })
+    expect(vault.getNote(noteId)?.title).toBe('Mine')
+  })
+})
+
+describe('TitleBlock saving (I3)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('commits ~500 ms after typing stops, without blur or Enter', () => {
+    vi.useFakeTimers()
+    render(wrap(<TitleBlock noteId={noteId} />))
+    title().focus()
+    fireEvent.change(title(), { target: { value: 'Beta' } })
+    act(() => void vi.advanceTimersByTime(300))
+    fireEvent.change(title(), { target: { value: 'BetaTitle' } })
+    act(() => void vi.advanceTimersByTime(400))
+    expect(vault.getNote(noteId)?.title).toBe('Mine')
+    act(() => void vi.advanceTimersByTime(150))
+    expect(vault.getNote(noteId)?.title).toBe('BetaTitle')
+    expect(title()).toHaveFocus()
+  })
+
+  it('keeps a trailing space while typing after a debounced commit', () => {
+    vi.useFakeTimers()
+    render(wrap(<TitleBlock noteId={noteId} />))
+    title().focus()
+    fireEvent.change(title(), { target: { value: 'hello ' } })
+    act(() => void vi.advanceTimersByTime(600))
+    expect(vault.getNote(noteId)?.title).toBe('hello')
+    expect(title().value).toBe('hello ')
+  })
+
+  it('commits on pagehide', () => {
+    render(wrap(<TitleBlock noteId={noteId} />))
+    title().focus()
+    fireEvent.change(title(), { target: { value: 'Closing' } })
+    act(() => void window.dispatchEvent(new Event('pagehide')))
+    expect(vault.getNote(noteId)?.title).toBe('Closing')
+  })
+
+  it('commits a pending edit when the note is switched away (unmount)', () => {
+    const r = render(wrap(<TitleBlock noteId={noteId} />))
+    title().focus()
+    fireEvent.change(title(), { target: { value: 'Switched' } })
+    r.unmount()
+    expect(vault.getNote(noteId)?.title).toBe('Switched')
+  })
+
+  it('never commits mid-composition; commits after compositionend', () => {
+    vi.useFakeTimers()
+    render(wrap(<TitleBlock noteId={noteId} />))
+    title().focus()
+    fireEvent.compositionStart(title())
+    fireEvent.change(title(), { target: { value: 'ㄓㄨ' } })
+    act(() => void vi.advanceTimersByTime(1000))
+    act(() => void window.dispatchEvent(new Event('pagehide')))
+    expect(vault.getNote(noteId)?.title).toBe('Mine')
+    fireEvent.change(title(), { target: { value: '主題' } })
+    fireEvent.compositionEnd(title())
+    act(() => void vi.advanceTimersByTime(600))
+    expect(vault.getNote(noteId)?.title).toBe('主題')
+  })
+
+  it('keeps a reload-safe draft of the typed title, but not of uncommitted composition text', () => {
+    localStorage.clear()
+    render(wrap(<TitleBlock noteId={noteId} />))
+    title().focus()
+    fireEvent.compositionStart(title())
+    fireEvent.change(title(), { target: { value: 'ㄓㄨ' } })
+    expect(localStorage.length).toBe(0)
+    fireEvent.change(title(), { target: { value: '主題' } })
+    fireEvent.compositionEnd(title())
+    expect(JSON.parse(localStorage.getItem(localStorage.key(0)!)!)).toEqual({ v: '主題', base: 'Mine' })
+    localStorage.clear()
+  })
+
+  it('accepts a rename from another tab while focused but unedited, and blur does not revert it', () => {
+    render(wrap(<TitleBlock noteId={noteId} />))
+    title().focus()
+    act(() => vault.renameNote(noteId, 'Other tab'))
+    expect(title().value).toBe('Other tab')
+    fireEvent.blur(title())
+    expect(vault.getNote(noteId)?.title).toBe('Other tab')
+  })
+
+  it('keeps a colliding draft visible with its hint after blur', () => {
+    render(wrap(<TitleBlock noteId={noteId} />))
+    title().focus()
+    fireEvent.change(title(), { target: { value: 'sap' } })
+    fireEvent.blur(title())
+    act(() => vault.touchNote(noteId))
+    expect(title().value).toBe('sap')
+    expect(screen.getByText('已有同名筆記')).toBeInTheDocument()
     expect(vault.getNote(noteId)?.title).toBe('Mine')
   })
 })
