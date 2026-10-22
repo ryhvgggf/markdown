@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { Editor } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import { useEditorState } from '@tiptap/react'
@@ -72,6 +72,17 @@ function LinkInput({ editor, initial, onClose }: { editor: Editor; initial: stri
   )
 }
 
+/**
+ * The BubbleMenu stays shown when the editor blurs right after a `mousedown` inside it. Radix menu
+ * triggers open on `pointerdown` and call preventDefault(), which suppresses that compatibility
+ * `mousedown`; focus then moves into the menu (portalled to body), the BubbleMenu hides and removes the
+ * toolbar from the DOM, and the open menu — anchored to a now-detached trigger — jumps to the top-left
+ * corner. Re-announce the press so the toolbar (the menus' anchor) stays mounted.
+ */
+function keepShownOnMenuPress(e: ReactPointerEvent<HTMLDivElement>) {
+  if (e.isDefaultPrevented()) e.currentTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+}
+
 export function FormatToolbar({ editor }: { editor: Editor | null }) {
   const [linkFor, setLinkFor] = useState<string | null>(null)
   const menusOpen = useRef(0)
@@ -120,7 +131,12 @@ export function FormatToolbar({ editor }: { editor: Editor | null }) {
         return view.hasFocus() || menusOpen.current > 0 || linkRef.current || Boolean(root?.contains(document.activeElement))
       }}
     >
-      <div role="toolbar" aria-label="文字格式" className="glass-float flex items-center gap-0.5 p-1">
+      <div
+        role="toolbar"
+        aria-label="文字格式"
+        className="glass-float flex items-center gap-0.5 p-1"
+        onPointerDown={keepShownOnMenuPress}
+      >
         {linkOpen ? (
           <LinkInput editor={editor} initial={s.href} onClose={() => setLinkFor(null)} />
         ) : (
