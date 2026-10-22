@@ -1,5 +1,5 @@
 import { InputRule, Node, mergeAttributes } from '@tiptap/core'
-import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state'
+import { NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
 import type { EditorContext } from '../extensions'
 import { isComposingEvent } from '../ime'
@@ -16,7 +16,7 @@ function inLinkQuery(textBefore: string): boolean {
   return textBefore.lastIndexOf('[[') > textBefore.lastIndexOf(']]')
 }
 
-function TagView({ node, extension }: ReactNodeViewProps) {
+function TagView({ node, extension, editor, getPos }: ReactNodeViewProps) {
   const name = node.attrs.name as string
   const ctx = (extension.options as TagOptions).ctx
   return (
@@ -29,9 +29,21 @@ function TagView({ node, extension }: ReactNodeViewProps) {
         data-tag={name}
         aria-label={`搜尋標籤 #${name}`}
         className="tag-pill cursor-pointer rounded-full bg-fill px-1.5 py-px text-[0.9em] text-fg-secondary hover:bg-accent/10 hover:text-fg"
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={(e) => {
+          e.preventDefault()
+          if (!e.shiftKey) return
+          // Shift+click extends the selection over the tag (ProseMirror ignores events on the button itself).
+          const pos = getPos()
+          if (typeof pos !== 'number') return
+          const { state } = editor
+          const anchor = state.selection.anchor
+          const head = pos >= anchor ? pos + node.nodeSize : pos
+          editor.view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, anchor, head)))
+          editor.view.focus()
+        }}
         onClick={(e) => {
           e.preventDefault()
+          if (e.shiftKey) return
           ctx?.onTagClick?.(name)
         }}
       >

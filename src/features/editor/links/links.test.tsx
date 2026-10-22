@@ -439,6 +439,20 @@ describe('tag activation', () => {
     expect(ctx.onTagClick).toHaveBeenCalledTimes(2)
   })
 
+  it('Shift+click does not open the search; it extends the selection over the tag', async () => {
+    ctx.onTagClick = vi.fn()
+    await setup(tagDoc)
+    await act(async () => void editor!.commands.setTextSelection(2)) // after "s"
+    const pill = screen.getByRole('button', { name: '搜尋標籤 #sap' })
+    await act(async () => {
+      fireEvent.mouseDown(pill, { shiftKey: true })
+      fireEvent.click(pill, { shiftKey: true })
+    })
+    expect(ctx.onTagClick).not.toHaveBeenCalled()
+    const sel = editor!.state.selection
+    expect([sel.anchor, sel.head]).toEqual([2, 6]) // "ee " + the tag (pos 5, size 1)
+  })
+
   it('Enter with the tag node selected opens its search; never while composing', async () => {
     ctx.onTagClick = vi.fn()
     await setup(tagDoc)

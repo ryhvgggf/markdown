@@ -23,6 +23,13 @@ test('點標籤打開該標籤的搜尋；Enter 也可以；不會選取或改�
   await expect(dialog).toBeVisible()
   await page.keyboard.press('Escape')
 
+  // Shift+click extends the selection instead of searching
+  await editor.locator('p').first().click()
+  await page.keyboard.press('Home')
+  await pill.click({ modifiers: ['Shift'] })
+  await expect(dialog).toBeHidden()
+  expect(await page.evaluate(() => String(window.getSelection()))).toContain('預算')
+
   await pill.focus()
   await page.keyboard.press('Enter')
   await expect(dialog).toBeVisible()
