@@ -1,6 +1,6 @@
 import * as Y from 'yjs'
 import type { StorageAdapter, StorageError } from '@/adapters/storage/types'
-import { bindPersistence } from '../persist'
+import { bindPersistence, type PersistBinding } from '../persist'
 import { TAB_ORIGIN, connectTabs } from '../tabs-bridge'
 import { ACCENTS } from './accents'
 
@@ -76,7 +76,12 @@ export class Preferences {
   private readonly map: Y.Map<unknown>
   private readonly teardown: Array<() => void>
 
-  private constructor(doc: Y.Doc, teardown: Array<() => void>) {
+  private constructor(
+    private readonly docId: string,
+    doc: Y.Doc,
+    private readonly binding: PersistBinding,
+    teardown: Array<() => void>,
+  ) {
     this.doc = doc
     this.teardown = teardown
     this.map = doc.getMap('prefs')
@@ -94,7 +99,7 @@ export class Preferences {
     if (opts.channelFactory || typeof BroadcastChannel !== 'undefined') {
       teardown.push(connectTabs(doc, docId, opts.channelFactory))
     }
-    return new Preferences(doc, teardown)
+    return new Preferences(docId, doc, binding, teardown)
   }
 
   get(): Prefs {
@@ -125,6 +130,12 @@ export class Preferences {
     const handler = () => cb(this.get())
     this.map.observe(handler)
     return () => this.map.unobserve(handler)
+  }
+
+  /** Hands not-yet-stored updates to `stash` (synchronous; used on pagehide). */
+  stashUnsaved(stash: (docId: string, update: Uint8Array) => void): void {
+    const u = this.binding.pendingUpdate()
+    if (u) stash(this.docId, u)
   }
 
   close(): void {

@@ -45,7 +45,7 @@ export interface BootstrapOptions {
 
 const VAULT_ID = 'default-vault'
 const LAST_NOTE_KEY = 'lastNoteId'
-const PREFS_ID = 'local'
+const PREFS_USER = 'local'
 export { INDEX_VERSION } from '@/core/maintenance/maintenance'
 
 async function openDb(dbName: string, forceMemory: boolean): Promise<{ db: NotesDb; mode: 'persistent' | 'memory' }> {
@@ -88,7 +88,7 @@ async function recoverStashed(storage: StorageAdapter, db: NotesDb): Promise<voi
     try {
       if (update.length > 0) {
         await storage.appendUpdate(docId, update)
-        if (docId !== VAULT_ID && docId !== PREFS_ID) await db.meta.put({ key: DIRTY_PREFIX + docId, value: 1 })
+        if (docId !== VAULT_ID && !docId.startsWith('prefs:')) await db.meta.put({ key: DIRTY_PREFIX + docId, value: 1 })
       }
       clearStashed(docId)
     } catch {
@@ -108,7 +108,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   if (mode === 'persistent') await recoverStashed(storage, db)
   const vault = await Vault.open(storage, VAULT_ID, common)
   const notes = new NoteDocCache(storage, common)
-  const prefs = await Preferences.open(storage, PREFS_ID, common)
+  const prefs = await Preferences.open(storage, PREFS_USER, common)
   const indexer = new Indexer(db, vault, notes, storage, { onError: errors.emit })
   const createSearch =
     opts.createSearch ?? ((d, m) => (m === 'persistent' ? new SearchClient({ dbName }) : new LocalSearch(d)))
@@ -140,6 +140,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
       if (mode !== 'persistent') return
       vault.stashUnsaved(stashUpdate)
       notes.stashUnsaved(stashUpdate)
+      prefs.stashUnsaved(stashUpdate)
     },
   }
 }

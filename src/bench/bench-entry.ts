@@ -60,6 +60,12 @@ function buildBody(i: number, linkTarget: string | null): Array<Y.XmlElement> {
 export function installBench(services: AppServices): void {
   const { vault, notes, db, storage, search } = services
   let seeded: string[] = []
+  const oldAttachment = async () => {
+    const a = vault.addAttachment({ filename: 'old.png', mimeType: 'image/png', size: 4 })
+    ;(vault.doc.getMap('attachments').get(a.id) as Y.Map<unknown>).set('createdAt', Date.now() - 40 * 86_400_000)
+    await storage.putBlob(a.id, new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }))
+    return a.id
+  }
 
   const api: BenchApi = {
     async seed(n) {
@@ -76,7 +82,11 @@ export function installBench(services: AppServices): void {
         ids.push(meta.id)
         const doc = await notes.acquire(meta.id)
         const frag = doc.getXmlFragment('content')
-        doc.transact(() => frag.insert(0, buildBody(i, i > 0 ? ids[i - 1] : null)))
+        const body = buildBody(i, i > 0 ? ids[i - 1] : null)
+        // Every 25th note (not the opened one) references an attachment older than 30 days, so cold
+        // start runs with "stale" attachments present (the case that used to trigger a full scan, I4).
+        if (i % 25 === 1) body.push(el('media', { attachmentId: await oldAttachment(), kind: 'image' }))
+        doc.transact(() => frag.insert(0, body))
         notes.release(meta.id)
       }
       seeded = ids

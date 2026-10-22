@@ -23,7 +23,14 @@ export interface MaintenanceDeps {
   indexer: Indexer
   onError?: (e: StorageError) => void
   now?: () => number
+  /** Awaited between notes of O(vault) passes so they never hog the main thread (default: idle callback). */
+  pause?: () => Promise<void>
 }
+
+const idlePause = () =>
+  new Promise<void>((r) =>
+    typeof requestIdleCallback === 'function' ? requestIdleCallback(() => r(), { timeout: 1000 }) : setTimeout(r, 0),
+  )
 
 export interface MaintenanceReport {
   /** Notes that could not be read (corrupt); they are skipped, never block anything. */
@@ -36,10 +43,12 @@ export interface MaintenanceReport {
  */
 export class Maintenance {
   private readonly now: () => number
+  private readonly pause: () => Promise<void>
   private background: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly d: MaintenanceDeps) {
     this.now = d.now ?? Date.now
+    this.pause = d.pause ?? idlePause
   }
 
   /** Startup pass; run it after the first render (it is O(dirty notes), plus O(vault) at most once a day). */
@@ -65,13 +74,13 @@ export class Maintenance {
       const stored = (await db.meta.get(INDEX_VERSION_KEY))?.value
       if (stored !== INDEX_VERSION || (vault.listNotes().length > 0 && (await db.noteText.count()) === 0)) {
         if (vault.listNotes({ includeTrashed: true }).length > 0) {
-          for (const id of (await indexer.rebuildAll()).failed) unreadable.add(id)
+          for (const id of (await indexer.rebuildAll({ pause: this.pause })).failed) unreadable.add(id)
         }
         await db.meta.put({ key: INDEX_VERSION_KEY, value: INDEX_VERSION })
       }
     })
     await this.step(async () => {
-      for (const id of (await indexer.catchUp()).failed) unreadable.add(id)
+      for (const id of (await indexer.catchUp({ pause: this.pause })).failed) unreadable.add(id)
     })
 
     // 3. two tabs may have given notes the same title at the same time
@@ -83,7 +92,7 @@ export class Maintenance {
       const last = (await db.meta.get(LAST_ATTACHMENT_GC_KEY))?.value
       if (typeof last === 'number' && now - last < ATTACHMENT_GC_INTERVAL_MS) return
       await db.meta.put({ key: LAST_ATTACHMENT_GC_KEY, value: now })
-      const refs = await indexer.referencedAttachmentIds()
+      const refs = await indexer.referencedAttachmentIds({ pause: this.pause })
       if (!refs) return // some note is unreadable and may reference any of them: purge nothing
       await this.deleteAttachments(vault.unreferencedAttachmentIds(now, refs))
     })
@@ -189,7 +198,7 @@ export class Maintenance {
   }
 
   private async deleteIfUnreferenced(candidates: Set<string>): Promise<void> {
-    const refs = await this.d.indexer.referencedAttachmentIds()
+    const refs = await this.d.indexer.referencedAttachmentIds({ pause: this.pause })
     if (!refs) return
     await this.deleteAttachments([...candidates].filter((id) => !refs.has(id) && this.d.vault.getAttachment(id)))
   }

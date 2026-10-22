@@ -9,6 +9,7 @@ import { extractNote } from '../extract/extract'
 export type { BlockRow, LinkRow, NoteTextRow, TagRow }
 
 const DEFAULT_DEBOUNCE_MS = 1000
+const MIRROR_PAGE = 100
 /** meta key prefix of the persisted "index is behind this note" marker (survives a quick close/reload). */
 export const DIRTY_PREFIX = 'dirty:'
 
@@ -19,6 +20,11 @@ export interface IndexerOptions {
 }
 
 /** Result of a bulk pass: ids of notes that could not be read (corrupt or storage error) and were skipped. */
+/** Options of bulk O(vault) passes: `pause` runs between notes so background work yields to the UI. */
+export interface BulkOptions {
+  pause?: () => Promise<void>
+}
+
 export interface IndexPassResult {
   failed: string[]
 }
@@ -90,11 +96,12 @@ export class Indexer {
    * Recomputes every derived table from storage (bypasses the doc cache) and drops rows of vanished notes.
    * A note that cannot be read is skipped (its old rows stay) and reported in `failed`.
    */
-  async rebuildAll(): Promise<IndexPassResult> {
+  async rebuildAll(opts: BulkOptions = {}): Promise<IndexPassResult> {
     const live = new Set(this.vault.listNotes({ includeTrashed: true }).map((n) => n.id))
     for (const row of await this.db.noteText.toArray()) if (!live.has(row.noteId)) await this.removeNote(row.noteId)
     const failed: string[] = []
     for (const id of live) {
+      await opts.pause?.()
       let doc: Y.Doc
       try {
         doc = await this.loadTemp(id)
@@ -118,9 +125,10 @@ export class Indexer {
    * in a table, so this is O(vault): run it in the background only. Returns `undefined` when any note
    * cannot be read, because that note may reference attachments (callers must then purge nothing).
    */
-  async referencedAttachmentIds(): Promise<Set<string> | undefined> {
+  async referencedAttachmentIds(opts: BulkOptions = {}): Promise<Set<string> | undefined> {
     const ids = new Set<string>()
     for (const n of this.vault.listNotes({ includeTrashed: true })) {
+      await opts.pause?.()
       const cached = this.notes.peek(n.id)
       let doc: Y.Doc
       try {
@@ -141,7 +149,7 @@ export class Indexer {
    * Startup catch-up: re-indexes notes whose dirty marker survived the last session (edits made just
    * before closing), drops markers of vanished notes, then syncs titles/trashed state with the vault once.
    */
-  async catchUp(): Promise<IndexPassResult> {
+  async catchUp(opts: BulkOptions = {}): Promise<IndexPassResult> {
     const keys = (await this.db.meta.where('key').startsWith(DIRTY_PREFIX).primaryKeys()) as string[]
     const failed: string[] = []
     for (const key of keys) {
@@ -153,8 +161,27 @@ export class Indexer {
         this.report(e)
       }
     }
+    await this.loadRowMirror(opts)
     await this.queueSync()
     return { failed }
+  }
+
+  /** Builds the noteText mirror in pages, pausing in between (the rows carry full note text). */
+  private async loadRowMirror(opts: BulkOptions): Promise<void> {
+    if (this.rows) return
+    const rows = new Map<string, RowState>()
+    let after: string | null = null
+    for (;;) {
+      await opts.pause?.()
+      const page: NoteTextRow[] =
+        after === null
+          ? await this.db.noteText.orderBy('noteId').limit(MIRROR_PAGE).toArray()
+          : await this.db.noteText.where('noteId').above(after).limit(MIRROR_PAGE).toArray()
+      for (const r of page) rows.set(r.noteId, { title: r.title, updatedAt: r.updatedAt, trashed: r.trashed ?? false })
+      if (page.length < MIRROR_PAGE) break
+      after = page[page.length - 1].noteId
+    }
+    this.rows ??= rows
   }
 
   /** Indexes every note with a pending debounce timer now (best-effort, e.g. on pagehide). */
@@ -199,14 +226,8 @@ export class Indexer {
    */
   private async syncWithVault(): Promise<void> {
     const metas = new Map(this.vault.listNotes({ includeTrashed: true }).map((n) => [n.id, n]))
-    if (!this.rows) {
-      const rows = new Map<string, RowState>()
-      for (const r of await this.db.noteText.toArray()) {
-        rows.set(r.noteId, { title: r.title, updatedAt: r.updatedAt, trashed: r.trashed ?? false })
-      }
-      this.rows ??= rows
-    }
-    const rows = this.rows
+    await this.loadRowMirror({})
+    const rows = this.rows!
     for (const id of [...rows.keys()]) if (!metas.has(id)) await this.removeNote(id)
     for (const meta of metas.values()) {
       const row = rows.get(meta.id)

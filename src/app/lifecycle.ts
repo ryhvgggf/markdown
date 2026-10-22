@@ -6,6 +6,8 @@ type Win = Pick<Window, 'addEventListener' | 'removeEventListener'> & {
   cancelIdleCallback?: (id: number) => void
 }
 
+export const MAINTENANCE_DELAY_MS = 5000
+
 /**
  * Page-lifetime duties once the app is on screen:
  * - re-apply title drafts whose IndexedDB commit was cut off by the last reload/close;
@@ -17,10 +19,13 @@ type Win = Pick<Window, 'addEventListener' | 'removeEventListener'> & {
  */
 export function startPageLifecycle(s: AppServices, win: Win = window, doc: Document = document): () => void {
   applyTitleDrafts(s.vault) // titles typed right before the last close/reload
-  let idle: number | ReturnType<typeof setTimeout>
-  const run = () => void s.maintenance.runStartup()
-  if (win.requestIdleCallback) idle = win.requestIdleCallback(run, { timeout: 3000 })
-  else idle = setTimeout(run, 300)
+  // Not urgent: start a little after the first render so it does not compete with opening the note.
+  let idle: number | null = null
+  const delay = setTimeout(() => {
+    const run = () => void s.maintenance.runStartup()
+    if (win.requestIdleCallback) idle = win.requestIdleCallback(run, { timeout: 5000 })
+    else run()
+  }, MAINTENANCE_DELAY_MS)
   const offDuplicates = s.maintenance.watchDuplicateTitles()
 
   const flush = () => {
@@ -34,19 +39,27 @@ export function startPageLifecycle(s: AppServices, win: Win = window, doc: Docum
     s.vault.retryWrites()
   }
   const onVisibility = () => (doc.visibilityState === 'hidden' ? flush() : retry())
+  // A beforeunload listener delays every navigation/reload (the browser must ask the page first) and
+  // disables the back/forward cache, so it is only attached after a storage error was reported.
+  let armed = false
   const onBeforeUnload = (e: BeforeUnloadEvent) => {
     if (!s.notes.hasFailedWrites() && !s.vault.hasFailedWrites()) return
     e.preventDefault()
     e.returnValue = ''
   }
+  const offErrors = s.storageErrors.subscribe(() => {
+    if (armed) return
+    armed = true
+    win.addEventListener('beforeunload', onBeforeUnload as EventListener)
+  })
   win.addEventListener('pagehide', flush)
   doc.addEventListener('visibilitychange', onVisibility)
   win.addEventListener('online', retry)
-  win.addEventListener('beforeunload', onBeforeUnload as EventListener)
   return () => {
-    if (win.cancelIdleCallback && typeof idle === 'number') win.cancelIdleCallback(idle)
-    else clearTimeout(idle as ReturnType<typeof setTimeout>)
+    clearTimeout(delay)
+    if (idle !== null) win.cancelIdleCallback?.(idle)
     offDuplicates()
+    offErrors()
     win.removeEventListener('pagehide', flush)
     doc.removeEventListener('visibilitychange', onVisibility)
     win.removeEventListener('online', retry)

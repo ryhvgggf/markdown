@@ -262,3 +262,16 @@ describe('Indexer resilience (C1, I1, M8)', () => {
     expect(await db.meta.get('dirty:' + n.id)).toBeDefined()
   })
 })
+
+describe('Indexer row mirror (M4)', () => {
+  it('syncs vault changes without re-reading the whole noteText table', async () => {
+    const ids = Array.from({ length: 150 }, (_, i) => vault.createNote({ title: 'N' + i }).id)
+    await indexer.catchUp({ pause: async () => {} }) // builds the mirror in pages
+    for (const id of ids) expect(await db.noteText.get(id)).toMatchObject({ trashed: false })
+    stop = indexer.start()
+    const spy = vi.spyOn(db.noteText, 'toArray')
+    vault.renameNote(ids[3], 'Renamed')
+    await vi.waitFor(async () => expect((await db.noteText.get(ids[3]))?.title).toBe('Renamed'))
+    expect(spy).not.toHaveBeenCalled()
+  })
+})

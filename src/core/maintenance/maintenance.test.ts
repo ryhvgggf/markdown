@@ -208,3 +208,13 @@ describe('Maintenance.watchDuplicateTitles (M11)', () => {
     off()
   })
 })
+
+describe('Maintenance yields to the UI (I4)', () => {
+  it('pauses between notes during the O(vault) attachment scan', async () => {
+    const pause = vi.fn(async () => {})
+    const mm = new Maintenance({ db, storage, vault, notes, indexer, pause })
+    for (let i = 0; i < 3; i++) await noteWith('N' + i, ['x', media(await attachment(40))])
+    await mm.runStartup()
+    expect(pause.mock.calls.length).toBeGreaterThanOrEqual(3)
+  })
+})

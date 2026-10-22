@@ -1,6 +1,6 @@
 /**
  * Performance benchmark: builds the app in `bench` mode (which mounts window.__bench), serves it,
- * seeds 1,000 notes and measures cold start, search latency and per-keystroke handling time.
+ * seeds 1,000 notes (40 of them referencing attachments older than 30 days) and measures cold start, search latency and per-keystroke handling time.
  * Run with `npm run bench` (Node >= 22.18 strips the types natively).
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
