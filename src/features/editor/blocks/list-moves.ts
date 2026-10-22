@@ -22,7 +22,11 @@ function itemDepth(state: EditorState): number {
   return -1
 }
 
-/** Swap the current list item (with all nested children) with its previous / next sibling. */
+/**
+ * Swap the current list item (with all nested children) with its previous / next sibling.
+ * Known limitation (M10, revisit in phase 3 with sync): the move is a delete plus an insert, so text
+ * another tab types inside the moved item at the same moment is lost when the two edits merge.
+ */
 function moveSubtree(state: EditorState, dir: -1 | 1, dispatch?: (tr: Transaction) => void): boolean {
   const d = itemDepth(state)
   if (d < 0) return false
