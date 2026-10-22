@@ -1,8 +1,52 @@
 import type { ComponentType, Ref } from 'react'
 import { ReactRenderer } from '@tiptap/react'
-import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion'
+import { exitSuggestion, type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion'
 import { computePosition, flip, offset, shift } from '@floating-ui/dom'
+import { Extension } from '@tiptap/core'
+import { Plugin, type EditorState } from '@tiptap/pm/state'
 import { isComposingEvent } from '../ime'
+
+/** Keys an open suggestion popup owns: they never reach the document (caret, lists, tables, title navigation). */
+const POPUP_KEYS = new Set(['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape', 'Esc'])
+
+type SuggestionState = { active: boolean; range: unknown; query: unknown }
+const isSuggestionState = (s: unknown): s is SuggestionState =>
+  typeof s === 'object' && s !== null && 'active' in s && 'range' in s && 'query' in s
+
+/** The plugin of the open `@tiptap/suggestion` popup (slash, `[[`, any later one), if any. */
+export function activeSuggestion(state: EditorState): Plugin | undefined {
+  return state.plugins.find((p) => {
+    const s: unknown = p.getState(state)
+    return isSuggestionState(s) && s.active
+  })
+}
+
+/**
+ * Runs before every other key handler (list Tab / Alt-Shift-arrows, table Tab, title navigation…):
+ * while a suggestion popup is open, its navigation keys go to that popup and are always consumed.
+ * Never during an IME composition.
+ */
+export const SuggestionKeys = Extension.create({
+  name: 'suggestionKeys',
+  priority: 10000,
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handleKeyDown(view, event) {
+            if (!POPUP_KEYS.has(event.key) || isComposingEvent(event, view)) return false
+            const plugin = activeSuggestion(view.state)
+            if (!plugin) return false
+            const handled = plugin.props.handleKeyDown?.call(plugin, view, event)
+            // Enter with nothing to pick closes the popup (it never splits the line underneath).
+            if (!handled && event.key === 'Enter' && plugin.spec.key) exitSuggestion(view, plugin.spec.key)
+            return true
+          },
+        },
+      }),
+    ]
+  },
+})
 
 export type PopupListHandle = { onKeyDown(e: KeyboardEvent): boolean }
 

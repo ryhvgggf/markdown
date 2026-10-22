@@ -36,7 +36,8 @@ const SlashList = forwardRef<PopupListHandle, ListProps>(function SlashList({ it
         return true
       }
       if (e.key === 'Enter') {
-        if (items.length) pick(selected)
+        if (!items.length) return false // nothing to pick: the popup closes (SuggestionKeys)
+        pick(selected)
         return true
       }
       return false

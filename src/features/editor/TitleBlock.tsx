@@ -108,7 +108,10 @@ export function TitleBlock({ noteId }: { noteId: string }) {
         }}
         onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key !== 'Enter' || isComposingEvent(e.nativeEvent)) return
+          if (isComposingEvent(e.nativeEvent)) return
+          // ArrowDown (like Enter) moves to the start of the first body block; it never creates a block.
+          const down = e.key === 'ArrowDown' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey
+          if (e.key !== 'Enter' && !down) return
           e.preventDefault()
           commit()
           if (!collides) focusEditorStart(noteId)

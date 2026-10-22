@@ -26,6 +26,7 @@ import { MarkdownPaste } from './paste/markdown-paste'
 import { focusTitleEnd } from './focus-bridge'
 import { isComposingEvent } from './ime'
 import { SlashCommand } from './menus/SlashMenu'
+import { SuggestionKeys } from './menus/suggestion-popup'
 import { BlockLinkPaste } from './links/block-link-clipboard'
 import { BlockHighlight } from './links/block-highlight'
 import { createLinkSuggestion } from './links/link-suggestion'
@@ -123,6 +124,7 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     ...formattingExtensions(),
     MarkdownPaste,
     SlashCommand,
+    SuggestionKeys,
     NoteLink.configure({ ctx }),
     Tag.configure({ ctx }),
     createLinkSuggestion(ctx),

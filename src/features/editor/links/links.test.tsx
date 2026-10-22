@@ -198,14 +198,16 @@ describe('[[ suggestion', () => {
     expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: 'p1' } })])
   })
 
-  it('Enter with no items is not swallowed', async () => {
+  it('Enter with no items closes the menu without inserting or splitting the line', async () => {
     vault.createNote({ title: '採購流程' })
     await setup()
     await insert('[[採購流程#zzz')
     expect(await screen.findByText('沒有符合的區塊')).toBeInTheDocument()
+    const blocks = editor!.state.doc.childCount
     await key('Enter')
     expect(nodesOf('noteLink')).toEqual([])
     expect(screen.queryByText('沒有符合的區塊')).toBeNull()
+    expect(editor!.state.doc.childCount).toBe(blocks)
   })
 
   it('Enter while composing does not insert', async () => {

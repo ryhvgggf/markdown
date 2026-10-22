@@ -7,6 +7,7 @@ import { NoteDocCache } from '@/core/note-doc/cache'
 import { Vault } from '@/core/vault/vault'
 import { NoteEditor } from './NoteEditor'
 import { TitleBlock } from './TitleBlock'
+import { useActiveEditor } from '@/features/panel/active-editor'
 
 const channelFactory = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
@@ -215,5 +216,49 @@ describe('ArrowUp in the first block', () => {
     pm.focus()
     fireEvent.keyDown(pm, { key: 'ArrowUp' })
     expect(title()).toHaveFocus()
+  })
+})
+
+describe('ArrowDown in the title', () => {
+  const both = () =>
+    render(
+      wrap(
+        <>
+          <TitleBlock noteId={noteId} />
+          <NoteEditor noteId={noteId} />
+        </>,
+      ),
+    )
+
+  it('moves the caret to the start of the first body block without creating one', async () => {
+    both()
+    await waitFor(() => expect(document.querySelector('.ProseMirror')).not.toBeNull())
+    const editor = useActiveEditor.getState().editor!
+    act(() => void editor.commands.setContent('<p>first</p><p>second</p>'))
+    title().focus()
+    const notPrevented = fireEvent.keyDown(title(), { key: 'ArrowDown' })
+    expect(notPrevented).toBe(false)
+    await waitFor(() => expect(document.querySelector('.ProseMirror')).toHaveFocus())
+    expect(editor.state.selection.from).toBe(1)
+    expect(editor.state.doc.childCount).toBe(2)
+  })
+
+  it('focuses an empty body', async () => {
+    both()
+    await waitFor(() => expect(document.querySelector('.ProseMirror')).not.toBeNull())
+    title().focus()
+    fireEvent.keyDown(title(), { key: 'ArrowDown' })
+    await waitFor(() => expect(document.querySelector('.ProseMirror')).toHaveFocus())
+    expect(useActiveEditor.getState().editor!.state.doc.childCount).toBe(1)
+  })
+
+  it('does nothing during IME composition or with modifiers', async () => {
+    both()
+    await waitFor(() => expect(document.querySelector('.ProseMirror')).not.toBeNull())
+    title().focus()
+    for (const init of [{ keyCode: 229 }, { isComposing: true }, { shiftKey: true }, { altKey: true }]) {
+      expect(fireEvent.keyDown(title(), { key: 'ArrowDown', ...init })).toBe(true)
+      expect(title()).toHaveFocus()
+    }
   })
 })

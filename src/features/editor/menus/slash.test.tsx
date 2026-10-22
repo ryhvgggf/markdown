@@ -6,8 +6,12 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { createExtensions, type EditorContext } from '../extensions'
 import { SLASH_ITEMS, filterSlashItems } from './slash-items'
+import { registerTitle } from '../focus-bridge'
 
-const ctx = { noteId: 'n1' } as unknown as EditorContext
+const ctx = {
+  noteId: 'n1',
+  vault: { listNotes: () => [], listFolders: () => [], getNote: () => undefined },
+} as unknown as EditorContext
 let editor: Editor | null = null
 
 function Harness() {
@@ -138,5 +142,103 @@ describe('slash menu', () => {
     await setup('<pre><code></code></pre>')
     await type('/')
     expect(screen.queryByRole('listbox')).toBeNull()
+  })
+})
+
+describe('open suggestion popups own the navigation keys', () => {
+  let titleInput: HTMLInputElement
+  afterEach(() => {
+    registerTitle('n1', null)
+    titleInput?.remove()
+  })
+  const withTitle = () => {
+    titleInput = document.createElement('input')
+    titleInput.value = 'Title'
+    document.body.appendChild(titleInput)
+    registerTitle('n1', titleInput)
+  }
+  /** keydown on the editor; returns true when it was consumed (default prevented). */
+  const consumed = async (k: string, init: KeyboardEventInit = {}) => {
+    let notPrevented = true
+    await act(async () => {
+      notPrevented = fireEvent.keyDown(editor!.view.dom, { key: k, ...init })
+    })
+    return !notPrevented
+  }
+
+  it('ArrowUp in the first block moves the slash highlight, not the caret into the title', async () => {
+    withTitle()
+    await setup()
+    await type('/')
+    await screen.findByRole('listbox')
+    expect(await consumed('ArrowUp')).toBe(true)
+    expect(titleInput).not.toHaveFocus()
+    const options = screen.getAllByRole('option')
+    expect(options[options.length - 1]).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+  })
+
+  it('ArrowUp in the first block with the [[ menu open stays in the menu', async () => {
+    withTitle()
+    await setup()
+    await type('[[')
+    await screen.findByText('沒有符合的筆記')
+    expect(await consumed('ArrowUp')).toBe(true)
+    expect(titleInput).not.toHaveFocus()
+    expect(await consumed('ArrowDown')).toBe(true)
+  })
+
+  it('Enter with an empty [[ list does not split the paragraph', async () => {
+    await setup()
+    await type('[[')
+    await screen.findByText('沒有符合的筆記')
+    expect(await consumed('Enter')).toBe(true)
+    expect(editor!.state.doc.childCount).toBe(1)
+  })
+
+  it('Enter with no matching slash item closes the menu and keeps the text on one line', async () => {
+    await setup()
+    await type('/zzz')
+    await screen.findByText('沒有符合的區塊')
+    expect(await consumed('Enter')).toBe(true)
+    expect(screen.queryByText('沒有符合的區塊')).toBeNull()
+    expect(editor!.getText()).toBe('/zzz')
+    expect(editor!.state.doc.childCount).toBe(1)
+  })
+
+  it('Tab with the slash menu open does not indent the list item', async () => {
+    await setup('<ul><li><p>one</p></li><li><p></p></li></ul>')
+    await type('/')
+    await screen.findByRole('listbox')
+    expect(await consumed('Tab')).toBe(true)
+    expect(editor!.state.doc.firstChild!.childCount).toBe(2) // still two sibling items: not indented
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+  })
+
+  it('ArrowUp in the first block still goes to the title once the menu is closed', async () => {
+    withTitle()
+    await setup()
+    await type('/')
+    await screen.findByRole('listbox')
+    await key('Escape')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(await consumed('ArrowUp')).toBe(true)
+    expect(titleInput).toHaveFocus()
+  })
+
+  it('never handles keys during IME composition', async () => {
+    withTitle()
+    await setup()
+    await type('/')
+    await screen.findByRole('listbox')
+    const view = editor!.view
+    const plugin = view.state.plugins.find((p) => (p as unknown as { key: string }).key.startsWith('slashCommand'))!
+    const ev = new KeyboardEvent('keydown', { key: 'ArrowDown', keyCode: 229 })
+    let handled = true
+    await act(async () => {
+      handled = Boolean(plugin.props.handleKeyDown!.call(plugin, view, ev))
+    })
+    expect(handled).toBe(false)
+    expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true')
   })
 })
