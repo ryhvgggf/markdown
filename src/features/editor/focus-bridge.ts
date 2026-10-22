@@ -11,9 +11,11 @@ export const registerTitle = (noteId: string, el: HTMLInputElement | null) =>
 
 export const focusEditorStart = (noteId: string) => editors.get(noteId)?.commands.focus('start')
 
-export function focusTitleEnd(noteId: string): void {
+/** Returns false while the note's title input is not mounted (yet). */
+export function focusTitleEnd(noteId: string): boolean {
   const el = titles.get(noteId)
-  if (!el) return
+  if (!el) return false
   el.focus()
   el.setSelectionRange(el.value.length, el.value.length)
+  return true
 }

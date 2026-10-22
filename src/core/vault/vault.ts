@@ -7,7 +7,7 @@ import { orderForIndex } from '../order'
 import { dedupeTitle, normalizeTitle } from './titles'
 import { VaultError, type AttachmentMeta, type FolderMeta, type NoteMeta } from './types'
 
-const TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000
+export const TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 export interface VaultOpenOptions {
   channelFactory?: (name: string) => BroadcastChannel
@@ -214,6 +214,20 @@ export class Vault {
         if (f !== null && ids.has(f) && n.get('deletedAt') !== null) this.restoreNoteIn(n)
       }
     })
+  }
+
+  /** Permanently removes a folder subtree and every note inside it; returns the purged note ids. */
+  purgeFolder(id: string): string[] {
+    this.folder(id)
+    const ids = this.subtreeIds(id)
+    const noteIds = [...this.notes.entries()]
+      .filter(([, m]) => ids.has((m.get('folderId') as string | null) ?? ''))
+      .map(([k]) => k)
+    this.doc.transact(() => {
+      noteIds.forEach((k) => this.notes.delete(k))
+      ids.forEach((k) => this.folders.delete(k))
+    })
+    return noteIds
   }
 
   // ---- maintenance ----

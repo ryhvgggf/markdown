@@ -1,0 +1,102 @@
+import { useEffect, useState } from 'react'
+import { useServices } from '@/app/services-context'
+import { useUi } from '@/app/ui-store'
+import { IconButton } from '@/ui/components/IconButton'
+import { ChevronRight, FolderPlus, Plus, Trash } from '@/ui/icons'
+import { FolderTree } from './FolderTree'
+import { TrashView } from './TrashView'
+import { useActions } from './use-actions'
+import { useExpanded } from './use-expanded'
+import { trashRoots, useVaultSnapshot } from './use-vault'
+
+export function Sidebar() {
+  const { vault, storageMode } = useServices()
+  const { tree, trashed } = useVaultSnapshot()
+  const { expanded, loaded, toggle, expand } = useExpanded()
+  const actions = useActions(tree, expand)
+  const openNoteId = useUi((s) => s.openNoteId)
+  const [view, setView] = useState<'tree' | 'trash'>('tree')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const trashCount = trashRoots(trashed).length
+
+  // Reveal the open note: expand its ancestors when it changes.
+  useEffect(() => {
+    if (!loaded || !openNoteId) return
+    const ids: string[] = []
+    const byId = new Map(vault.listFolders().map((f) => [f.id, f]))
+    for (let p = vault.getNote(openNoteId)?.folderId ?? null; p; p = byId.get(p)?.parentId ?? null) ids.push(p)
+    expand(ids)
+  }, [loaded, openNoteId, vault, expand])
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {view === 'tree' ? (
+        <>
+          <div className="flex items-center gap-1 px-4 pt-3 pb-2">
+            <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-wide text-fg-secondary">我的知識庫</h2>
+            <IconButton label="新增筆記" tooltip onClick={() => actions.createNote()}>
+              <Plus size={16} />
+            </IconButton>
+            <IconButton label="新增資料夾" tooltip onClick={() => setRenamingId(actions.createFolder(null))}>
+              <FolderPlus size={16} />
+            </IconButton>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto">
+            {loaded && (
+              <FolderTree
+                tree={tree}
+                expanded={expanded}
+                actions={actions}
+                toggle={toggle}
+                renamingId={renamingId}
+                setRenamingId={setRenamingId}
+              />
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-1 px-3 pt-3 pb-2">
+            <button
+              type="button"
+              onClick={() => setView('tree')}
+              className="flex items-center gap-1 rounded-control px-1.5 py-1 text-[13px] text-fg-secondary hover:bg-fill hover:text-fg"
+            >
+              <ChevronRight size={14} className="rotate-180" />
+              返回
+            </button>
+            <h2 className="flex-1 text-center text-[13px] font-semibold text-fg-secondary">垃圾桶</h2>
+            <span className="w-12" />
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto">
+            <TrashView trashed={trashed} onRestore={actions.restore} onPurge={(ref) => void actions.purge(ref)} />
+          </div>
+        </>
+      )}
+      <div className="px-2 pt-1">
+        <button
+          type="button"
+          aria-pressed={view === 'trash'}
+          onClick={() => setView(view === 'trash' ? 'tree' : 'trash')}
+          className={`flex h-[30px] w-full items-center gap-2 rounded-[8px] px-2 text-[13.5px] hover:bg-fill ${
+            view === 'trash' ? 'bg-fill text-fg' : 'text-fg-secondary'
+          }`}
+        >
+          <Trash size={15} />
+          <span className="flex-1 text-left">垃圾桶</span>
+          {trashCount > 0 && <span className="text-xs text-fg-tertiary">{trashCount}</span>}
+        </button>
+      </div>
+      <p className="flex items-center gap-1.5 px-4 pt-1.5 pb-3 text-xs text-fg-tertiary">
+        {storageMode === 'memory' ? (
+          <span className="text-amber-600">資料未保存</span>
+        ) : (
+          <>
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-green-500" />
+            已儲存在此裝置
+          </>
+        )}
+      </p>
+    </div>
+  )
+}

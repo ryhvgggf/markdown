@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NoteEditor } from '@/features/editor/NoteEditor'
 import { TitleBlock } from '@/features/editor/TitleBlock'
+import { Sidebar } from '@/features/sidebar/Sidebar'
 import { Shell } from '@/features/shell/Shell'
 import { StorageBanner } from '@/features/shell/StorageBanner'
 import { bootstrap, type AppServices } from './bootstrap'
@@ -58,7 +59,7 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
     <ServicesProvider services={state.services}>
       <StorageBanner />
       <Shell
-        sidebar={<p className="p-4 text-sm text-fg-secondary">資料夾</p>}
+        sidebar={<Sidebar />}
         main={<MainNote />}
         panel={<p className="p-4 text-sm text-fg-secondary">筆記資訊</p>}
         headerActions={<PlaceholderPanelButtons />}

@@ -165,4 +165,18 @@ describe('Vault', () => {
     v.createNote({ title: 'b' })
     expect(cb).not.toHaveBeenCalled()
   })
+
+  it('purgeFolder removes the folder subtree and every note inside, returning the note ids', async () => {
+    const v = await open()
+    const a = v.createFolder({ name: 'A', parentId: null })
+    const b = v.createFolder({ name: 'B', parentId: a.id })
+    const keep = v.createFolder({ name: 'Keep', parentId: null })
+    const n1 = v.createNote({ title: 'one', folderId: a.id })
+    const n2 = v.createNote({ title: 'two', folderId: b.id })
+    const n3 = v.createNote({ title: 'three', folderId: keep.id })
+    v.trashFolder(a.id)
+    expect(v.purgeFolder(a.id).sort()).toEqual([n1.id, n2.id].sort())
+    expect(v.listFolders({ includeTrashed: true }).map((f) => f.id)).toEqual([keep.id])
+    expect(v.listNotes({ includeTrashed: true }).map((n) => n.id)).toEqual([n3.id])
+  })
 })

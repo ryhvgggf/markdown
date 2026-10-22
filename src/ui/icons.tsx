@@ -26,6 +26,13 @@ function make(displayName: string, paths: ReactNode) {
 }
 
 export const Folder = make('Folder', <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />)
+export const FolderPlus = make(
+  'FolderPlus',
+  <>
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    <path d="M12 10.5v5M9.5 13h5" />
+  </>,
+)
 export const Search = make(
   'Search',
   <>
