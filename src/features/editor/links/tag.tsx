@@ -43,7 +43,8 @@ function TagView({ node, extension, editor, getPos }: ReactNodeViewProps) {
         }}
         onClick={(e) => {
           e.preventDefault()
-          if (e.shiftKey) return
+          // Shift+mouse click extended the selection on mousedown; Shift+Enter (detail 0) still opens search.
+          if (e.shiftKey && e.detail > 0) return
           ctx?.onTagClick?.(name)
         }}
       >

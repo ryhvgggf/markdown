@@ -48,6 +48,14 @@ describe('extractNote', () => {
     expect(l.targetBlockId).toBeNull()
   })
 
+  it('never cuts a surrogate pair (emoji) in half at the snippet limit', () => {
+    const f = build([
+      el('paragraph', { id: 'b1' }, [new Y.XmlText('a'.repeat(79) + '😀tail'), el('noteLink', { noteId: 'n2' })]),
+    ])
+    const [l] = extractNote(f).links
+    expect(l.snippet).toBe('a'.repeat(79))
+  })
+
   it('never cuts a link token in half: a token that does not fit is dropped', () => {
     const f = build([
       el('paragraph', { id: 'b1' }, [

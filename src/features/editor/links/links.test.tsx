@@ -446,11 +446,18 @@ describe('tag activation', () => {
     const pill = screen.getByRole('button', { name: '搜尋標籤 #sap' })
     await act(async () => {
       fireEvent.mouseDown(pill, { shiftKey: true })
-      fireEvent.click(pill, { shiftKey: true })
+      fireEvent.click(pill, { shiftKey: true, detail: 1 })
     })
     expect(ctx.onTagClick).not.toHaveBeenCalled()
     const sel = editor!.state.selection
     expect([sel.anchor, sel.head]).toEqual([2, 6]) // "ee " + the tag (pos 5, size 1)
+  })
+
+  it('Shift+Enter on the focused pill (a keyboard click, detail 0) still opens the search', async () => {
+    ctx.onTagClick = vi.fn()
+    await setup(tagDoc)
+    fireEvent.click(screen.getByRole('button', { name: '搜尋標籤 #sap' }), { shiftKey: true, detail: 0 })
+    expect(ctx.onTagClick).toHaveBeenCalledWith('sap')
   })
 
   it('Enter with the tag node selected opens its search; never while composing', async () => {

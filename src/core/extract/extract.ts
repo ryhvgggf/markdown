@@ -49,12 +49,13 @@ function ownText(el: Parent): string {
   return out
 }
 
+const LINK_TOKEN_BUDGET = 8
+
 /**
  * Own text like `ownText`, but noteLinks become tokens; cut to SNIPPET_LENGTH *visible* characters without
- * splitting a token. A token is rendered as a note title, so it costs LINK_TOKEN_BUDGET, not its length
- * (a block-link token is ~50 characters of ids).
+ * splitting a token or a surrogate pair. A token is rendered as a note title, so it costs LINK_TOKEN_BUDGET,
+ * not its length (a block-link token is ~50 characters of ids).
  */
-const LINK_TOKEN_BUDGET = 8
 function snippetText(el: Parent): string {
   let out = ''
   let used = 0
@@ -71,7 +72,12 @@ function snippetText(el: Parent): string {
       }
       continue
     }
-    if (used + piece.length > SNIPPET_LENGTH) return out + piece.slice(0, SNIPPET_LENGTH - used)
+    if (used + piece.length > SNIPPET_LENGTH) {
+      let cut = SNIPPET_LENGTH - used
+      const code = piece.charCodeAt(cut - 1)
+      if (code >= 0xd800 && code <= 0xdbff) cut-- // don't leave half of a surrogate pair
+      return out + piece.slice(0, cut)
+    }
     out += piece
     used += piece.length
   }
