@@ -164,6 +164,19 @@ describe('editor integration', () => {
     expect(mediaNodes()).toHaveLength(0)
     expect(vault.doc.getMap('attachments').size).toBe(0)
   })
+  it('inserts media for "Copy image" (img-only html, no text) but not for html with text', async () => {
+    await setup()
+    const html = (h: string) => (t: string) => (t === 'text/html' ? h : '')
+    await act(async () => {
+      fireEvent.paste(editor!.view.dom, { clipboardData: { files: [png()], getData: html('<img src="x">'), types: ['Files', 'text/html'] } })
+    })
+    await waitFor(() => expect(mediaNodes()).toHaveLength(1))
+    await act(async () => {
+      fireEvent.paste(editor!.view.dom, { clipboardData: { files: [png()], getData: html('<p>hi</p>'), types: ['Files', 'text/html'] } })
+    })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(mediaNodes()).toHaveLength(1)
+  })
   it('keeps the document valid when inserting into an empty list item', async () => {
     await setup()
     await act(async () => {

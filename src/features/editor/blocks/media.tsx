@@ -21,6 +21,14 @@ export function clampWidth(w: number, max: number): number {
   return Math.round(Math.max(MIN_MEDIA_WIDTH, Math.min(w, Math.max(max, MIN_MEDIA_WIDTH))))
 }
 
+/** "Copy image" yields an image file plus `<img>`-only html: only html with real text, or non-blank plain text, counts as text. */
+export function hasPastedText(data: DataTransfer | null): boolean {
+  if (!data) return false
+  if (data.getData('text/plain').trim()) return true
+  const html = data.getData('text/html')
+  return !!html && !!new DOMParser().parseFromString(html, 'text/html').body.textContent?.trim()
+}
+
 export type MediaOptions = { ctx: EditorContext | null }
 
 function MediaView({ node, selected, updateAttributes, editor, extension }: ReactNodeViewProps) {
@@ -165,7 +173,7 @@ export const Media = Node.create<MediaOptions>({
             const files = Array.from(data?.files ?? [])
             if (!files.length || !ctx) return false
             // Office / browser copies carry an image next to text: let the text handlers win.
-            if (data?.getData('text/html') || data?.getData('text/plain')) return false
+            if (hasPastedText(data)) return false
             event.preventDefault()
             void insertMediaFiles(editor, files, ctx)
             return true
