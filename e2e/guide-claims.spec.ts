@@ -53,7 +53,7 @@ test('導覽寫的行內 Markdown 與格式快捷鍵都有效', async ({ page })
   }
   const blocks: Array<[string, string]> = [
     ['ControlOrMeta+Alt+1', 'h1'], ['ControlOrMeta+Alt+2', 'h2'], ['ControlOrMeta+Alt+3', 'h3'], ['ControlOrMeta+Shift+7', 'ol'],
-    ['ControlOrMeta+Shift+8', 'ul'], ['ControlOrMeta+Shift+9', '[data-type="taskList"]'],
+    ['ControlOrMeta+Shift+8', 'ul'], ['ControlOrMeta+Shift+9', '[data-type="taskList"]'], ['ControlOrMeta+Shift+b', 'blockquote'],
     ['ControlOrMeta+Alt+c', 'pre'],
   ]
   for (const [key, sel] of blocks) {

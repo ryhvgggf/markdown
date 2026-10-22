@@ -1,7 +1,7 @@
 import * as Y from 'yjs'
 import { Extension, type AnyExtension } from '@tiptap/core'
 import { Plugin } from '@tiptap/pm/state'
-import Blockquote from '@tiptap/extension-blockquote'
+import BaseBlockquote from '@tiptap/extension-blockquote'
 import Collaboration from '@tiptap/extension-collaboration'
 import Document from '@tiptap/extension-document'
 import HardBreak from '@tiptap/extension-hard-break'
@@ -50,6 +50,12 @@ export type EditorContext = {
   /** Shown as a short inline banner when an image / video cannot be added. */
   onMediaError?(message: string): void
 }
+
+/**
+ * Mod-Shift-b must reach Blockquote before Bold: Bold also binds `Mod-B` (Caps Lock), and ProseMirror's
+ * keymap retries a shifted letter without Shift, so Bold's keymap (which runs first) would take Ctrl+Shift+B.
+ */
+const Blockquote = BaseBlockquote.extend({ priority: 110 })
 
 /** Tab / Shift-Tab are owned by ListMoves (composition-guarded); drop the built-in bindings. */
 const ListItem = BaseListItem.extend({

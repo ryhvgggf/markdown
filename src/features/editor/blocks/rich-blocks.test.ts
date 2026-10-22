@@ -130,3 +130,25 @@ describe('table', () => {
   })
 })
 
+
+describe('quote / bold shortcuts', () => {
+  const ctrl = (key: string, shiftKey: boolean) => ({ key, keyCode: key.toUpperCase().charCodeAt(0), ctrlKey: true, shiftKey })
+
+  it('Mod-Shift-b toggles a quote, not bold', () => {
+    const editor = make('<p>quote me</p>')
+    editor.commands.setTextSelection({ from: 1, to: 9 })
+    expect(key(editor, ctrl('B', true))).toBe(true)
+    expect(count(editor, 'blockquote')).toBe(1)
+    expect(editor.isActive('bold')).toBe(false)
+  })
+
+  it('Mod-b still toggles bold, also with Caps Lock (key "B" without Shift)', () => {
+    const editor = make('<p>bold me</p>')
+    editor.commands.setTextSelection({ from: 1, to: 8 })
+    key(editor, ctrl('b', false))
+    expect(editor.isActive('bold')).toBe(true)
+    key(editor, ctrl('B', false))
+    expect(editor.isActive('bold')).toBe(false)
+    expect(count(editor, 'blockquote')).toBe(0)
+  })
+})
