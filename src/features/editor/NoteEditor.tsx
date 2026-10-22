@@ -9,6 +9,7 @@ import { registerEditor } from './focus-bridge'
 import { FormatToolbar } from './menus/FormatToolbar'
 import { DragHandleMenu } from './menus/DragHandleMenu'
 import { Banner } from '@/ui/components/Banner'
+import { useActiveEditor } from '@/features/panel/active-editor'
 import { useBlockHighlight } from './links/block-highlight'
 
 type Load = { status: 'loading' } | { status: 'corrupted' } | { status: 'error' } | { status: 'ready'; doc: Y.Doc }
@@ -99,7 +100,11 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
 
   useEffect(() => {
     registerEditor(noteId, editor)
-    return () => registerEditor(noteId, null)
+    useActiveEditor.getState().set(noteId, editor)
+    return () => {
+      registerEditor(noteId, null)
+      useActiveEditor.getState().set(noteId, null)
+    }
   }, [editor, noteId])
 
   return (

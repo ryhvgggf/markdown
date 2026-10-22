@@ -60,7 +60,7 @@ export function Shell({ sidebar, main, panel, headerActions }: ShellProps) {
         <div className="relative min-w-0 flex-1">
           <main className="flex h-full flex-col overflow-hidden rounded-card bg-surface shadow-card">
             <header className="flex h-11 shrink-0 items-center justify-end gap-2 px-4">{headerActions}</header>
-            <div className="min-h-0 flex-1 overflow-auto">{main}</div>
+            <div data-note-scroll className="min-h-0 flex-1 overflow-auto">{main}</div>
           </main>
           {panelOpen && panelOverlay && panelCard}
         </div>

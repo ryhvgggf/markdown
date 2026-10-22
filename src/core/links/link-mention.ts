@@ -40,7 +40,7 @@ function findAndReplace(parent: Parent, needle: string, targetNoteId: string): b
       if (tail) tail.applyDelta(rest)
       return true
     }
-    if (child instanceof Y.XmlElement && child.nodeName !== 'noteLink' && findAndReplace(child, needle, targetNoteId)) {
+    if (child instanceof Y.XmlElement && child.nodeName !== 'noteLink' && child.nodeName !== 'codeBlock' && findAndReplace(child, needle, targetNoteId)) {
       return true
     }
   }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NoteEditor } from '@/features/editor/NoteEditor'
 import { TitleBlock } from '@/features/editor/TitleBlock'
+import { Panel } from '@/features/panel/Panel'
+import { PanelPills } from '@/features/panel/PanelPills'
 import { Sidebar } from '@/features/sidebar/Sidebar'
 import { Shell } from '@/features/shell/Shell'
 import { StorageBanner } from '@/features/shell/StorageBanner'
@@ -61,28 +63,10 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
       <Shell
         sidebar={<Sidebar />}
         main={<MainNote />}
-        panel={<p className="p-4 text-sm text-fg-secondary">筆記資訊</p>}
-        headerActions={<PlaceholderPanelButtons />}
+        panel={<Panel />}
+        headerActions={<PanelPills />}
       />
     </ServicesProvider>
-  )
-}
-
-/** Temporary until Task 21 supplies the real 大綱 / 反向連結 pills. */
-function PlaceholderPanelButtons() {
-  const panel = useUi((s) => s.panel)
-  const toggle = useUi((s) => s.togglePanel)
-  const cls = (on: boolean) =>
-    `rounded-full px-3 py-1 text-xs ${on ? 'bg-fill text-fg' : 'text-fg-secondary hover:bg-fill'}`
-  return (
-    <>
-      <button type="button" aria-pressed={panel === 'outline'} className={cls(panel === 'outline')} onClick={() => toggle('outline')}>
-        大綱
-      </button>
-      <button type="button" aria-pressed={panel === 'backlinks'} className={cls(panel === 'backlinks')} onClick={() => toggle('backlinks')}>
-        反向連結
-      </button>
-    </>
   )
 }
 
