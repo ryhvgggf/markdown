@@ -131,25 +131,26 @@ async function firstStartNote(
 ): Promise<string> {
   return withSeedLock(async () => {
     for (const u of await storage.loadDoc(VAULT_ID)) Y.applyUpdate(vault.doc, u, PERSIST_ORIGIN)
-    const existing = vault.listNotes({ includeTrashed: true })
-    if (existing.length > 0) {
-      const live = vault.listNotes()
-      return ([...live].sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? existing[0]).id
-    }
-    if (seedGuide) {
+    const live = vault.listNotes()
+    // another tab created notes while we waited: open the most recent live one
+    if (live.length > 0) return [...live].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
+    let id: string | null = null
+    // the guide only goes into a vault that never had a note (trashed ones count)
+    if (seedGuide && vault.listNotes({ includeTrashed: true }).length === 0) {
       try {
         const { addGuide, GUIDE_SEEDED_KEY } = await import('@/features/guide/guide')
         if (!(await db.meta.get(GUIDE_SEEDED_KEY))?.value) {
-          const { noteIds } = await addGuide({ vault, storage, db })
+          id = (await addGuide({ vault, storage, db })).noteIds[0] ?? null
           await db.meta.put({ key: GUIDE_SEEDED_KEY, value: Date.now() })
-          if (noteIds[0]) return noteIds[0]
         }
       } catch (e) {
         report(e instanceof StorageError ? e : new StorageError('unknown', String(e), { cause: e }))
       }
     }
-    // (a guide that failed half-way may already hold 歡迎使用)
-    return vault.isTitleAvailable('歡迎使用') ? vault.createNote({ title: '歡迎使用' }).id : vault.listNotes()[0].id
+    // never a trashed note; a guide that failed half-way may already hold 歡迎使用
+    id ??= vault.isTitleAvailable('歡迎使用') ? vault.createNote({ title: '歡迎使用' }).id : vault.listNotes()[0].id
+    await vault.flushWrites() // stored before the lock is released: the next tab must see this note
+    return id
   })
 }
 

@@ -91,6 +91,53 @@ describe('bootstrap: built-in guide', () => {
     }
   })
 
+  async function withLocks<T>(request: (name: string, cb: () => Promise<unknown>) => Promise<unknown>, fn: () => Promise<T>) {
+    const nav = globalThis.navigator as Navigator & { locks?: unknown }
+    const had = Object.getOwnPropertyDescriptor(nav, 'locks')
+    Object.defineProperty(nav, 'locks', { value: { request }, configurable: true })
+    try {
+      return await fn()
+    } finally {
+      if (had) Object.defineProperty(nav, 'locks', had)
+      else delete (nav as { locks?: unknown }).locks
+    }
+  }
+
+  it.each([true, false])('stores the first-start note before releasing the seed lock (seedGuide %s)', async (seedGuide) => {
+    const flush = vi.spyOn(Vault.prototype, 'flushWrites')
+    let flushedInside = -1
+    await withLocks(
+      async (_n, cb) => {
+        flush.mockClear()
+        const r = await cb()
+        flushedInside = flush.mock.calls.length
+        return r
+      },
+      () => boot(name(), { seedGuide }),
+    )
+    expect(flushedInside).toBeGreaterThan(0)
+    flush.mockRestore()
+  })
+
+  it('never opens a trashed note: a vault holding only trashed notes gets a welcome note', async () => {
+    const dbName = name()
+    const s = await withLocks(
+      async (_n, cb) => {
+        const other = await Vault.open(new DexieStorage(createDb(dbName)), 'default-vault', { channelFactory })
+        const n = other.createNote({ title: '已刪' })
+        other.trashNote(n.id)
+        await other.flushWrites()
+        other.close()
+        return cb()
+      },
+      () => boot(dbName, { seedGuide: true }),
+    )
+    const opened = s.vault.getNote(s.initialNoteId!)
+    expect(opened?.deletedAt).toBeNull()
+    expect(opened?.title).toBe('歡迎使用')
+    expect(s.vault.listFolders()).toHaveLength(0) // not an empty vault: no guide
+  })
+
   it('does not seed a vault that already has notes', async () => {
     const dbName = name()
     const a = await boot(dbName) // seedGuide: false → plain welcome note
