@@ -33,14 +33,15 @@ export function useSwitcherRows(query: string): { rows: Row[]; settled: boolean;
   // "#tag" searches tags only; the bare "#" has nothing to look up yet.
   const tagMode = q.startsWith('#')
   const term = tagMode ? q.slice(1).trim() : q
+  const key = (tagMode ? '#' : '') + term
 
   useEffect(() => {
     const id = ++latest.current
     if (!term) return
     const timer = setTimeout(() => {
-      search.search(term).then(
+      ;(tagMode ? search.searchTags(term) : search.search(term)).then(
         (hits) => {
-          if (id === latest.current) setResult({ q: term, hits })
+          if (id === latest.current) setResult({ q: key, hits })
         },
         () => {
           if (id === latest.current) setFailed(true)
@@ -48,7 +49,7 @@ export function useSwitcherRows(query: string): { rows: Row[]; settled: boolean;
       )
     }, DEBOUNCE_MS)
     return () => clearTimeout(timer)
-  }, [term, search])
+  }, [term, key, tagMode, search])
 
   const rows = useMemo<Row[]>(() => {
     void version
@@ -61,10 +62,11 @@ export function useSwitcherRows(query: string): { rows: Row[]; settled: boolean;
       }
       return out
     }
-    for (const h of result?.hits ?? []) {
+    // No term (bare '#') or a result for another term: never show stale hits.
+    const fresh = term && result?.q === key ? result.hits : []
+    for (const h of fresh) {
       const n = vault.getNote(h.noteId)
       if (!n || n.deletedAt !== null) continue
-      if (tagMode && h.field !== 'tag') continue
       const right =
         h.field === 'title' ? folderPath(folders, n.folderId) : h.field === 'tag' ? h.snippet : `內文提到「${h.snippet}」`
       out.push({ kind: 'note', key: n.id, noteId: n.id, title: displayTitle(n.title), right, match: h.field === 'title' })
@@ -72,7 +74,7 @@ export function useSwitcherRows(query: string): { rows: Row[]; settled: boolean;
     const exact = vault.listNotes().some((n) => normalizeTitle(n.title) === normalizeTitle(q))
     if (!tagMode && !exact) out.push({ kind: 'create', key: 'create', title: q })
     return out
-  }, [q, tagMode, result, vault, version])
+  }, [q, term, key, tagMode, result, vault, version])
 
-  return { rows, settled: !term || result?.q === term, failed }
+  return { rows, settled: !term || result?.q === key, failed }
 }

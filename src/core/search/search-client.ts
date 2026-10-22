@@ -40,6 +40,10 @@ export class SearchClient implements SearchService {
     return this.request({ kind: 'search', query })
   }
 
+  searchTags(query: string): Promise<SearchHit[]> {
+    return this.request({ kind: 'searchTags', query })
+  }
+
   mentions(title: string, excludeNoteIds: string[]): Promise<SearchHit[]> {
     return this.request({ kind: 'mentions', title, excludeNoteIds })
   }

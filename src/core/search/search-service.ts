@@ -1,8 +1,9 @@
 import type { NotesDb } from '@/adapters/storage/db'
-import { findMentions, searchNotes, type SearchHit } from './search'
+import { findMentions, searchByTag, searchNotes, type SearchHit } from './search'
 
 export interface SearchService {
   search(query: string): Promise<SearchHit[]>
+  searchTags(query: string): Promise<SearchHit[]>
   mentions(title: string, excludeNoteIds: string[]): Promise<SearchHit[]>
   dispose(): void
 }
@@ -11,7 +12,7 @@ export interface SearchService {
 export class LocalSearch implements SearchService {
   constructor(private readonly db: NotesDb) {}
 
-  async search(query: string): Promise<SearchHit[]> {
+  private async load() {
     const [rows, tagRows] = await Promise.all([this.db.noteText.toArray(), this.db.tags.toArray()])
     const tags = new Map<string, string[]>()
     for (const t of tagRows) {
@@ -19,7 +20,17 @@ export class LocalSearch implements SearchService {
       if (list) list.push(t.tag)
       else tags.set(t.noteId, [t.tag])
     }
+    return { rows, tags }
+  }
+
+  async search(query: string): Promise<SearchHit[]> {
+    const { rows, tags } = await this.load()
     return searchNotes(query, rows, tags)
+  }
+
+  async searchTags(query: string): Promise<SearchHit[]> {
+    const { rows, tags } = await this.load()
+    return searchByTag(query, rows, tags)
   }
 
   async mentions(title: string, excludeNoteIds: string[]): Promise<SearchHit[]> {

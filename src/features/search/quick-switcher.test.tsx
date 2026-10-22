@@ -13,9 +13,10 @@ const channelFactory = () =>
 
 let vault: Vault
 let search: ReturnType<typeof vi.fn>
+let searchTags: ReturnType<typeof vi.fn>
 
 function mount() {
-  const services = { vault, search: { search, mentions: vi.fn(), dispose() {} } } as unknown as AppServices
+  const services = { vault, search: { search, searchTags, mentions: vi.fn(), dispose() {} } } as unknown as AppServices
   return render(
     <ServicesProvider services={services}>
       <button>外部</button>
@@ -33,6 +34,7 @@ const keyOn = (key: string, init: KeyboardEventInit = {}) => fireEvent.keyDown(i
 beforeEach(async () => {
   vault = await Vault.open(new MemoryStorage(), 'v', { channelFactory })
   search = vi.fn(async () => [])
+  searchTags = vi.fn(async () => [])
   useUi.setState({ openNoteId: null, quickSwitcherOpen: false, quickSwitcherSeed: '' })
 })
 afterEach(() => cleanup())
@@ -140,6 +142,25 @@ describe('search', () => {
     act(() => useUi.getState().setQuickSwitcher(true))
     type('x')
     await screen.findByText('搜尋暫時無法使用，請重新整理頁面。')
+  })
+})
+
+describe('tag mode', () => {
+  it('uses searchTags for #queries and drops stale hits when back to a bare #', async () => {
+    const a = vault.createNote({ title: '採購單' })
+    searchTags.mockResolvedValue([hit(a.id, '採購單', 'tag', '#採購')])
+    mount()
+    act(() => useUi.getState().setQuickSwitcher(true))
+    type('#採購')
+    const row = await screen.findByRole('option', { name: /採購單/ })
+    expect(row).toHaveTextContent('#採購')
+    expect(searchTags).toHaveBeenCalledWith('採購')
+    expect(search).not.toHaveBeenCalled()
+    expect(screen.queryByRole('option', { name: /新增筆記/ })).toBeNull()
+    type('#')
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
+    keyOn('Enter')
+    expect(useUi.getState().openNoteId).toBeNull()
   })
 })
 

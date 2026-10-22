@@ -54,6 +54,24 @@ export function searchNotes(
   return hits.sort(bySort).slice(0, limit)
 }
 
+/** Notes carrying a tag that contains `query` (case-insensitive); independent of title/content ranking. */
+export function searchByTag(
+  query: string,
+  rows: NoteTextRow[],
+  tags: Map<string, string[]>,
+  opts: { limit?: number } = {},
+): SearchHit[] {
+  const q = query.trim().replace(/^#/, '').toLowerCase()
+  if (!q) return []
+  const hits: SearchHit[] = []
+  for (const r of rows) {
+    const tag = (tags.get(r.noteId) ?? []).find((t) => t.toLowerCase().includes(q))
+    if (tag === undefined) continue
+    hits.push({ noteId: r.noteId, title: r.title, field: 'tag', snippet: `#${tag}`, updatedAt: r.updatedAt })
+  }
+  return hits.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, opts.limit ?? 50)
+}
+
 /** Notes whose body (not title) mentions `title`; excluded ids and same-titled notes are skipped. */
 export function findMentions(
   title: string,

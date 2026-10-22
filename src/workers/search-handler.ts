@@ -1,9 +1,10 @@
 import type { NoteTextRow } from '../adapters/storage/db'
-import { findMentions, searchNotes, type SearchHit } from '../core/search/search'
+import { findMentions, searchByTag, searchNotes, type SearchHit } from '../core/search/search'
 
 export type SearchRequest =
   | { kind: 'init'; dbName: string }
   | { id: number; kind: 'search'; query: string }
+  | { id: number; kind: 'searchTags'; query: string }
   | { id: number; kind: 'mentions'; title: string; excludeNoteIds: string[] }
 
 export type SearchReply = { id: number; hits: SearchHit[] } | { id: number; error: string }
@@ -24,7 +25,9 @@ export function handleRequest(
     const hits =
       req.kind === 'search'
         ? searchNotes(req.query, state.rows, state.tags)
-        : findMentions(req.title, state.rows, new Set(req.excludeNoteIds))
+        : req.kind === 'searchTags'
+          ? searchByTag(req.query, state.rows, state.tags)
+          : findMentions(req.title, state.rows, new Set(req.excludeNoteIds))
     return { id: req.id, hits }
   } catch (err) {
     return { id: req.id, error: err instanceof Error ? err.message : String(err) }

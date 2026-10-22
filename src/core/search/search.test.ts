@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NoteTextRow } from '../../adapters/storage/db'
-import { findMentions, searchNotes } from './search'
+import { findMentions, searchByTag, searchNotes } from './search'
 
 const row = (noteId: string, title: string, text: string, updatedAt = 1): NoteTextRow => ({
   noteId,
@@ -77,5 +77,27 @@ describe('findMentions', () => {
   })
   it('blank title -> []', () => {
     expect(findMentions('  ', rows, new Set())).toEqual([])
+  })
+})
+
+describe('searchByTag', () => {
+  it('finds a tagged note even when its title also matches, and beyond 50 title matches', () => {
+    const rows = [
+      row('tagged', '採購單', 'x', 1),
+      ...Array.from({ length: 60 }, (_, i) => row(`t${i}`, `採購${i}`, 'x', 10 + i)),
+      row('other', 'z', 'y', 3),
+    ]
+    const tags = new Map([['tagged', ['採購']], ['other', ['財務', 'Procure-X']]])
+    const hits = searchByTag('採購', rows, tags)
+    expect(hits).toEqual([{ noteId: 'tagged', title: '採購單', field: 'tag', snippet: '#採購', updatedAt: 1 }])
+    expect(searchByTag('#procure', rows, tags)[0]).toMatchObject({ noteId: 'other', snippet: '#Procure-X' })
+  })
+  it('sorts by updatedAt desc, limits to 50, blank -> []', () => {
+    const rows = Array.from({ length: 60 }, (_, i) => row(`n${i}`, 't', 'x', i))
+    const tags = new Map(rows.map((r) => [r.noteId, ['a']]))
+    const hits = searchByTag('a', rows, tags)
+    expect(hits).toHaveLength(50)
+    expect(hits[0].noteId).toBe('n59')
+    expect(searchByTag('#', rows, tags)).toEqual([])
   })
 })

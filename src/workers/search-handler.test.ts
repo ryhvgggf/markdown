@@ -12,6 +12,10 @@ describe('handleRequest', () => {
     const r = handleRequest(state(null), { id: 1, kind: 'search', query: 'hel' })
     expect('hits' in r && r.hits).toHaveLength(1)
   })
+  it('answers searchTags requests', () => {
+    const r = handleRequest(state(null), { id: 4, kind: 'searchTags', query: 'zzz' })
+    expect(r).toEqual({ id: 4, hits: [] })
+  })
   it('replies with an error (not stale hits) while a source is in error', () => {
     expect(handleRequest(state('Search index unavailable: x'), { id: 2, kind: 'search', query: 'hel' })).toEqual({
       id: 2,
