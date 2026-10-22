@@ -1,6 +1,6 @@
 import { Extension } from '@tiptap/core'
 import { Plugin } from '@tiptap/pm/state'
-import { goToNextCell } from '@tiptap/pm/tables'
+import { addRowAfter, goToNextCell } from '@tiptap/pm/tables'
 import { Table as BaseTable, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { isComposingEvent } from '../ime'
 
@@ -15,7 +15,10 @@ export const Table = BaseTable.configure({ resizable: true }).extend({
 
 export { TableRow, TableHeader, TableCell }
 
-/** Tab / Shift-Tab move between cells; wins over list indentation, never runs while composing. */
+/**
+ * Tab / Shift-Tab move between cells; Tab in the last cell adds a row and moves into it (Tiptap's default).
+ * Wins over list indentation, never runs while composing.
+ */
 export const TableTab = Extension.create({
   name: 'tableTab',
   priority: 1100,
@@ -34,7 +37,10 @@ export const TableTab = Extension.create({
             }
             if (!inCell || isComposingEvent(event, view)) return false
             const move = goToNextCell(event.shiftKey ? -1 : 1)
-            move(view.state, view.dispatch, view)
+            if (!move(view.state, view.dispatch, view) && !event.shiftKey) {
+              addRowAfter(view.state, view.dispatch)
+              goToNextCell(1)(view.state, view.dispatch, view)
+            }
             return true // never let Tab leave the table
           },
         },
