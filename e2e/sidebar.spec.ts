@@ -1,7 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
 
-const SHOT = '/home/claude/markdown/.superpowers/sdd/2026-10-21-notes-v2-phase1'
-
 const item = (page: Page, name: string | RegExp) => page.getByRole('treeitem', { name, exact: typeof name === 'string' })
 const levels = async (page: Page) =>
   page.getByRole('treeitem').evaluateAll((els) => els.map((e) => `${e.getAttribute('aria-level')}:${e.getAttribute('aria-label')}`))
@@ -59,7 +57,7 @@ test('資料夾樹：拖曳移入資料夾、同層排序，重新整理後保�
   await drag(page, '專案', '封存', 'middle')
   await expect.poll(() => levels(page)).toEqual(['1:專案', '2:封存', '2:乙', '1:丙', '1:歡迎使用'])
 
-  await page.screenshot({ path: `${SHOT}/task-20-tree.png` })
+  if (process.env.TREE_SHOT) await page.screenshot({ path: process.env.TREE_SHOT })
 
   // survives a reload (persistence is async: retry)
   const expected = ['1:專案', '2:封存', '2:乙', '1:丙', '1:歡迎使用']
@@ -92,7 +90,7 @@ test('垃圾桶：移到垃圾桶、還原，並更新已刪除的筆記連結',
   await page.getByRole('button', { name: /垃圾桶/ }).click()
   const entry = page.getByRole('listitem').filter({ hasText: '目標' })
   await expect(entry).toContainText('30 天後永久刪除')
-  await page.screenshot({ path: `${SHOT}/task-20-trash.png` })
+  if (process.env.TRASH_SHOT) await page.screenshot({ path: process.env.TRASH_SHOT })
   await entry.getByRole('button', { name: '還原' }).click()
   await expect(page.getByText('垃圾桶是空的')).toBeVisible()
   await page.getByRole('button', { name: '返回' }).click()

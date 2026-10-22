@@ -1,15 +1,11 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
   DragOverlay,
   PointerSensor,
-  pointerWithin,
-  useDroppable,
   useSensor,
   useSensors,
-  type CollisionDetection,
   type DragEndEvent,
-  type DragMoveEvent,
 } from '@dnd-kit/core'
 import { useUi } from '@/app/ui-store'
 import type { TreeNode } from '@/core/vault/tree'
@@ -27,14 +23,17 @@ function flatten(nodes: TreeNode[], expanded: ReadonlySet<string>, level = 1): R
   ])
 }
 
-// Prefer a row over the list background when the pointer is over both.
-const collision: CollisionDetection = (args) => {
-  const hits = pointerWithin(args)
-  const rows = hits.filter((h) => h.id !== ROOT)
-  return rows.length > 0 ? [rows[0]!] : hits
-}
+type Target = { over: Ref | typeof ROOT; zone: Zone }
 
-type Drop = { overId: string; zone: Zone }
+function targetAt(x: number, y: number): Target | null {
+  const el = document.elementFromPoint(x, y)
+  const row = el?.closest<HTMLElement>('[role="treeitem"]')
+  if (row) {
+    const over: Ref = { kind: row.dataset.kind as Ref['kind'], id: row.dataset.nodeId! }
+    return { over, zone: dropZone(over.kind, y, row.getBoundingClientRect()) }
+  }
+  return el?.closest('[role="tree"]') ? { over: ROOT, zone: 'into' } : null
+}
 
 export interface FolderTreeProps {
   tree: TreeNode[]
@@ -49,49 +48,50 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
   const openNoteId = useUi((s) => s.openNoteId)
   const rows = useMemo(() => flatten(tree, expanded), [tree, expanded])
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
-  const [drop, setDrop] = useState<Drop | null>(null)
+  const [drop, setDrop] = useState<Target | null>(null)
   const [dragging, setDragging] = useState<Ref | null>(null)
-  const startY = useRef(0)
-  const root = useDroppable({ id: ROOT })
   const tabbableId = rows.find((r) => r.node.kind === 'note' && r.node.note.id === openNoteId) ? openNoteId : rows[0] && nodeRef(rows[0].node).id
 
-  const resolve = (e: DragMoveEvent | DragEndEvent): Drop | null => {
-    const over = e.over
-    if (!over) return null
-    if (over.id === ROOT) return { overId: ROOT, zone: 'into' }
-    const kind = (over.data.current as Ref | undefined)?.kind
-    if (!kind) return null
-    return { overId: String(over.id), zone: dropZone(kind, startY.current + e.delta.y, over.rect) }
-  }
+  // The drop target is hit-tested from the real pointer position, tracked with native events. dnd-kit's own
+  // `over` is computed after a React render and can lag the final pointermove when the browser is busy,
+  // which made a quick release land on a row the pointer had only passed over.
+  const final = useRef<Target | null>(null)
+  useEffect(() => {
+    if (!dragging) return
+    const track = (e: PointerEvent) => {
+      final.current = targetAt(e.clientX, e.clientY)
+      if (e.type === 'pointermove') setDrop(final.current)
+    }
+    window.addEventListener('pointermove', track, true)
+    window.addEventListener('pointerup', track, true)
+    return () => {
+      window.removeEventListener('pointermove', track, true)
+      window.removeEventListener('pointerup', track, true)
+    }
+  }, [dragging])
 
   const onDragEnd = (e: DragEndEvent) => {
-    const target = resolve(e)
+    const t = final.current
+    final.current = null
     setDrop(null)
     setDragging(null)
     const drag = e.active.data.current as Ref | undefined
-    if (!target || !drag) return
-    const over = target.overId === ROOT ? ROOT : (e.over?.data.current as Ref)
-    const move = computeMove(tree, drag, over, target.zone)
+    if (!t || !drag) return
+    const move = computeMove(tree, drag, t.over, t.zone)
     if (move) actions.move(drag, move)
   }
 
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={collision}
-      onDragStart={(e) => {
-        startY.current = (e.activatorEvent as PointerEvent).clientY
-        setDragging(e.active.data.current as Ref)
-      }}
-      onDragMove={(e) => setDrop(resolve(e))}
+      onDragStart={(e) => setDragging(e.active.data.current as Ref)}
       onDragEnd={onDragEnd}
-      onDragCancel={() => (setDrop(null), setDragging(null))}
+      onDragCancel={() => ((final.current = null), setDrop(null), setDragging(null))}
     >
       <div
-        ref={(el) => root.setNodeRef(el)}
         role="tree"
         aria-label="筆記樹狀清單"
-        className={`min-h-full px-2 pb-2 ${drop?.overId === ROOT ? 'bg-accent/5' : ''}`}
+        className={`min-h-full px-2 pb-2 ${drop?.over === ROOT ? 'bg-accent/5' : ''}`}
       >
         {rows.map(({ node, level }) => {
           const ref = nodeRef(node)
@@ -104,7 +104,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
               expanded={folderOpen}
               current={node.kind === 'note' && node.note.id === openNoteId}
               tabbable={ref.id === tabbableId}
-              drop={drop?.overId === ref.id ? drop.zone : null}
+              drop={drop && drop.over !== ROOT && drop.over.id === ref.id ? drop.zone : null}
               renaming={renamingId === ref.id}
               menu={{
                 rename: () => setRenamingId(ref.id),
@@ -120,7 +120,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
           )
         })}
       </div>
-      <DragOverlay dropAnimation={null}>
+      <DragOverlay dropAnimation={null} style={{ pointerEvents: 'none' }}>
         {dragging && (
           <div className="glass-float w-max max-w-56 truncate px-3 py-1 text-[13.5px] text-fg">
             {labelOf(tree, dragging)}

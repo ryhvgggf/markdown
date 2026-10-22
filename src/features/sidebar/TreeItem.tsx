@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { useDraggable } from '@dnd-kit/core'
 import type { TreeNode } from '@/core/vault/tree'
 import { displayTitle } from '@/core/vault/titles'
 import { isComposingEvent } from '@/features/editor/ime'
@@ -30,11 +30,6 @@ export function TreeItem(p: TreeItemProps) {
   const label = p.node.kind === 'folder' ? p.node.folder.name || '未命名資料夾' : displayTitle(p.node.note.title)
   const [menuOpen, setMenuOpen] = useState(false)
   const drag = useDraggable({ id: ref.id, data: ref, disabled: p.renaming })
-  const drop = useDroppable({ id: ref.id, data: ref })
-  const setRef = (el: HTMLElement | null) => {
-    drag.setNodeRef(el)
-    drop.setNodeRef(el)
-  }
 
   // React events bubble out of the menu portal into this row; ignore those.
   const inside = (e: { currentTarget: Element; target: EventTarget }) => e.currentTarget.contains(e.target as Node)
@@ -58,7 +53,9 @@ export function TreeItem(p: TreeItemProps) {
     : 'text-fg hover:bg-fill'
   return (
     <div
-      ref={setRef}
+      ref={(el) => drag.setNodeRef(el)}
+      data-node-id={ref.id}
+      data-kind={ref.kind}
       role="treeitem"
       aria-label={label}
       aria-level={p.level}
