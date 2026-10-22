@@ -80,6 +80,24 @@ describe('findMentions', () => {
   })
 })
 
+describe('trashed rows', () => {
+  const trashedNewest = (n: number) =>
+    Array.from({ length: 60 }, (_, i) => ({ ...row(`x${i}`, `採購${i}`, '採購', 100 + i), trashed: true })).slice(0, n)
+  it('searchNotes skips trashed rows before the 50 cap', () => {
+    const rows = [...trashedNewest(60), row('live', '採購', 'x', 1)]
+    expect(searchNotes('採購', rows, noTags).map((h) => h.noteId)).toEqual(['live'])
+  })
+  it('searchByTag skips trashed rows before the cap', () => {
+    const rows = [...trashedNewest(60), row('live', 'z', 'x', 1)]
+    const tags = new Map(rows.map((r) => [r.noteId, ['採購']]))
+    expect(searchByTag('採購', rows, tags).map((h) => h.noteId)).toEqual(['live'])
+  })
+  it('findMentions skips trashed rows', () => {
+    const rows = [{ ...row('t', 'A', 'see target'), trashed: true }, row('l', 'B', 'see target')]
+    expect(findMentions('target', rows, new Set()).map((h) => h.noteId)).toEqual(['l'])
+  })
+})
+
 describe('searchByTag', () => {
   it('finds a tagged note even when its title also matches, and beyond 50 title matches', () => {
     const rows = [

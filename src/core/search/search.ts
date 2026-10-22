@@ -38,6 +38,7 @@ export function searchNotes(
   const limit = opts.limit ?? 50
   const hits: SearchHit[] = []
   for (const r of rows) {
+    if (r.trashed) continue
     const base = { noteId: r.noteId, title: r.title, updatedAt: r.updatedAt }
     if (r.title.toLowerCase().includes(q)) {
       hits.push({ ...base, field: 'title', snippet: headSnippet(r.text) })
@@ -65,6 +66,7 @@ export function searchByTag(
   if (!q) return []
   const hits: SearchHit[] = []
   for (const r of rows) {
+    if (r.trashed) continue
     const tag = (tags.get(r.noteId) ?? []).find((t) => t.toLowerCase().includes(q))
     if (tag === undefined) continue
     hits.push({ noteId: r.noteId, title: r.title, field: 'tag', snippet: `#${tag}`, updatedAt: r.updatedAt })
@@ -82,7 +84,7 @@ export function findMentions(
   if (!q) return []
   const hits: SearchHit[] = []
   for (const r of rows) {
-    if (excludeNoteIds.has(r.noteId) || r.title.trim().toLowerCase() === q) continue
+    if (r.trashed || excludeNoteIds.has(r.noteId) || r.title.trim().toLowerCase() === q) continue
     const i = r.text.toLowerCase().indexOf(q)
     if (i < 0) continue
     hits.push({

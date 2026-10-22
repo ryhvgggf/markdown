@@ -155,4 +155,19 @@ describe('Indexer', () => {
     expect(await db.noteText.get(n.id)).toBeUndefined()
     expect(await db.blocks.where('noteId').equals(n.id).count()).toBe(0)
   })
+
+  it('mirrors trashed state on trash/restore and backfills rows lacking the field', async () => {
+    const n = vault.createNote({ title: 'T' })
+    await indexer.indexNote(n.id)
+    expect((await db.noteText.get(n.id))?.trashed).toBe(false)
+    stop = indexer.start()
+    vault.trashNote(n.id)
+    await vi.waitFor(async () => expect((await db.noteText.get(n.id))?.trashed).toBe(true))
+    vault.restoreNote(n.id)
+    await vi.waitFor(async () => expect((await db.noteText.get(n.id))?.trashed).toBe(false))
+    // legacy row without the field, note trashed in the vault
+    await db.noteText.put({ noteId: n.id, title: 'T', text: '', updatedAt: vault.getNote(n.id)!.updatedAt })
+    vault.trashNote(n.id)
+    await vi.waitFor(async () => expect((await db.noteText.get(n.id))?.trashed).toBe(true))
+  })
 })

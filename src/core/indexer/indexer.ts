@@ -120,12 +120,13 @@ export class Indexer {
     for (const id of rows.keys()) if (!metas.has(id)) await this.removeNote(id)
     for (const meta of metas.values()) {
       const row = rows.get(meta.id)
-      if (row && row.title === meta.title && row.updatedAt === meta.updatedAt) continue
+      const trashed = meta.deletedAt !== null
+      if (row && row.title === meta.title && row.updatedAt === meta.updatedAt && (row.trashed ?? false) === trashed) continue
       await this.db.transaction('rw', this.db.noteText, async () => {
         const cur = await this.db.noteText.get(meta.id)
         if (!this.vault.getNote(meta.id)) return
-        if (!cur) await this.db.noteText.put({ noteId: meta.id, title: meta.title, text: '', updatedAt: meta.updatedAt })
-        else await this.db.noteText.update(meta.id, { title: meta.title, updatedAt: meta.updatedAt })
+        if (!cur) await this.db.noteText.put({ noteId: meta.id, title: meta.title, text: '', updatedAt: meta.updatedAt, trashed })
+        else await this.db.noteText.update(meta.id, { title: meta.title, updatedAt: meta.updatedAt, trashed })
       })
     }
   }
@@ -149,7 +150,7 @@ export class Indexer {
       if (!live) return
       title = live.title
       updatedAt = live.updatedAt
-      await noteText.put({ noteId, title, text: x.text, updatedAt })
+      await noteText.put({ noteId, title, text: x.text, updatedAt, trashed: live.deletedAt !== null })
       await links.where('sourceNoteId').equals(noteId).delete()
       await blocks.where('noteId').equals(noteId).delete()
       await tags.where('[noteId+tag]').between([noteId, ''], [noteId, '￿']).delete()
