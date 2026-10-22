@@ -24,14 +24,23 @@ test('設定：強調色與字級立即套用並在重新載入後保留', async
   await expect(link).toBeVisible()
   const linkEl = editor.locator('.note-link').first()
   const linkColor = () => linkEl.evaluate((el) => getComputedStyle(el).color)
-  const before = await linkColor()
+  // accent-coloured UI (links have their own fixed colours since Task 25)
+  await page.evaluate(() => {
+    const probe = document.createElement('span')
+    probe.id = 'accent-probe'
+    probe.className = 'text-accent'
+    document.body.appendChild(probe)
+  })
+  const accentColor = () => page.locator('#accent-probe').evaluate((el) => getComputedStyle(el).color)
+  const before = await accentColor()
 
   const dialog = await openSettings(page)
   await dialog.getByRole('tab', { name: '色彩' }).click()
   await dialog.getByTitle('青').click()
   await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'))).toBe('#0B7A75')
-  await expect.poll(linkColor).not.toBe(before)
-  await expect.poll(linkColor).toBe('rgb(11, 122, 117)')
+  await expect.poll(accentColor).not.toBe(before)
+  await expect.poll(accentColor).toBe('rgb(11, 122, 117)')
+  expect(await linkColor()).toBe('rgb(0, 122, 255)') // note links keep systemBlue whatever the accent
 
   await dialog.getByRole('tab', { name: '文字' }).click()
   await dialog.getByRole('radiogroup', { name: '字級' }).getByText('大').click()
