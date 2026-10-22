@@ -4,38 +4,36 @@ import { linkMention } from '@/core/links/link-mention'
 import type { SearchHit } from '@/core/search/search'
 
 const DEBOUNCE_MS = 300
+const isBlank = (title: string) => !title.trim() || title.trim() === '未命名'
 
 /** Notes whose body mentions `title` but do not link to `noteId`, plus the 轉為連結 action. */
 export function useMentions(noteId: string, title: string, linkedIds: string[]) {
   const { search, notes } = useServices()
-  const [hits, setHits] = useState<SearchHit[]>([])
-  const [hidden, setHidden] = useState<Set<string>>(new Set())
-  const key = linkedIds.slice().sort().join(',')
+  const [res, setRes] = useState<{ base: string; full: string; hits: SearchHit[] } | null>(null)
+  const [hiddenState, setHidden] = useState<{ base: string; ids: Set<string> }>({ base: '', ids: new Set() })
+  const linkedKey = linkedIds.slice().sort().join(',')
+  const base = `${noteId}\n${title}`
+  const full = `${base}\n${linkedKey}`
 
   useEffect(() => {
-    const t = title.trim()
-    if (!t || t === '未命名') return
+    if (isBlank(title)) return
     let cancelled = false
     const timer = setTimeout(() => {
-      search
-        .mentions(t, [noteId, ...(key ? key.split(',') : [])])
-        .then((h) => !cancelled && setHits(h), () => !cancelled && setHits([]))
+      const set = (hits: SearchHit[]) => !cancelled && setRes({ base, full, hits })
+      search.mentions(title.trim(), [noteId, ...(linkedKey ? linkedKey.split(',') : [])]).then(set, () => set([]))
     }, DEBOUNCE_MS)
     return () => {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [search, noteId, title, key])
+  }, [search, noteId, title, linkedKey, base, full])
 
-  const unhide = (id: string) =>
-    setHidden((s) => {
-      const next = new Set(s)
-      next.delete(id)
-      return next
-    })
+  const hidden = hiddenState.base === base ? hiddenState.ids : new Set<string>()
+  const setHiddenIds = (fn: (s: Set<string>) => Set<string>) =>
+    setHidden((cur) => ({ base, ids: fn(cur.base === base ? cur.ids : new Set()) }))
 
   const convert = async (sourceId: string) => {
-    setHidden((s) => new Set(s).add(sourceId)) // optimistic: the indexer moves it to 已連結
+    setHiddenIds((s) => new Set(s).add(sourceId)) // optimistic: the indexer moves it to 已連結
     let linked: boolean
     try {
       const doc = await notes.acquire(sourceId)
@@ -47,9 +45,20 @@ export function useMentions(noteId: string, title: string, linkedIds: string[]) 
     } catch {
       linked = false
     }
-    if (!linked) unhide(sourceId)
+    if (!linked)
+      setHiddenIds((s) => {
+        const next = new Set(s)
+        next.delete(sourceId)
+        return next
+      })
   }
 
-  const blank = !title.trim() || title.trim() === '未命名'
-  return { mentions: blank ? [] : hits.filter((h) => !hidden.has(h.noteId)), convert }
+  const blank = isBlank(title)
+  const hits = !blank && res?.base === base ? res.hits : []
+  return {
+    mentions: hits.filter((h) => !hidden.has(h.noteId)),
+    convert,
+    /** True once results for the current title exist (immediately for a blank title). */
+    loaded: blank || res?.full === full,
+  }
 }

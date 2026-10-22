@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { bootstrap, type AppServices } from './bootstrap'
+import { Indexer } from '@/core/indexer/indexer'
 import { LocalSearch } from '@/core/search/search-service'
 
 let n = 0
@@ -38,6 +39,21 @@ describe('bootstrap', () => {
     const b = await boot(dbName)
     expect(b.vault.listNotes()).toHaveLength(1)
     expect((await b.db.meta.get('lastNoteId'))?.value).toBe(id)
+  })
+
+  it('rebuilds the index once when the stored index version differs', async () => {
+    const dbName = name()
+    const a = await boot(dbName)
+    expect((await a.db.meta.get('indexVersion'))?.value).toBe(2)
+    await until(async () => (await a.storage.listDocs()).length > 0)
+    const spy = vi.spyOn(Indexer.prototype, 'rebuildAll')
+    await boot(dbName)
+    expect(spy).not.toHaveBeenCalled()
+    await a.db.meta.put({ key: 'indexVersion', value: 1 })
+    const c = await boot(dbName)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect((await c.db.meta.get('indexVersion'))?.value).toBe(2)
+    spy.mockRestore()
   })
 
   it('falls back to memory mode and still allows creating notes', async () => {

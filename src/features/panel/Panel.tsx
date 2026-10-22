@@ -49,8 +49,8 @@ export function Panel() {
         </IconButton>
       </div>
       <div role="tabpanel" className="min-h-0 flex-1 overflow-auto">
-        {noteId && panel === 'outline' && <Outline noteId={noteId} />}
-        {noteId && panel === 'backlinks' && <Backlinks noteId={noteId} />}
+        {noteId && panel === 'outline' && <Outline key={noteId} noteId={noteId} />}
+        {noteId && panel === 'backlinks' && <Backlinks key={noteId} noteId={noteId} />}
       </div>
     </div>
   )

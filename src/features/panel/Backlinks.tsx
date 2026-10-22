@@ -10,10 +10,11 @@ export function Backlinks({ noteId }: { noteId: string }) {
   const { vault } = useServices()
   useVaultSnapshot()
   const title = vault.getNote(noteId)?.title ?? ''
-  const groups = useBacklinks(noteId)
+  const found = useBacklinks(noteId)
+  const groups = found ?? []
   const openNote = useUi((s) => s.openNote)
-  const { mentions, convert } = useMentions(noteId, title, groups.map((g) => g.sourceId))
-  const empty = groups.length === 0 && mentions.length === 0
+  const { mentions, convert, loaded } = useMentions(noteId, title, groups.map((g) => g.sourceId))
+  const empty = found !== undefined && loaded && groups.length === 0 && mentions.length === 0
 
   return (
     <div className="px-3 pb-4">
@@ -30,6 +31,8 @@ export function Backlinks({ noteId }: { noteId: string }) {
                 folderPath={g.folderPath}
                 snippet={g.snippet}
                 term={title}
+                currentId={noteId}
+                titleOf={(id) => vault.getNote(id)?.title}
                 extra={g.extra}
                 onClick={() => openNote(g.sourceId, g.blockId)}
               />

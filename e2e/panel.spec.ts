@@ -26,7 +26,7 @@ test('反向連結：已連結卡片、提到但未連結、轉為連結；大�
   // open the target, then 反向連結 N
   await tree(page, '採購流程').click()
   await expect(title).toHaveValue('採購流程')
-  const pill = page.getByRole('button', { name: '反向連結' })
+  const pill = page.getByRole('button', { name: /^反向連結/ })
   await expect(pill).toContainText('1', { timeout: 8000 })
   await pill.click()
   const panel = page.getByRole('complementary', { name: '筆記資訊' })

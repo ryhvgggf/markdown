@@ -26,19 +26,20 @@ export function folderPath(folders: FolderMeta[], folderId: string | null): stri
 }
 
 /** Notes (one group per source note) that link to `noteId`, excluding self-links and trashed/purged sources. */
-export function useBacklinks(noteId: string | null): BacklinkGroup[] {
+/** `undefined` while the first query for `noteId` is still loading. */
+export function useBacklinks(noteId: string | null): BacklinkGroup[] | undefined {
   const { db } = useServices()
   const snap = useVaultSnapshot()
   const rows = useLive<LinkRow[]>(
     () => (noteId ? db.links.where('targetNoteId').equals(noteId).toArray() : []),
     [db, noteId],
-    [],
   )
   return useMemo(() => {
+    if (!rows) return undefined
     const live = new Map(snap.notes.map((n) => [n.id, n]))
     const groups = new Map<string, LinkRow[]>()
     for (const r of rows) {
-      if (r.sourceNoteId === noteId || !live.has(r.sourceNoteId)) continue
+      if (r.targetNoteId !== noteId || r.sourceNoteId === noteId || !live.has(r.sourceNoteId)) continue
       const list = groups.get(r.sourceNoteId)
       if (list) list.push(r)
       else groups.set(r.sourceNoteId, [r])

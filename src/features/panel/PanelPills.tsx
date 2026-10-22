@@ -6,7 +6,7 @@ export function PanelPills() {
   const noteId = useUi((s) => s.openNoteId)
   const panel = useUi((s) => s.panel)
   const toggle = useUi((s) => s.togglePanel)
-  const count = useBacklinks(noteId).length
+  const count = useBacklinks(noteId)?.length
   const cls = (on: boolean) =>
     `rounded-full px-3 py-1 text-xs transition duration-200 ease-spring ${
       on ? 'bg-surface text-fg shadow-[0_1px_2px_rgba(0,0,0,0.12)]' : 'text-fg-secondary hover:text-fg'
@@ -18,12 +18,11 @@ export function PanelPills() {
       </button>
       <button
         type="button"
-        aria-label="反向連結"
         aria-pressed={panel === 'backlinks'}
         className={cls(panel === 'backlinks')}
         onClick={() => toggle('backlinks')}
       >
-        反向連結 <span className="tabular-nums">{count}</span>
+        反向連結{count !== undefined && ` ${count}`}
       </button>
     </div>
   )

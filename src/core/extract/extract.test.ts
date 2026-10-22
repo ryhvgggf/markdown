@@ -34,7 +34,7 @@ describe('extractNote', () => {
       { id: 'b2', type: 'heading', text: 'Title' },
     ])
     expect(r.links).toEqual([
-      { sourceBlockId: 'b1', targetNoteId: 'n2', targetBlockId: 'x9', snippet: 'see  now #Work#work' },
+      { sourceBlockId: 'b1', targetNoteId: 'n2', targetBlockId: 'x9', snippet: 'see \u2063link:n2\u2063 now #Work#work' },
     ])
     expect(r.tags).toEqual(['work'])
   })
@@ -46,6 +46,24 @@ describe('extractNote', () => {
     const [l] = extractNote(f).links
     expect(l.snippet).toBe('a'.repeat(80))
     expect(l.targetBlockId).toBeNull()
+  })
+
+  it('never cuts a link token in half: a token that does not fit is dropped', () => {
+    const f = build([
+      el('paragraph', { id: 'b1' }, [
+        new Y.XmlText('a'.repeat(70)),
+        el('noteLink', { noteId: 'nnnnnnnnnnnnnnnn' }),
+        new Y.XmlText('tail'),
+      ]),
+    ])
+    const [l] = extractNote(f).links
+    expect(l.snippet).toBe('a'.repeat(70))
+    const g = build([
+      el('paragraph', { id: 'b1' }, [new Y.XmlText('a'.repeat(30)), el('noteLink', { noteId: 'n2' }), new Y.XmlText('b'.repeat(80))]),
+    ])
+    const s = extractNote(g).links[0].snippet
+    expect(s.length).toBe(80)
+    expect(s.startsWith('a'.repeat(30) + '\u2063link:n2\u2063')).toBe(true)
   })
 
   it('walks nested lists and tables, joins with newline', () => {
@@ -71,7 +89,7 @@ describe('extractNote', () => {
     ])
     const r = extractNote(f)
     expect(r.links.map((l) => l.sourceBlockId)).toEqual(['i1', ''])
-    expect(r.links[0].snippet).toBe('x')
+    expect(r.links[0].snippet).toBe('x\u2063link:n2\u2063')
   })
 
   it('collects deduplicated attachment ids', () => {

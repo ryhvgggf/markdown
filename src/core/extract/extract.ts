@@ -9,6 +9,10 @@ export type ExtractedLink = {
 }
 
 const SNIPPET_LENGTH = 80
+/** Invisible-separator-delimited marker standing in for a noteLink inside a link snippet. */
+export const LINK_SENTINEL = '\u2063'
+export const linkToken = (noteId: string) => `${LINK_SENTINEL}link:${noteId}${LINK_SENTINEL}`
+export const LINK_TOKEN_RE = new RegExp(`${LINK_SENTINEL}link:([^${LINK_SENTINEL}]*)${LINK_SENTINEL}`, 'g')
 
 type XmlChild = Y.XmlElement | Y.XmlText | Y.XmlHook
 type Parent = Y.XmlFragment | Y.XmlElement
@@ -40,6 +44,28 @@ function ownText(el: Parent): string {
   return out
 }
 
+/** Own text like `ownText`, but noteLinks become tokens; cut to SNIPPET_LENGTH without splitting a token. */
+function snippetText(el: Parent): string {
+  let out = ''
+  for (const c of el.toArray() as XmlChild[]) {
+    let piece = ''
+    if (isText(c)) piece = plainText(c)
+    else if (isElement(c) && c.nodeName === 'tag') piece = `#${c.getAttribute('name') ?? ''}`
+    else if (isElement(c) && c.nodeName === 'noteLink') {
+      const id = c.getAttribute('noteId')
+      if (id) {
+        const token = linkToken(id)
+        if (out.length + token.length > SNIPPET_LENGTH) return out
+        out += token
+      }
+      continue
+    }
+    if (out.length + piece.length > SNIPPET_LENGTH) return out + piece.slice(0, SNIPPET_LENGTH - out.length)
+    out += piece
+  }
+  return out
+}
+
 export function extractNote(content: Y.XmlFragment): {
   text: string
   blocks: ExtractedBlock[]
@@ -64,7 +90,7 @@ export function extractNote(content: Y.XmlFragment): {
             sourceBlockId: blockId,
             targetNoteId: noteId,
             targetBlockId: child.getAttribute('blockId') ?? null,
-            snippet: blockText.slice(0, SNIPPET_LENGTH),
+            snippet: blockText,
           })
           break
         }
@@ -87,7 +113,7 @@ export function extractNote(content: Y.XmlFragment): {
             const att = child.getAttribute('attachmentId')
             if (att && !attachmentIds.includes(att)) attachmentIds.push(att)
           }
-          walk(child, id || blockId, isTextblock || id ? text : blockText)
+          walk(child, id || blockId, isTextblock || id ? snippetText(child) : blockText)
         }
       }
     }

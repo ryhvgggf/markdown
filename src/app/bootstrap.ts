@@ -39,6 +39,9 @@ export interface BootstrapOptions {
 
 const VAULT_ID = 'default-vault'
 const LAST_NOTE_KEY = 'lastNoteId'
+/** Bump when derived index data changes shape; bootstrap then rebuilds it once. */
+export const INDEX_VERSION = 2
+const INDEX_VERSION_KEY = 'indexVersion'
 
 async function openDb(dbName: string, forceMemory: boolean): Promise<{ db: NotesDb; mode: 'persistent' | 'memory' }> {
   if (!forceMemory) {
@@ -93,7 +96,14 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
     await indexer.removeNote(id)
   }
   for (const id of purged.attachmentIds) await storage.deleteBlob(id)
-  if (vault.listNotes().length > 0 && (await db.noteText.count()) === 0) await indexer.rebuildAll()
+  const storedIndexVersion = (await db.meta.get(INDEX_VERSION_KEY))?.value
+  if (
+    vault.listNotes().length > 0 &&
+    ((await db.noteText.count()) === 0 || storedIndexVersion !== INDEX_VERSION)
+  ) {
+    await indexer.rebuildAll()
+  }
+  if (storedIndexVersion !== INDEX_VERSION) await db.meta.put({ key: INDEX_VERSION_KEY, value: INDEX_VERSION })
   indexer.start()
 
   // Pick the note to open; create the welcome note on first run.

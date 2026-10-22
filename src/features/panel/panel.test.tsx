@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Editor, Extension } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
@@ -66,7 +66,7 @@ describe('pills and panel chrome', () => {
     await link(target.id, target.id, 'self')
     useUi.setState({ openNoteId: target.id })
     mount()
-    const pill = screen.getByRole('button', { name: '反向連結' })
+    const pill = screen.getByRole('button', { name: /^反向連結/ })
     await waitFor(() => expect(pill).toHaveTextContent('反向連結 1'))
     expect(pill).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(pill)
@@ -105,21 +105,51 @@ describe('backlinks tab', () => {
     const target = vault.createNote({ title: '採購流程' })
     const a = vault.createNote({ title: '會議紀錄', folderId: sub.id })
     const root = vault.createNote({ title: '根目錄筆記' })
-    await link(a.id, target.id, '請依採購流程辦理', 'blk-9')
+    await link(a.id, target.id, `參考 \u2063link:${target.id}\u2063`, 'blk-9')
     await link(a.id, target.id, '第二處', 'blk-10')
-    await link(root.id, target.id, '另一則採購流程')
+    await link(root.id, target.id, `見 \u2063link:${target.id}\u2063 與 \u2063link:gone\u2063`)
     useUi.setState({ openNoteId: target.id, panel: 'backlinks' })
     mount()
     const heading = await screen.findByRole('heading', { name: '已連結' })
     const card = within(heading.parentElement!).getByRole('button', { name: /會議紀錄/ })
     expect(card).toHaveTextContent('SAP / MM')
     expect(card).toHaveTextContent('另有 1 處連結')
+    expect(card.textContent).toContain('參考 採購流程')
     expect(card.querySelector('mark')).toHaveTextContent('採購流程')
     const rootCard = within(heading.parentElement!).getByRole('button', { name: /根目錄筆記/ })
     expect(rootCard).not.toHaveTextContent('/')
+    expect(rootCard).toHaveTextContent('與 已刪除的筆記')
     fireEvent.click(card)
     expect(useUi.getState().openNoteId).toBe(a.id)
     expect(useUi.getState().highlightBlockId).toBe('blk-9')
+  })
+
+  it('shows no empty message while data is still loading', async () => {
+    const t = vault.createNote({ title: '孤島' })
+    let resolve!: (h: SearchHit[]) => void
+    mentions.mockReturnValue(new Promise<SearchHit[]>((r) => (resolve = r)))
+    useUi.setState({ openNoteId: t.id, panel: 'backlinks' })
+    mount()
+    await new Promise((r) => setTimeout(r, 450))
+    expect(screen.queryByText('還沒有其他筆記連結到這裡')).toBeNull()
+    expect(screen.getByRole('button', { name: /^反向連結/ }).textContent).toBe('反向連結 0')
+    resolve([])
+    expect(await screen.findByText('還沒有其他筆記連結到這裡')).toBeInTheDocument()
+  })
+
+  it('does not carry mentions or hidden items over to another note', async () => {
+    const a = vault.createNote({ title: '甲' })
+    const b = vault.createNote({ title: '乙' })
+    const m = vault.createNote({ title: '提到者' })
+    mentionHits = [{ noteId: m.id, title: '提到者', snippet: '甲甲' } as SearchHit]
+    useUi.setState({ openNoteId: a.id, panel: 'backlinks' })
+    mount()
+    await screen.findByRole('button', { name: '轉為連結' })
+    mentionHits = []
+    act(() => useUi.setState({ openNoteId: b.id }))
+    expect(screen.queryByRole('button', { name: '轉為連結' })).toBeNull()
+    await waitFor(() => expect(mentions).toHaveBeenLastCalledWith('乙', [b.id]))
+    expect(screen.queryByRole('button', { name: '轉為連結' })).toBeNull()
   })
 
   it('lists mentions (excluding self and linked notes); 轉為連結 links the text and hides the item', async () => {
@@ -236,7 +266,9 @@ describe('outline tab', () => {
   it('click scrolls the heading into view and places the cursor in it', () => {
     setup([h(1, 'h1', '壹'), h(2, 'h2', '貳')])
     const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
     Element.prototype.scrollIntoView = scrollIntoView
+    onTestFinished(() => void (Element.prototype.scrollIntoView = original))
     mount()
     fireEvent.click(screen.getByRole('button', { name: '貳' }))
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
