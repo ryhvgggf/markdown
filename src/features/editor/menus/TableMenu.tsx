@@ -1,10 +1,11 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import { useEditorState } from '@tiptap/react'
 import { autoUpdate } from '@floating-ui/dom'
 import { IconButton } from '@/ui/components/IconButton'
 import { Menu } from '@/ui/components/Menu'
 import { More } from '@/ui/icons'
+import { isComposingEvent } from '../ime'
 
 type Action = { label: string; run: (e: Editor) => boolean; can: (e: Editor) => boolean; danger?: boolean }
 
@@ -46,6 +47,31 @@ export function TableMenu({ editor }: { editor: Editor | null }) {
   const visible = !!editor && !!s && s.editable && s.pos >= 0 && (s.focused || open)
   const pos = s?.pos ?? -1
 
+  // Keyboard: Shift+F10 or the context-menu key with the caret in a cell opens the menu.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    const dom = editor.view?.dom as HTMLElement | undefined
+    if (!dom) return
+    let openedAt = 0
+    const onKey = (e: KeyboardEvent) => {
+      const shortcut = e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey)
+      if (!shortcut || isComposingEvent(e, editor.view) || !editor.isEditable || cellPos(editor) < 0) return
+      e.preventDefault()
+      openedAt = Date.now()
+      setOpen(true)
+    }
+    // The context-menu key also fires a `contextmenu` event: keep the browser's own menu away.
+    const onContext = (e: MouseEvent) => {
+      if (Date.now() - openedAt < 500) e.preventDefault()
+    }
+    dom.addEventListener('keydown', onKey)
+    dom.addEventListener('contextmenu', onContext)
+    return () => {
+      dom.removeEventListener('keydown', onKey)
+      dom.removeEventListener('contextmenu', onContext)
+    }
+  }, [editor])
+
   useLayoutEffect(() => {
     const el = box.current
     if (!visible || !editor || !el) return
@@ -55,7 +81,11 @@ export function TableMenu({ editor }: { editor: Editor | null }) {
       const cell = (at >= 0 ? editor.view.nodeDOM(at) : null) as HTMLElement | null
       if (!cell?.getBoundingClientRect) return
       const r = cell.getBoundingClientRect()
-      el.style.left = `${r.right - 30}px` // 8 px clear of the column-resize zone at the edge
+      // A wide table scrolls inside .tableWrapper: keep the button within its visible part.
+      const w = cell.closest('.tableWrapper')?.getBoundingClientRect()
+      const right = w ? Math.min(r.right, w.right) : r.right
+      const left = w ? Math.max(r.left, w.left) : r.left
+      el.style.left = `${Math.max(left + 4, right - 30)}px` // 8 px clear of the column-resize zone at the edge
       el.style.top = `${r.top + 4}px`
     }
     const cell = editor.view.nodeDOM(pos) as HTMLElement | null

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import * as Y from 'yjs'
@@ -82,6 +82,45 @@ describe('TableMenu', () => {
     expect(shape(editor!)).toBeNull()
     expect(editor!.getText()).toContain('before')
     expect(editor!.getText()).toContain('after')
+  })
+
+  it.each([
+    ['Shift+F10', { key: 'F10', shiftKey: true }],
+    ['the context-menu key', { key: 'ContextMenu' }],
+  ])('%s with the caret in a cell opens the menu from the keyboard', async (_name, init) => {
+    await setup()
+    await act(async () => caretIn(editor!, 'a'))
+    await act(async () => void fireEvent.keyDown(editor!.view.dom, init))
+    expect(await screen.findByRole('menuitem', { name: '下方插入列' })).toBeInTheDocument()
+  })
+
+  it('the keyboard shortcut does nothing outside a table or while composing', async () => {
+    await setup()
+    await act(async () => caretIn(editor!, 'before'))
+    await act(async () => void fireEvent.keyDown(editor!.view.dom, { key: 'F10', shiftKey: true }))
+    await act(async () => caretIn(editor!, 'a'))
+    await act(async () => void fireEvent.keyDown(editor!.view.dom, { key: 'ContextMenu', keyCode: 229 }))
+    expect(screen.queryByRole('menuitem', { name: '下方插入列' })).toBeNull()
+  })
+
+  it('keeps the button inside the visible part of a horizontally scrolled table', async () => {
+    const rect = (left: number, right: number, top = 100) =>
+      ({ left, right, top, bottom: top + 40, x: left, y: top, width: right - left, height: 40, toJSON() {} }) as DOMRect
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('tableWrapper')) return rect(100, 600, 90)
+      if (this.tagName === 'TD' || this.tagName === 'TH') return rect(500, 900) // runs past the wrapper's right edge
+      return rect(0, 0)
+    })
+    try {
+      await setup()
+      await act(async () => caretIn(editor!, 'a'))
+      await screen.findByRole('button', { name: '表格操作' })
+      const box = document.querySelector('[data-table-menu]') as HTMLElement
+      expect(box.style.left).toBe('570px') // wrapper right (600) - 30, not cell right (900) - 30
+      expect(box.style.top).toBe('104px')
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('the button does not take the selection on mousedown', async () => {

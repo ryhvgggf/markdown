@@ -101,6 +101,19 @@ test('導覽寫的表格操作、最後一格 Tab 新增列與點標籤搜尋都
     await expect(page.getByRole('menuitem', { name: label })).toBeVisible()
   }
   await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toBeHidden()
+  // keyboard: Shift+F10 with the caret in a cell opens it, arrows + Enter pick an item
+  await editor.locator('td').first().click()
+  await page.keyboard.press('Shift+F10')
+  await expect(page.getByRole('menuitem', { name: '下方插入列' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '上方插入列' })).toBeFocused() // keys now go to the menu
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByRole('menuitem', { name: '下方插入列' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(editor.locator('tr')).toHaveCount(4)
+  await page.getByRole('button', { name: '表格操作' }).click()
+  await page.getByRole('menuitem', { name: '刪除列' }).click()
+  await expect(editor.locator('tr')).toHaveCount(3)
   await editor.locator('td').last().click()
   await page.keyboard.type('z')
   await expect(editor.locator('td').last()).toHaveText('z')
