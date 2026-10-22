@@ -38,7 +38,12 @@ export function startPageLifecycle(s: AppServices, win: Win = window, doc: Docum
     s.notes.retryAll()
     s.vault.retryWrites()
   }
-  const onVisibility = () => (doc.visibilityState === 'hidden' ? flush() : retry())
+  const onVisible = () => {
+    retry()
+    // Writes made it to IndexedDB: this tab's unload stash is no longer needed (others' stashes stay).
+    void Promise.all([s.notes.flushAll(), s.vault.flushWrites()]).then(() => s.clearOwnStash())
+  }
+  const onVisibility = () => (doc.visibilityState === 'hidden' ? flush() : onVisible())
   // A beforeunload listener delays every navigation/reload (the browser must ask the page first) and
   // disables the back/forward cache, so it is only attached after a storage error was reported.
   let armed = false

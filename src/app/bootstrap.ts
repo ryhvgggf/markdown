@@ -1,8 +1,8 @@
 import { createDb, type NotesDb } from '@/adapters/storage/db'
 import { DexieStorage } from '@/adapters/storage/dexie-storage'
 import { requestPersistence } from '@/adapters/storage/persistence'
-import { clearStashed, readStashed, stashUpdate } from '@/adapters/storage/unsaved-stash'
-import type { StorageAdapter, StorageError } from '@/adapters/storage/types'
+import { clearOwnStashes, clearStashed, clearStashedKey, readStashed, stashUpdate } from '@/adapters/storage/unsaved-stash'
+import { StorageError, type StorageAdapter } from '@/adapters/storage/types'
 import { DIRTY_PREFIX, Indexer } from '@/core/indexer/indexer'
 import { Maintenance } from '@/core/maintenance/maintenance'
 import { NoteDocCache } from '@/core/note-doc/cache'
@@ -34,6 +34,8 @@ export type AppServices = {
   setLastNoteId(id: string): void
   /** Synchronously stashes every not-yet-stored update (pagehide); recovered on the next start. */
   stashUnsaved(): void
+  /** Drops this tab's stash when nothing is pending any more (after a successful flush). */
+  clearOwnStash(): void
 }
 
 export interface BootstrapOptions {
@@ -78,19 +80,24 @@ function createEmitter() {
   }
 }
 
+const isMetaDoc = (docId: string) => docId === VAULT_ID || docId.startsWith('prefs:')
+
 /**
  * Writes updates stashed in localStorage by the last pagehide (writes cut off by a reload/close) to
- * IndexedDB before anything is loaded, and marks those notes for re-indexing. Best-effort: an entry that
- * cannot be written stays stashed for the next start.
+ * IndexedDB. Phase 'meta' (before the vault loads) handles the vault and prefs docs; phase 'notes'
+ * (after) writes note stashes only for notes still in the vault (trashed included) and marks them for
+ * re-indexing; stashes of permanently deleted notes are dropped so they cannot come back as orphans.
+ * Best-effort: an entry that cannot be written stays stashed for the next start.
  */
-async function recoverStashed(storage: StorageAdapter, db: NotesDb): Promise<void> {
-  for (const { docId, update } of readStashed()) {
+async function recoverStashed(storage: StorageAdapter, db: NotesDb, phase: 'meta' | 'notes', vault?: Vault): Promise<void> {
+  for (const { key, docId, update } of readStashed()) {
+    if (isMetaDoc(docId) !== (phase === 'meta')) continue
     try {
-      if (update.length > 0) {
+      if (update.length > 0 && (phase === 'meta' || vault?.getNote(docId))) {
         await storage.appendUpdate(docId, update)
-        if (docId !== VAULT_ID && !docId.startsWith('prefs:')) await db.meta.put({ key: DIRTY_PREFIX + docId, value: 1 })
+        if (phase === 'notes') await db.meta.put({ key: DIRTY_PREFIX + docId, value: 1 })
       }
-      clearStashed(docId)
+      clearStashedKey(key)
     } catch {
       /* keep it for the next start */
     }
@@ -105,9 +112,10 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   const common = { channelFactory: opts.channelFactory, onStorageError: errors.emit }
 
   const persistence = mode === 'memory' ? 'unsupported' : await requestPersistence()
-  if (mode === 'persistent') await recoverStashed(storage, db)
+  if (mode === 'persistent') await recoverStashed(storage, db, 'meta')
   const vault = await Vault.open(storage, VAULT_ID, common)
-  const notes = new NoteDocCache(storage, common)
+  if (mode === 'persistent') await recoverStashed(storage, db, 'notes', vault)
+  const notes = new NoteDocCache(storage, { ...common, clearStash: clearStashed })
   const prefs = await Preferences.open(storage, PREFS_USER, common)
   const indexer = new Indexer(db, vault, notes, storage, { onError: errors.emit })
   const createSearch =
@@ -117,6 +125,13 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   // Purges, index rebuild/catch-up and attachment GC are NOT run here: they are off the critical path
   // (App starts `maintenance.runStartup()` after the first render) and can never block opening the app.
   indexer.start()
+  // A permanent delete interrupted last time is finished before the UI shows (O(pending)), so a later
+  // run can never delete a note the user restores meanwhile.
+  try {
+    await maintenance.finishPendingPurges()
+  } catch (e) {
+    errors.emit(e instanceof StorageError ? e : new StorageError('unknown', String(e), { cause: e }))
+  }
 
   // Pick the note to open; create the welcome note on first run.
   const setLastNoteId = (id: string) => {
@@ -141,6 +156,10 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
       vault.stashUnsaved(stashUpdate)
       notes.stashUnsaved(stashUpdate)
       prefs.stashUnsaved(stashUpdate)
+    },
+    clearOwnStash() {
+      if (notes.hasUnsaved() || vault.hasPendingWrites() || prefs.hasPendingWrites()) return
+      clearOwnStashes()
     },
   }
 }

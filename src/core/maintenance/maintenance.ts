@@ -14,6 +14,10 @@ export const PENDING_PURGE_KEY = 'pendingPurge'
 /** meta: time of the last attachment garbage collection (an O(vault) scan, so at most daily). */
 export const LAST_ATTACHMENT_GC_KEY = 'lastAttachmentGc'
 export const ATTACHMENT_GC_INTERVAL_MS = 24 * 60 * 60 * 1000
+/** meta: attachments of permanently deleted notes → time after which the GC may delete them. */
+export const ATTACHMENT_DELETE_AFTER_KEY = 'attachmentDeleteAfter'
+/** Grace period: another note's undo history may still bring a deleted note's image back. */
+export const ATTACHMENT_GRACE_MS = 24 * 60 * 60 * 1000
 
 export interface MaintenanceDeps {
   db: NotesDb
@@ -44,7 +48,6 @@ export interface MaintenanceReport {
 export class Maintenance {
   private readonly now: () => number
   private readonly pause: () => Promise<void>
-  private background: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly d: MaintenanceDeps) {
     this.now = d.now ?? Date.now
@@ -57,16 +60,20 @@ export class Maintenance {
     const unreadable = new Set<string>()
     const now = this.now()
 
-    // 1. permanent deletes interrupted last time, then trash older than 30 days
+    // 1. permanent deletes interrupted last time (normally already done by bootstrap), then old trash.
+    // Notes open on screen, or restored while the purge was being recorded, are skipped.
+    await this.step(() => this.finishPendingPurges())
     await this.step(async () => {
-      const pending = await this.pendingPurges()
-      if (pending.length) await this.finishPurge(pending)
-    })
-    await this.step(async () => {
-      const expired = vault.expiredNoteIds(now)
-      await this.addPending(expired)
-      vault.purgeExpired(now)
-      await this.finishPurge(expired)
+      const candidates = vault.expiredNoteIds(now).filter((id) => !this.d.notes.isInUse(id))
+      if (!candidates.length) return
+      await this.addPending(candidates)
+      const still = new Set(vault.expiredNoteIds(now).filter((id) => !this.d.notes.isInUse(id)))
+      const purge = candidates.filter((id) => still.has(id))
+      const kept = candidates.filter((id) => !still.has(id))
+      if (kept.length) await this.updatePending((ids) => ids.filter((x) => !kept.includes(x)))
+      const skip = new Set(vault.expiredNoteIds(now).filter((id) => !purge.includes(id)))
+      vault.purgeExpired(now, undefined, skip)
+      await this.finishPurge(purge)
     })
 
     // 2. derived index: one rebuild after a version bump (or an empty index), then the dirty-note catch-up
@@ -86,15 +93,23 @@ export class Maintenance {
     // 3. two tabs may have given notes the same title at the same time
     await this.step(async () => void vault.resolveDuplicateTitles())
 
-    // 4. attachment GC (R8: unreferenced AND older than 30 days), at most once a day
+    // 4. attachment GC (R8: unreferenced AND older than 30 days), at most once a day; plus attachments of
+    //    permanently deleted notes whose grace period is over, if still unreferenced
     await this.step(async () => {
-      if (!vault.hasStaleAttachments(now)) return
+      const marks = await this.deleteMarks()
+      const due = Object.entries(marks).filter(([, t]) => t <= now).map(([id]) => id)
       const last = (await db.meta.get(LAST_ATTACHMENT_GC_KEY))?.value
-      if (typeof last === 'number' && now - last < ATTACHMENT_GC_INTERVAL_MS) return
-      await db.meta.put({ key: LAST_ATTACHMENT_GC_KEY, value: now })
+      const daily = vault.hasStaleAttachments(now) && !(typeof last === 'number' && now - last < ATTACHMENT_GC_INTERVAL_MS)
+      if (!daily && !due.length) return
+      if (daily) await db.meta.put({ key: LAST_ATTACHMENT_GC_KEY, value: now })
       const refs = await indexer.referencedAttachmentIds({ pause: this.pause })
-      if (!refs) return // some note is unreadable and may reference any of them: purge nothing
-      await this.deleteAttachments(vault.unreferencedAttachmentIds(now, refs))
+      if (!refs) return // some note is unreadable and may reference any of them: delete nothing
+      const ids = new Set(daily ? vault.unreferencedAttachmentIds(now, refs) : [])
+      for (const id of due) if (!refs.has(id) && vault.getAttachment(id)) ids.add(id)
+      await this.deleteAttachments([...ids])
+      await this.updateMarks((m) => {
+        for (const id of due) delete m[id]
+      })
     })
 
     if (unreadable.size) console.warn(`[maintenance] skipped ${unreadable.size} unreadable note(s)`, [...unreadable])
@@ -103,8 +118,9 @@ export class Maintenance {
 
   /**
    * Permanent delete from the trash. Crash-safe: the ids are recorded first, the vault entry goes next
-   * (the note disappears at once), then doc and index rows; a startup pass finishes an interrupted run.
-   * The note's attachments are deleted afterwards in the background when no other note references them.
+   * (the note disappears at once), then doc and index rows; startup finishes an interrupted run.
+   * The note's attachments are not deleted now (another note's undo history may still reference them):
+   * they are marked, and the GC deletes them after a grace period if nothing references them then.
    * Never rejects: failures are reported through `onError`; returns whether everything was removed.
    */
   async purge(ref: { kind: 'note' | 'folder'; id: string }): Promise<boolean> {
@@ -117,12 +133,23 @@ export class Maintenance {
       if (ref.kind === 'note') vault.purgeNote(ref.id)
       else vault.purgeFolder(ref.id)
       await this.finishPurge(noteIds)
-      if (candidates.size) this.inBackground(() => this.deleteIfUnreferenced(candidates))
+      if (candidates.size) {
+        const after = this.now() + ATTACHMENT_GRACE_MS
+        await this.updateMarks((m) => {
+          for (const id of candidates) m[id] = Math.max(m[id] ?? 0, after)
+        })
+      }
       return true
     } catch (e) {
       this.report(e)
       return false
     }
+  }
+
+  /** Completes permanent deletes interrupted last time. O(pending); bootstrap runs it before the UI shows. */
+  async finishPendingPurges(): Promise<void> {
+    const pending = await this.pendingPurges()
+    if (pending.length) await this.finishPurge(pending)
   }
 
   /**
@@ -146,11 +173,6 @@ export class Maintenance {
       off()
       if (t !== null) clearTimeout(t)
     }
-  }
-
-  /** Resolves when background work started by `purge` has finished (tests). */
-  idle(): Promise<void> {
-    return this.background.then(() => undefined)
   }
 
   private async finishPurge(noteIds: string[]): Promise<void> {
@@ -197,10 +219,19 @@ export class Maintenance {
     }
   }
 
-  private async deleteIfUnreferenced(candidates: Set<string>): Promise<void> {
-    const refs = await this.d.indexer.referencedAttachmentIds({ pause: this.pause })
-    if (!refs) return
-    await this.deleteAttachments([...candidates].filter((id) => !refs.has(id) && this.d.vault.getAttachment(id)))
+  private async deleteMarks(): Promise<Record<string, number>> {
+    const v = (await this.d.db.meta.get(ATTACHMENT_DELETE_AFTER_KEY))?.value
+    return v && typeof v === 'object' ? { ...(v as Record<string, number>) } : {}
+  }
+
+  private async updateMarks(fn: (m: Record<string, number>) => void): Promise<void> {
+    const { db } = this.d
+    await db.transaction('rw', db.meta, async () => {
+      const m = await this.deleteMarks()
+      fn(m)
+      if (Object.keys(m).length) await db.meta.put({ key: ATTACHMENT_DELETE_AFTER_KEY, value: m })
+      else await db.meta.delete(ATTACHMENT_DELETE_AFTER_KEY)
+    })
   }
 
   /** Blob first, metadata second: a crash in between leaves metadata the next GC removes, never a lost blob. */
@@ -211,10 +242,6 @@ export class Maintenance {
         this.d.vault.removeAttachment(id)
       })
     }
-  }
-
-  private inBackground(fn: () => Promise<void>): void {
-    this.background = this.background.then(fn).catch((e) => this.report(e))
   }
 
   private async step(fn: () => Promise<void>): Promise<void> {

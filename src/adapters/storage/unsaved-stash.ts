@@ -23,34 +23,56 @@ const toB64 = (u: Uint8Array) => {
 }
 const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
 
-/** Synchronously stashes `update` for `docId` (merged with an earlier stash of the same doc). */
+/** Keys are per page load (`<prefix><tab>:<docId>`), so one tab never clears what another tab stashed. */
+const TAB = Math.random().toString(36).slice(2, 10)
+const ownKey = (docId: string) => `${PREFIX}${TAB}:${docId}`
+const parse = (key: string) => {
+  const rest = key.slice(PREFIX.length)
+  const i = rest.indexOf(':')
+  return i < 0 ? null : { tab: rest.slice(0, i), docId: rest.slice(i + 1) }
+}
+
+function keys(store: Storage): string[] {
+  const out: string[] = []
+  for (let i = 0; i < store.length; i++) {
+    const k = store.key(i)
+    if (k?.startsWith(PREFIX)) out.push(k)
+  }
+  return out
+}
+
+/** Synchronously stashes `update` for `docId` (merged with this tab's earlier stash of the same doc). */
 export function stashUpdate(docId: string, update: Uint8Array): void {
   const store = ls()
   if (!store) return
   try {
-    const prev = store.getItem(PREFIX + docId)
+    const prev = store.getItem(ownKey(docId))
     const merged = prev ? Y.mergeUpdates([fromB64(prev), update]) : update
-    store.setItem(PREFIX + docId, toB64(merged))
+    store.setItem(ownKey(docId), toB64(merged))
   } catch {
     /* quota or blocked storage: nothing more can be done synchronously */
   }
 }
 
-/** Every stashed doc update; call `clear(docId)` once it is stored in IndexedDB. */
-export function readStashed(): Array<{ docId: string; update: Uint8Array }> {
+/** Every stashed doc update (all tabs); call `clearStashedKey(key)` once it is stored in IndexedDB. */
+export function readStashed(): Array<{ key: string; docId: string; update: Uint8Array }> {
   const store = ls()
   if (!store) return []
-  const out: Array<{ docId: string; update: Uint8Array }> = []
+  const out: Array<{ key: string; docId: string; update: Uint8Array }> = []
   try {
-    for (let i = 0; i < store.length; i++) {
-      const k = store.key(i)
-      if (!k?.startsWith(PREFIX)) continue
-      try {
-        out.push({ docId: k.slice(PREFIX.length), update: fromB64(store.getItem(k) ?? '') })
-      } catch {
-        /* malformed entry: dropped below */
-        out.push({ docId: k.slice(PREFIX.length), update: new Uint8Array() })
+    for (const key of keys(store)) {
+      const id = parse(key)
+      if (!id) {
+        store.removeItem(key) // malformed
+        continue
       }
+      let update = new Uint8Array()
+      try {
+        update = fromB64(store.getItem(key) ?? '')
+      } catch {
+        /* malformed entry: an empty update, dropped by the caller */
+      }
+      out.push({ key, docId: id.docId, update })
     }
   } catch {
     return []
@@ -58,9 +80,31 @@ export function readStashed(): Array<{ docId: string; update: Uint8Array }> {
   return out
 }
 
-export function clearStashed(docId: string): void {
+export function clearStashedKey(key: string): void {
   try {
-    ls()?.removeItem(PREFIX + docId)
+    ls()?.removeItem(key)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Drops every tab's stash of a doc (it was permanently deleted). */
+export function clearStashed(docId: string): void {
+  const store = ls()
+  if (!store) return
+  try {
+    for (const key of keys(store)) if (parse(key)?.docId === docId) store.removeItem(key)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Drops what this tab stashed (its writes have since reached IndexedDB). */
+export function clearOwnStashes(): void {
+  const store = ls()
+  if (!store) return
+  try {
+    for (const key of keys(store)) if (parse(key)?.tab === TAB) store.removeItem(key)
   } catch {
     /* ignore */
   }

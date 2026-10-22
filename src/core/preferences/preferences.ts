@@ -132,6 +132,10 @@ export class Preferences {
     return () => this.map.unobserve(handler)
   }
 
+  hasPendingWrites(): boolean {
+    return this.binding.hasPending()
+  }
+
   /** Hands not-yet-stored updates to `stash` (synchronous; used on pagehide). */
   stashUnsaved(stash: (docId: string, update: Uint8Array) => void): void {
     const u = this.binding.pendingUpdate()

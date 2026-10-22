@@ -16,6 +16,8 @@ export interface NoteDocCacheOptions {
   max?: number
   onStorageError?: (e: StorageError) => void
   channelFactory?: (name: string) => BroadcastChannel
+  /** Drops any unload stash of a doc that is being deleted for good. */
+  clearStash?: (noteId: string) => void
 }
 
 const INIT_ORIGIN = Symbol('note-doc-init')
@@ -77,7 +79,13 @@ export class NoteDocCache {
       await entry.binding.close()
       entry.doc.destroy()
     }
+    this.opts.clearStash?.(noteId)
     await this.storage.deleteDoc(noteId)
+  }
+
+  /** True while some editor holds the doc (it is open on screen). */
+  isInUse(noteId: string): boolean {
+    return (this.loaded.get(noteId)?.refs ?? 0) > 0
   }
 
   /** True while some loaded doc has local updates that are not stored yet (queued or awaiting a retry). */

@@ -147,4 +147,39 @@ describe('bootstrap', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('drops stashes of permanently deleted notes, keeps trashed ones, and finishes pending purges at boot', async () => {
+    const mem = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      get length() { return mem.size },
+      key: (i: number) => [...mem.keys()][i] ?? null,
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => void mem.set(k, v),
+      removeItem: (k: string) => void mem.delete(k),
+      clear: () => mem.clear(),
+    })
+    try {
+      const dbName = name()
+      const a = await boot(dbName)
+      const trashed = a.vault.createNote({ title: 'Trashed' })
+      a.vault.trashNote(trashed.id)
+      const half = a.vault.createNote({ title: 'Half purged' })
+      await a.storage.appendUpdate(half.id, new Uint8Array([0, 0]))
+      await a.db.meta.put({ key: 'pendingPurge', value: [half.id] })
+      await new Promise((r) => setTimeout(r, 100))
+      const d = new Y.Doc()
+      d.getText('t').insert(0, 'x')
+      const u = btoa(String.fromCharCode(...Y.encodeStateAsUpdate(d)))
+      mem.set('notes-v2.unsaved:t1:' + trashed.id, u)
+      mem.set('notes-v2.unsaved:t1:deleted-note', u)
+      const b = await boot(dbName)
+      expect(mem.size).toBe(0)
+      expect(await b.storage.loadDoc('deleted-note')).toHaveLength(0)
+      expect(await b.storage.loadDoc(trashed.id)).toHaveLength(1)
+      expect(b.vault.getNote(half.id)).toBeUndefined() // finished before the UI shows
+      expect(await b.storage.loadDoc(half.id)).toHaveLength(0)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

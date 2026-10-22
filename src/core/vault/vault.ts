@@ -269,9 +269,17 @@ export class Vault {
    * they are older than 30 days AND absent from `referencedAttachmentIds`; that set must include
    * references from trashed-but-unexpired notes too. Omitted set: no attachments are touched.
    */
-  purgeExpired(now: number, referencedAttachmentIds?: Set<string>): { noteIds: string[]; attachmentIds: string[] } {
-    const noteIds = this.expiredNoteIds(now)
-    const folderIds = [...this.folders.entries()].filter(([, m]) => isExpired(m, now)).map(([k]) => k)
+  purgeExpired(
+    now: number,
+    referencedAttachmentIds?: Set<string>,
+    /** Expired notes to keep for now (e.g. open on screen); their folders are kept too. */
+    skip: Set<string> = new Set(),
+  ): { noteIds: string[]; attachmentIds: string[] } {
+    const noteIds = this.expiredNoteIds(now).filter((id) => !skip.has(id))
+    const keepFolders = new Set([...skip].map((id) => this.notes.get(id)?.get('folderId') as string | null))
+    const folderIds = [...this.folders.entries()]
+      .filter(([k, m]) => isExpired(m, now) && !keepFolders.has(k))
+      .map(([k]) => k)
     const attachmentIds = referencedAttachmentIds ? this.unreferencedAttachmentIds(now, referencedAttachmentIds) : []
     this.doc.transact(() => {
       noteIds.forEach((k) => this.notes.delete(k))

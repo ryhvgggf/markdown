@@ -138,4 +138,16 @@ describe('NoteDocCache', () => {
       expect(await mem.loadDoc('n1')).toHaveLength(0)
     })
   })
+
+  it('remove drops the unload stash of the deleted doc; isInUse follows refs', async () => {
+    const storage = new MemoryStorage()
+    const cleared: string[] = []
+    const cache = new NoteDocCache(storage, { clearStash: (id) => cleared.push(id) })
+    await cache.acquire('n1')
+    expect(cache.isInUse('n1')).toBe(true)
+    cache.release('n1')
+    expect(cache.isInUse('n1')).toBe(false)
+    await cache.remove('n1')
+    expect(cleared).toEqual(['n1'])
+  })
 })

@@ -9,9 +9,10 @@ function fake(failing = false) {
     storageErrors: { subscribe: (cb: (e: unknown) => void) => ((emit = cb), () => (emit = () => {})) },
     maintenance: { runStartup: vi.fn(async () => ({ unreadable: [] })), watchDuplicateTitles: vi.fn(() => () => {}) },
     indexer: { flushPending: vi.fn(async () => {}) },
-    notes: { flushAll: vi.fn(async () => {}), retryAll: vi.fn(), hasFailedWrites: () => failing },
+    notes: { flushAll: vi.fn(async () => {}), retryAll: vi.fn(), hasFailedWrites: () => failing, hasUnsaved: () => failing },
+    clearOwnStash: vi.fn(),
     stashUnsaved: vi.fn(),
-    vault: { flushWrites: vi.fn(async () => {}), retryWrites: vi.fn(), hasFailedWrites: () => false },
+    vault: { flushWrites: vi.fn(async () => {}), retryWrites: vi.fn(), hasFailedWrites: () => false, hasPendingWrites: () => false },
   }
 }
 
@@ -61,5 +62,14 @@ describe('startPageLifecycle', () => {
       expect(e.defaultPrevented).toBe(failing)
       stop()
     }
+  })
+
+  it('clears its own unload stash once writes are flushed after the page is visible again', async () => {
+    const s = fake()
+    const stop = startPageLifecycle(s as unknown as AppServices)
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.waitFor(() => expect(s.clearOwnStash).toHaveBeenCalled())
+    stop()
   })
 })

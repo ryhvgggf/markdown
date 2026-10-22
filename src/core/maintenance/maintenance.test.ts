@@ -7,7 +7,7 @@ import { StorageError } from '@/adapters/storage/types'
 import { Indexer } from '../indexer/indexer'
 import { NoteDocCache } from '../note-doc/cache'
 import { TRASH_TTL_MS, Vault } from '../vault/vault'
-import { INDEX_VERSION, LAST_ATTACHMENT_GC_KEY, Maintenance, PENDING_PURGE_KEY } from './maintenance'
+import { ATTACHMENT_DELETE_AFTER_KEY, INDEX_VERSION, LAST_ATTACHMENT_GC_KEY, Maintenance, PENDING_PURGE_KEY } from './maintenance'
 
 const fakeChannel = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
@@ -156,10 +156,30 @@ describe('Maintenance.purge (I5)', () => {
     expect(await storage.loadDoc(n.id)).toHaveLength(0)
     expect(await db.noteText.get(n.id)).toBeUndefined()
     expect((await db.meta.get(PENDING_PURGE_KEY))?.value ?? []).toEqual([])
-    await m.idle()
+    // attachments are only marked: another note's undo history may still bring them back
+    expect(vault.getAttachment(own)).toBeDefined()
+    expect(await storage.getBlob(own)).toBeDefined()
+    const marks = (await db.meta.get(ATTACHMENT_DELETE_AFTER_KEY))?.value as Record<string, number>
+    expect(Object.keys(marks).sort()).toEqual([own, shared].sort())
+    // a day later the GC deletes the marked ones that are still unreferenced
+    const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
+    await later.runStartup()
     expect(vault.getAttachment(own)).toBeUndefined()
     expect(await storage.getBlob(own)).toBeUndefined()
     expect(vault.getAttachment(shared)).toBeDefined()
+    expect((await db.meta.get(ATTACHMENT_DELETE_AFTER_KEY))?.value ?? {}).toEqual({})
+  })
+
+  it('keeps a marked attachment that is referenced again before the grace period ends', async () => {
+    const own = await attachment(0)
+    const n = await noteWith('Doomed', ['x', media(own)])
+    vault.trashNote(n.id)
+    await m.purge({ kind: 'note', id: n.id })
+    await noteWith('Undo brought it back', ['y', media(own)])
+    const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
+    await later.runStartup()
+    expect(vault.getAttachment(own)).toBeDefined()
+    expect(await storage.getBlob(own)).toBeDefined()
   })
 
   it('purges every note of a folder subtree', async () => {
@@ -188,7 +208,8 @@ describe('Maintenance.purge (I5)', () => {
     await corrupt(bad.id)
     vault.trashNote(n.id)
     await m.purge({ kind: 'note', id: n.id })
-    await m.idle()
+    const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
+    await later.runStartup()
     expect(vault.getAttachment(own)).toBeDefined()
   })
 })
@@ -216,5 +237,39 @@ describe('Maintenance yields to the UI (I4)', () => {
     for (let i = 0; i < 3; i++) await noteWith('N' + i, ['x', media(await attachment(40))])
     await mm.runStartup()
     expect(pause.mock.calls.length).toBeGreaterThanOrEqual(3)
+  })
+})
+
+describe('Maintenance purge timing (round 2)', () => {
+  it('finishPendingPurges completes an interrupted permanent delete', async () => {
+    const n = await noteWith('Half', ['gone'])
+    await db.meta.put({ key: PENDING_PURGE_KEY, value: [n.id] })
+    await m.finishPendingPurges()
+    expect(vault.getNote(n.id)).toBeUndefined()
+    expect(await storage.loadDoc(n.id)).toHaveLength(0)
+  })
+
+  it('the expired-trash purge skips a note that is open', async () => {
+    const n = await noteWith('Old but open', ['x'])
+    expire(n.id)
+    await notes.acquire(n.id)
+    await m.runStartup()
+    expect(vault.getNote(n.id)).toBeDefined()
+    expect(await storage.loadDoc(n.id)).not.toHaveLength(0)
+    expect((await db.meta.get(PENDING_PURGE_KEY))?.value ?? []).toEqual([])
+  })
+
+  it('the expired-trash purge skips a note restored while the purge was being recorded', async () => {
+    const n = await noteWith('Old', ['x'])
+    expire(n.id)
+    const orig = db.transaction.bind(db) as (...a: unknown[]) => unknown
+    vi.spyOn(db, 'transaction').mockImplementationOnce(((...args: unknown[]) => {
+      vault.restoreNote(n.id)
+      return orig(...args)
+    }) as never)
+    await m.runStartup()
+    expect(vault.getNote(n.id)?.deletedAt).toBeNull()
+    expect(await storage.loadDoc(n.id)).not.toHaveLength(0)
+    expect((await db.meta.get(PENDING_PURGE_KEY))?.value ?? []).toEqual([])
   })
 })
