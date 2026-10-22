@@ -44,13 +44,16 @@ describe('bootstrap', () => {
   it('rebuilds the index once when the stored index version differs', async () => {
     const dbName = name()
     const a = await boot(dbName)
+    await a.maintenance.runStartup()
     expect((await a.db.meta.get('indexVersion'))?.value).toBe(2)
     await until(async () => (await a.storage.listDocs()).length > 0)
     const spy = vi.spyOn(Indexer.prototype, 'rebuildAll')
-    await boot(dbName)
+    await (await boot(dbName)).maintenance.runStartup()
     expect(spy).not.toHaveBeenCalled()
     await a.db.meta.put({ key: 'indexVersion', value: 1 })
     const c = await boot(dbName)
+    expect(spy).not.toHaveBeenCalled() // not on the critical path
+    await c.maintenance.runStartup()
     expect(spy).toHaveBeenCalledTimes(1)
     expect((await c.db.meta.get('indexVersion'))?.value).toBe(2)
     spy.mockRestore()
@@ -82,6 +85,7 @@ describe('bootstrap', () => {
     // let vault changes flush
     await new Promise((r) => setTimeout(r, 100))
     const b: AppServices = await boot(dbName)
+    await b.maintenance.runStartup()
     expect(b.vault.getNote(old.id)).toBeUndefined()
     expect(await b.storage.listDocs()).not.toContain(old.id)
   })
@@ -93,5 +97,54 @@ describe('bootstrap', () => {
     await until(async () => (await a.storage.listDocs()).length > 0)
     const b = await boot(dbName)
     expect(b.initialNoteId).toBe(a.vault.listNotes()[0].id)
+  })
+
+  it('opens even with a corrupt note, an old attachment and a pending index rebuild (C1)', async () => {
+    const dbName = name()
+    const a = await boot(dbName)
+    const img = a.vault.addAttachment({ filename: 'a.png', mimeType: 'image/png', size: 1 })
+    ;(a.vault.doc.getMap('attachments').get(img.id) as Y.Map<unknown>).set('createdAt', Date.now() - 31 * 86400000)
+    const victim = a.vault.createNote({ title: 'Victim' })
+    await a.storage.appendUpdate(victim.id, new Uint8Array([255, 255, 255, 255]))
+    await a.db.meta.put({ key: 'indexVersion', value: 1 })
+    await new Promise((r) => setTimeout(r, 100))
+    const b = await boot(dbName)
+    expect(b.vault.getNote(victim.id)).toBeDefined()
+    const report = await b.maintenance.runStartup()
+    expect(report.unreadable).toContain(victim.id)
+    expect(b.vault.getAttachment(img.id)).toBeDefined()
+    expect((await b.db.meta.get('indexVersion'))?.value).toBe(2)
+  })
+
+  it('stashes unsaved updates synchronously and recovers them on the next start (I2)', async () => {
+    const mem = new Map<string, string>()
+    const ls = {
+      get length() { return mem.size },
+      key: (i: number) => [...mem.keys()][i] ?? null,
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => void mem.set(k, v),
+      removeItem: (k: string) => void mem.delete(k),
+      clear: () => mem.clear(),
+    }
+    vi.stubGlobal('localStorage', ls)
+    try {
+      const dbName = name()
+      const a = await boot(dbName)
+      const n = a.vault.createNote({ title: 'Fast' })
+      await new Promise((r) => setTimeout(r, 50))
+      const doc = await a.notes.acquire(n.id)
+      const put = vi.spyOn(a.storage, 'appendUpdate').mockImplementation(() => new Promise(() => {})) // cut off
+      doc.getText('t').insert(0, 'typed just before reload')
+      a.stashUnsaved()
+      expect(mem.size).toBe(1)
+      put.mockRestore()
+      const b = await boot(dbName)
+      expect(mem.size).toBe(0)
+      const d2 = await b.notes.acquire(n.id)
+      expect(d2.getText('t').toString()).toBe('typed just before reload')
+      expect(await b.db.meta.get('dirty:' + n.id)).toBeDefined()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

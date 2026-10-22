@@ -16,8 +16,7 @@ const channelFactory = () =>
 
 let vault: Vault
 let metaRows: Map<string, unknown>
-let notes: { remove: ReturnType<typeof vi.fn> }
-let indexer: { removeNote: ReturnType<typeof vi.fn> }
+let maintenance: { purge: ReturnType<typeof vi.fn> }
 let mode: 'persistent' | 'memory'
 
 function fakeDb() {
@@ -29,7 +28,7 @@ function fakeDb() {
   }
 }
 const mount = () => {
-  const services = { vault, notes, indexer, db: fakeDb(), storageMode: mode } as unknown as AppServices
+  const services = { vault, maintenance, db: fakeDb(), storageMode: mode } as unknown as AppServices
   return render(
     <ServicesProvider services={services}>
       <Sidebar />
@@ -40,8 +39,13 @@ const mount = () => {
 beforeEach(async () => {
   vault = await Vault.open(new MemoryStorage(), 'v', { channelFactory })
   metaRows = new Map()
-  notes = { remove: vi.fn(async () => undefined) }
-  indexer = { removeNote: vi.fn(async () => undefined) }
+  maintenance = {
+    purge: vi.fn(async (ref: { kind: string; id: string }) => {
+      if (ref.kind === 'note') vault.purgeNote(ref.id)
+      else vault.purgeFolder(ref.id)
+      return true
+    }),
+  }
   mode = 'persistent'
   focusTitleEnd.mockClear()
   useUi.setState({ openNoteId: null })
@@ -220,7 +224,7 @@ describe('Trash', () => {
     expect(vault.listNotes()).toHaveLength(1)
   })
 
-  it('永久刪除 asks for inline confirmation, then purges note, doc and index', async () => {
+  it('永久刪除 asks for inline confirmation, then purges the note through maintenance', async () => {
     const n = vault.createNote({ title: '要刪的' })
     vault.trashNote(n.id)
     mount()
@@ -232,8 +236,7 @@ describe('Trash', () => {
     fireEvent.click(screen.getByRole('button', { name: '永久刪除' }))
     await act(async () => void fireEvent.click(screen.getByRole('button', { name: '刪除' })))
     expect(vault.getNote(n.id)).toBeUndefined()
-    expect(notes.remove).toHaveBeenCalledWith(n.id)
-    expect(indexer.removeNote).toHaveBeenCalledWith(n.id)
+    expect(maintenance.purge).toHaveBeenCalledWith({ kind: 'note', id: n.id })
   })
 
   it('永久刪除 of a folder purges every note inside', async () => {
@@ -245,7 +248,7 @@ describe('Trash', () => {
     fireEvent.click(screen.getByRole('button', { name: '永久刪除' }))
     await act(async () => void fireEvent.click(screen.getByRole('button', { name: '刪除' })))
     expect(vault.listFolders({ includeTrashed: true })).toHaveLength(0)
-    expect(notes.remove).toHaveBeenCalledWith(n.id)
-    expect(indexer.removeNote).toHaveBeenCalledWith(n.id)
+    expect(vault.getNote(n.id)).toBeUndefined()
+    expect(maintenance.purge).toHaveBeenCalledWith({ kind: 'folder', id: f.id })
   })
 })

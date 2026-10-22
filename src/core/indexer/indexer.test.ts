@@ -171,3 +171,94 @@ describe('Indexer', () => {
     await vi.waitFor(async () => expect((await db.noteText.get(n.id))?.trashed).toBe(true))
   })
 })
+
+describe('Indexer resilience (C1, I1, M8)', () => {
+  const corrupt = (id: string) => storage.appendUpdate(id, new Uint8Array([255, 255, 255, 255]))
+
+  it('rebuildAll skips an undecodable note, reports it and indexes the rest', async () => {
+    const good = vault.createNote({ title: 'Good' })
+    const bad = vault.createNote({ title: 'Bad' })
+    const d = new Y.Doc()
+    d.getXmlFragment('content').insert(0, [para('b1', ['fine'])])
+    await storage.appendUpdate(good.id, Y.encodeStateAsUpdate(d))
+    await corrupt(bad.id)
+    const r = await indexer.rebuildAll()
+    expect(r.failed).toEqual([bad.id])
+    expect((await db.noteText.get(good.id))?.text).toBe('fine')
+  })
+
+  it('referencedAttachmentIds returns undefined when any note cannot be read', async () => {
+    const a = vault.createNote({ title: 'A' })
+    const b = vault.createNote({ title: 'B' })
+    const d = new Y.Doc()
+    d.getXmlFragment('content').insert(0, [para('p', ['x', media('att1')])])
+    await storage.appendUpdate(a.id, Y.encodeStateAsUpdate(d))
+    await corrupt(b.id)
+    expect(await indexer.referencedAttachmentIds()).toBeUndefined()
+  })
+
+  it('referencedAttachmentIds includes unpersisted references held by cached docs', async () => {
+    const a = vault.createNote({ title: 'A' })
+    const doc = await cache.acquire(a.id)
+    const spy = vi.spyOn(storage, 'loadDoc')
+    doc.getXmlFragment('content').insert(0, [para('p', ['x', media('att9')])])
+    expect(await indexer.referencedAttachmentIds()).toEqual(new Set(['att9']))
+    expect(spy).not.toHaveBeenCalledWith(a.id)
+  })
+
+  it('marks a note dirty when indexing is scheduled and clears it with the index rows', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const n = vault.createNote({ title: 'A' })
+    stop = indexer.start()
+    await writeNote(n.id, [para('b1', ['hello'])])
+    await vi.waitFor(async () => expect(await db.meta.get('dirty:' + n.id)).toBeDefined())
+    await vi.advanceTimersByTimeAsync(1100)
+    await vi.waitFor(async () => expect((await db.noteText.get(n.id))?.text).toBe('hello'))
+    expect(await db.meta.get('dirty:' + n.id)).toBeUndefined()
+  })
+
+  it('catchUp re-indexes notes left dirty by a previous session and syncs vault metadata', async () => {
+    const n = vault.createNote({ title: 'A' })
+    const d = new Y.Doc()
+    d.getXmlFragment('content').insert(0, [para('b1', ['zebrafish'])])
+    await storage.appendUpdate(n.id, Y.encodeStateAsUpdate(d))
+    await db.meta.put({ key: 'dirty:' + n.id, value: 1 })
+    const other = vault.createNote({ title: 'Untouched' })
+    await indexer.catchUp()
+    expect((await db.noteText.get(n.id))?.text).toBe('zebrafish')
+    expect(await db.meta.get('dirty:' + n.id)).toBeUndefined()
+    expect(await db.noteText.get(other.id)).toMatchObject({ title: 'Untouched', trashed: false })
+  })
+
+  it('catchUp drops dirty markers of notes that no longer exist and survives corrupt notes', async () => {
+    const bad = vault.createNote({ title: 'Bad' })
+    await corrupt(bad.id)
+    await db.meta.put({ key: 'dirty:' + bad.id, value: 1 })
+    await db.meta.put({ key: 'dirty:gone', value: 1 })
+    await expect(indexer.catchUp()).resolves.toMatchObject({ failed: [bad.id] })
+    expect(await db.meta.get('dirty:gone')).toBeUndefined()
+  })
+
+  it('flushPending indexes scheduled notes immediately', async () => {
+    const n = vault.createNote({ title: 'A' })
+    stop = indexer.start()
+    await writeNote(n.id, [para('b1', ['quick'])])
+    await indexer.flushPending()
+    expect((await db.noteText.get(n.id))?.text).toBe('quick')
+  })
+
+  it('reports storage errors from scheduled indexing and leaves the note dirty', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const onError = vi.fn()
+    const ix = new Indexer(db, vault, cache, storage, { onError })
+    const n = vault.createNote({ title: 'A' })
+    stop = ix.start()
+    await writeNote(n.id, [para('b1', ['x'])])
+    await vi.waitFor(async () => expect(await db.meta.get('dirty:' + n.id)).toBeDefined())
+    vi.spyOn(db, 'transaction').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'))
+    await vi.advanceTimersByTimeAsync(1100)
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled())
+    expect(onError.mock.calls[0][0]).toMatchObject({ name: 'StorageError', kind: 'quota' })
+    expect(await db.meta.get('dirty:' + n.id)).toBeDefined()
+  })
+})

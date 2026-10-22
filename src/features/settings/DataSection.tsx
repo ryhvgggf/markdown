@@ -10,7 +10,7 @@ const PERSISTENCE_COPY = {
   unsupported: '這個瀏覽器不支援長期保存設定。',
 } as const
 
-type Status = { kind: 'idle' } | { kind: 'running' } | { kind: 'done' } | { kind: 'error'; message: string }
+type Status = { kind: 'idle' } | { kind: 'running' } | { kind: 'done'; skipped: number } | { kind: 'error' }
 
 export function DataSection() {
   const { indexer, persistence, storageMode } = useServices()
@@ -19,10 +19,11 @@ export function DataSection() {
   async function rebuild() {
     setStatus({ kind: 'running' })
     try {
-      await indexer.rebuildAll()
-      setStatus({ kind: 'done' })
+      const { failed } = await indexer.rebuildAll()
+      setStatus({ kind: 'done', skipped: failed.length })
     } catch (e) {
-      setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+      console.warn('[rebuild index]', e)
+      setStatus({ kind: 'error' })
     }
   }
 
@@ -40,12 +41,12 @@ export function DataSection() {
           </Button>
           {status.kind === 'done' && (
             <span role="status" className="text-sm text-fg-secondary">
-              已完成
+              {status.skipped ? `已完成，有 ${status.skipped} 篇筆記無法讀取，已略過。` : '已完成'}
             </span>
           )}
           {status.kind === 'error' && (
             <span role="alert" className="text-sm text-red-700">
-              重建失敗：{status.message}
+              重建失敗，請稍後再試。
             </span>
           )}
         </div>

@@ -10,6 +10,7 @@ import { SettingsDialog } from '@/features/settings/SettingsDialog'
 import { Shell } from '@/features/shell/Shell'
 import { StorageBanner } from '@/features/shell/StorageBanner'
 import { bootstrap, type AppServices } from './bootstrap'
+import { startPageLifecycle } from './lifecycle'
 import { ServicesProvider, useServices } from './services-context'
 import { setPersistLastNote, useUi } from './ui-store'
 
@@ -44,6 +45,9 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
       cancelled = true
     }
   }, [boot])
+
+  const services = state.status === 'ready' ? state.services : null
+  useEffect(() => (services ? startPageLifecycle(services) : undefined), [services])
 
   if (state.status === 'loading') {
     return <div className="grid min-h-screen place-items-center">正在開啟筆記…</div>

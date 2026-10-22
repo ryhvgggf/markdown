@@ -23,7 +23,7 @@ function noteOrder(nodes: TreeNode[]): string[] {
 export type RenameResult = 'ok' | 'duplicate'
 
 export function useActions(tree: TreeNode[], expand: (ids: string[]) => void) {
-  const { vault, notes, indexer } = useServices()
+  const { vault, maintenance } = useServices()
 
   const ancestors = useCallback(
     (folderId: string | null): string[] => {
@@ -90,14 +90,10 @@ export function useActions(tree: TreeNode[], expand: (ids: string[]) => void) {
         if (ref.kind === 'note') vault.restoreNote(ref.id)
         else vault.restoreFolder(ref.id)
       },
-      async purge(ref: Ref): Promise<void> {
-        const noteIds = ref.kind === 'note' ? [ref.id] : vault.purgeFolder(ref.id)
-        if (ref.kind === 'note') vault.purgeNote(ref.id)
-        for (const id of noteIds) {
-          await notes.remove(id)
-          await indexer.removeNote(id)
-        }
+      /** Permanent delete; crash-safe and never rejects (failures reach the storage banner). */
+      purge(ref: Ref): Promise<boolean> {
+        return maintenance.purge(ref)
       },
     }
-  }, [vault, notes, indexer, tree, expand, ancestors])
+  }, [vault, maintenance, tree, expand, ancestors])
 }

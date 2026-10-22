@@ -170,7 +170,7 @@ describe('SettingsDialog', () => {
     it('rebuilds the index with progress copy and disables while running', async () => {
       const { dialog, user, tab, services } = await setup()
       let finish!: () => void
-      services.indexer.rebuildAll = vi.fn(() => new Promise<void>((r) => (finish = r)))
+      services.indexer.rebuildAll = vi.fn(() => new Promise<{ failed: string[] }>((r) => (finish = () => r({ failed: [] }))))
       await tab('資料')
       await user.click(within(dialog).getByRole('button', { name: '重建索引' }))
       const running = within(dialog).getByRole('button', { name: '正在重建…' })
@@ -179,12 +179,21 @@ describe('SettingsDialog', () => {
       expect(await within(dialog).findByText('已完成')).toBeInTheDocument()
     })
 
-    it('shows rebuild errors inline', async () => {
+    it('shows rebuild errors inline in plain Chinese, without the technical message', async () => {
       const { dialog, user, tab, services } = await setup()
       services.indexer.rebuildAll = vi.fn().mockRejectedValue(new Error('boom'))
       await tab('資料')
       await user.click(within(dialog).getByRole('button', { name: '重建索引' }))
-      expect(await within(dialog).findByText(/boom/)).toBeInTheDocument()
+      expect(await within(dialog).findByText('重建失敗，請稍後再試。')).toBeInTheDocument()
+      expect(within(dialog).queryByText(/boom/)).toBeNull()
+    })
+
+    it('skips unreadable notes and says how many were skipped (M9)', async () => {
+      const { dialog, user, tab, services } = await setup()
+      services.indexer.rebuildAll = vi.fn(async () => ({ failed: ['a', 'b'] }))
+      await tab('資料')
+      await user.click(within(dialog).getByRole('button', { name: '重建索引' }))
+      expect(await within(dialog).findByText('已完成，有 2 篇筆記無法讀取，已略過。')).toBeInTheDocument()
     })
 
     it.each([
