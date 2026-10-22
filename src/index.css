@@ -115,6 +115,11 @@
 }
 
 /* Links, tags and block highlight */
+.note-link[data-state='ok'] { color: var(--color-link-note); }
+.note-link[data-state='ok'][data-target-block] { color: var(--color-link-block); }
+.note-editor a[href] { color: var(--color-link-external); text-decoration: none; cursor: pointer; }
+.note-editor a[href]:hover { text-decoration: underline; text-underline-offset: 2px; }
+.note-editor a[href]::after { content: '↗'; display: inline-block; margin-left: 1px; font-size: 0.8em; text-decoration: none; }
 .note-editor [data-block-id] { transition: background-color 0.6s ease; border-radius: 6px; }
 .note-editor [data-highlight='true'] {
   background-color: color-mix(in srgb, var(--accent) 14%, transparent);

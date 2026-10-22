@@ -116,9 +116,11 @@ describe('backlinks tab', () => {
     expect(card).toHaveTextContent('另有 1 處連結')
     expect(card.textContent).toContain('參考 採購流程')
     expect(card.querySelector('mark')).toHaveTextContent('採購流程')
+    expect(card.querySelector('mark')).toHaveAttribute('data-link-kind', 'note') // note-link colour, like the editor
     const rootCard = within(heading.parentElement!).getByRole('button', { name: /根目錄筆記/ })
     expect(rootCard).not.toHaveTextContent('/')
     expect(rootCard).toHaveTextContent('與 已刪除的筆記')
+    expect(within(rootCard).getByText('已刪除的筆記')).not.toHaveAttribute('data-link-kind') // not coloured as a link
     fireEvent.click(card)
     expect(useUi.getState().openNoteId).toBe(a.id)
     expect(useUi.getState().highlightBlockId).toBe('blk-9')

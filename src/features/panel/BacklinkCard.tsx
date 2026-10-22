@@ -2,7 +2,7 @@ import { LINK_TOKEN_RE } from '@/core/extract/extract'
 import { Highlighted } from './Highlighted'
 
 const mark = (t: string, k: number) => (
-  <mark key={k} className="rounded-[4px] bg-accent/12 px-0.5 text-accent">
+  <mark key={k} data-link-kind="note" className="rounded-[4px] bg-link-note/12 px-0.5 text-link-note">
     {t}
   </mark>
 )
@@ -30,7 +30,12 @@ function Snippet({
     if (title === undefined) {
       out.push(<span key={at} className="text-fg-tertiary">已刪除的筆記</span>)
     } else if (id === currentId) out.push(mark(title || '未命名', at))
-    else out.push(title || '未命名')
+    else
+      out.push(
+        <span key={at} data-link-kind="note" className="text-link-note">
+          {title || '未命名'}
+        </span>,
+      )
     from = at + m[0].length
   }
   out.push(text.slice(from))

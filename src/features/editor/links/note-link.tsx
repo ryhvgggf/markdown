@@ -59,7 +59,7 @@ function NoteLinkView({ node, extension }: ReactNodeViewProps) {
         data-state={label.state}
         className={
           ok
-            ? 'note-link cursor-pointer text-accent decoration-accent/40 underline-offset-2 hover:underline'
+            ? 'note-link cursor-pointer underline-offset-2 hover:underline'
             : 'note-link text-fg-tertiary line-through'
         }
         onClick={(e) => {
