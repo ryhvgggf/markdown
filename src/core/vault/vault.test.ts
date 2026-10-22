@@ -187,4 +187,18 @@ describe('Vault', () => {
     expect(v.listFolders({ includeTrashed: true }).map((f) => f.id)).toEqual([keep.id])
     expect(v.listNotes({ includeTrashed: true }).map((n) => n.id)).toEqual([n3.id])
   })
+
+  it('purgeExpired keeps the whole folder chain of a skipped note', async () => {
+    const v = await open()
+    const top = v.createFolder({ name: 'top', parentId: null })
+    const mid = v.createFolder({ name: 'mid', parentId: top.id })
+    const n = v.createNote({ title: 'kept', folderId: mid.id })
+    v.trashFolder(top.id)
+    const old = Date.now() - 31 * DAY
+    for (const id of [top.id, mid.id]) (v.doc.getMap('folders').get(id) as import('yjs').Map<unknown>).set('deletedAt', old)
+    ;(v.doc.getMap('notes').get(n.id) as import('yjs').Map<unknown>).set('deletedAt', old)
+    v.purgeExpired(Date.now(), undefined, new Set([n.id]))
+    expect(v.listFolders({ includeTrashed: true }).map((f) => f.id).sort()).toEqual([top.id, mid.id].sort())
+    expect(v.getNote(n.id)).toBeDefined()
+  })
 })

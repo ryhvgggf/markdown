@@ -276,7 +276,14 @@ export class Vault {
     skip: Set<string> = new Set(),
   ): { noteIds: string[]; attachmentIds: string[] } {
     const noteIds = this.expiredNoteIds(now).filter((id) => !skip.has(id))
-    const keepFolders = new Set([...skip].map((id) => this.notes.get(id)?.get('folderId') as string | null))
+    const keepFolders = new Set<string>()
+    for (const id of skip) {
+      let f = (this.notes.get(id)?.get('folderId') as string | null) ?? null
+      for (let guard = 0; f !== null && !keepFolders.has(f) && guard < 10000; guard++) {
+        keepFolders.add(f)
+        f = (this.folders.get(f)?.get('parentId') as string | null) ?? null
+      }
+    }
     const folderIds = [...this.folders.entries()]
       .filter(([k, m]) => isExpired(m, now) && !keepFolders.has(k))
       .map(([k]) => k)

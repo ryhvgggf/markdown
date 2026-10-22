@@ -125,10 +125,10 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   // Purges, index rebuild/catch-up and attachment GC are NOT run here: they are off the critical path
   // (App starts `maintenance.runStartup()` after the first render) and can never block opening the app.
   indexer.start()
-  // A permanent delete interrupted last time is finished before the UI shows (O(pending)), so a later
-  // run can never delete a note the user restores meanwhile.
+  // A permanent delete interrupted last time: its vault entries go before the UI shows (O(pending), guarded
+  // against restored/open notes); doc and index deletion continues in the background.
   try {
-    await maintenance.finishPendingPurges()
+    await maintenance.finishPendingPurges({ deferData: true })
   } catch (e) {
     errors.emit(e instanceof StorageError ? e : new StorageError('unknown', String(e), { cause: e }))
   }

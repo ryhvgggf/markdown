@@ -164,6 +164,7 @@ describe('bootstrap', () => {
       const trashed = a.vault.createNote({ title: 'Trashed' })
       a.vault.trashNote(trashed.id)
       const half = a.vault.createNote({ title: 'Half purged' })
+      a.vault.trashNote(half.id)
       await a.storage.appendUpdate(half.id, new Uint8Array([0, 0]))
       await a.db.meta.put({ key: 'pendingPurge', value: [half.id] })
       await new Promise((r) => setTimeout(r, 100))
@@ -176,7 +177,8 @@ describe('bootstrap', () => {
       expect(mem.size).toBe(0)
       expect(await b.storage.loadDoc('deleted-note')).toHaveLength(0)
       expect(await b.storage.loadDoc(trashed.id)).toHaveLength(1)
-      expect(b.vault.getNote(half.id)).toBeUndefined() // finished before the UI shows
+      expect(b.vault.getNote(half.id)).toBeUndefined() // vault entry removed before the UI shows
+      await b.maintenance.idle() // doc data is deleted in the background
       expect(await b.storage.loadDoc(half.id)).toHaveLength(0)
     } finally {
       vi.unstubAllGlobals()

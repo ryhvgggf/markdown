@@ -122,6 +122,7 @@ describe('Maintenance.runStartup (C1, I4, M5, M11)', () => {
 
   it('finishes a permanent delete interrupted before the vault change was stored', async () => {
     const n = await noteWith('Half', ['gone'])
+    vault.trashNote(n.id)
     await db.meta.put({ key: PENDING_PURGE_KEY, value: [n.id] })
     await m.runStartup()
     expect(vault.getNote(n.id)).toBeUndefined()
@@ -243,6 +244,7 @@ describe('Maintenance yields to the UI (I4)', () => {
 describe('Maintenance purge timing (round 2)', () => {
   it('finishPendingPurges completes an interrupted permanent delete', async () => {
     const n = await noteWith('Half', ['gone'])
+    vault.trashNote(n.id)
     await db.meta.put({ key: PENDING_PURGE_KEY, value: [n.id] })
     await m.finishPendingPurges()
     expect(vault.getNote(n.id)).toBeUndefined()
@@ -271,5 +273,69 @@ describe('Maintenance purge timing (round 2)', () => {
     expect(vault.getNote(n.id)?.deletedAt).toBeNull()
     expect(await storage.loadDoc(n.id)).not.toHaveLength(0)
     expect((await db.meta.get(PENDING_PURGE_KEY))?.value ?? []).toEqual([])
+  })
+})
+
+describe('Maintenance round 3', () => {
+  it('a pending purge never deletes a note that was restored meanwhile', async () => {
+    const n = await noteWith('Restored', ['keep me'])
+    vault.trashNote(n.id)
+    vault.restoreNote(n.id)
+    await db.meta.put({ key: PENDING_PURGE_KEY, value: [n.id] })
+    await m.finishPendingPurges()
+    expect(vault.getNote(n.id)?.deletedAt).toBeNull()
+    expect(await storage.loadDoc(n.id)).toHaveLength(1)
+    expect((await db.meta.get(PENDING_PURGE_KEY))?.value ?? []).toEqual([])
+  })
+
+  it('a pending purge of a trashed note that is open stays pending', async () => {
+    const n = await noteWith('Open', ['x'])
+    vault.trashNote(n.id)
+    await notes.acquire(n.id)
+    await db.meta.put({ key: PENDING_PURGE_KEY, value: [n.id] })
+    await m.finishPendingPurges()
+    expect(vault.getNote(n.id)).toBeDefined()
+    expect((await db.meta.get(PENDING_PURGE_KEY))?.value).toEqual([n.id])
+  })
+
+  it('deferData removes vault entries at once and deletes doc data in the background', async () => {
+    const n = await noteWith('Bg', ['x'])
+    vault.trashNote(n.id)
+    await db.meta.put({ key: PENDING_PURGE_KEY, value: [n.id] })
+    let open!: () => void
+    const gate = new Promise<void>((r) => (open = r))
+    const del = storage.deleteDoc.bind(storage)
+    vi.spyOn(storage, 'deleteDoc').mockImplementation(async (id) => (await gate, del(id)))
+    await m.finishPendingPurges({ deferData: true }) // resolves while deleteDoc is still blocked
+    expect(vault.getNote(n.id)).toBeUndefined()
+    expect(await storage.loadDoc(n.id)).toHaveLength(1)
+    open()
+    await m.idle()
+    expect(await storage.loadDoc(n.id)).toHaveLength(0)
+  })
+
+  it('keeps the mark of an attachment whose deletion failed', async () => {
+    const own = await attachment(0)
+    const n = await noteWith('Doomed', ['x', media(own)])
+    vault.trashNote(n.id)
+    await m.purge({ kind: 'note', id: n.id })
+    vi.spyOn(storage, 'deleteBlob').mockRejectedValueOnce(new StorageError('quota', 'full'))
+    const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
+    await later.runStartup()
+    expect(vault.getAttachment(own)).toBeDefined()
+    expect(Object.keys(((await db.meta.get(ATTACHMENT_DELETE_AFTER_KEY))?.value ?? {}) as object)).toEqual([own])
+  })
+
+  it('an aborted scan (unreadable note) is not repeated on every start', async () => {
+    const own = await attachment(0)
+    const n = await noteWith('Doomed', ['x', media(own)])
+    vault.trashNote(n.id)
+    await m.purge({ kind: 'note', id: n.id })
+    await corrupt(vault.createNote({ title: 'Bad' }).id)
+    const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
+    const spy = vi.spyOn(indexer, 'referencedAttachmentIds')
+    await later.runStartup()
+    await later.runStartup()
+    expect(spy).toHaveBeenCalledTimes(1)
   })
 })

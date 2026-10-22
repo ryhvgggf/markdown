@@ -48,6 +48,7 @@ export interface MaintenanceReport {
 export class Maintenance {
   private readonly now: () => number
   private readonly pause: () => Promise<void>
+  private background: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly d: MaintenanceDeps) {
     this.now = d.now ?? Date.now
@@ -99,16 +100,21 @@ export class Maintenance {
       const marks = await this.deleteMarks()
       const due = Object.entries(marks).filter(([, t]) => t <= now).map(([id]) => id)
       const last = (await db.meta.get(LAST_ATTACHMENT_GC_KEY))?.value
-      const daily = vault.hasStaleAttachments(now) && !(typeof last === 'number' && now - last < ATTACHMENT_GC_INTERVAL_MS)
-      if (!daily && !due.length) return
-      if (daily) await db.meta.put({ key: LAST_ATTACHMENT_GC_KEY, value: now })
+      if (!vault.hasStaleAttachments(now) && !due.length) return
+      // The scan is O(vault): at most once a day, also when the last one was aborted by an unreadable note.
+      if (typeof last === 'number' && now - last < ATTACHMENT_GC_INTERVAL_MS) return
+      await db.meta.put({ key: LAST_ATTACHMENT_GC_KEY, value: now })
       const refs = await indexer.referencedAttachmentIds({ pause: this.pause })
       if (!refs) return // some note is unreadable and may reference any of them: delete nothing
-      const ids = new Set(daily ? vault.unreferencedAttachmentIds(now, refs) : [])
-      for (const id of due) if (!refs.has(id) && vault.getAttachment(id)) ids.add(id)
-      await this.deleteAttachments([...ids])
+      const ids = new Set(vault.unreferencedAttachmentIds(now, refs))
+      const settled = new Set<string>() // due marks that are resolved (deleted, referenced or gone)
+      for (const id of due) {
+        if (refs.has(id) || !vault.getAttachment(id)) settled.add(id)
+        else ids.add(id)
+      }
+      for (const id of await this.deleteAttachments([...ids])) if (due.includes(id)) settled.add(id)
       await this.updateMarks((m) => {
-        for (const id of due) delete m[id]
+        for (const id of settled) delete m[id]
       })
     })
 
@@ -146,10 +152,25 @@ export class Maintenance {
     }
   }
 
-  /** Completes permanent deletes interrupted last time. O(pending); bootstrap runs it before the UI shows. */
-  async finishPendingPurges(): Promise<void> {
+  /**
+   * Completes permanent deletes interrupted last time. O(pending). Guarded: an id is purged only if its
+   * note is gone from the vault, or still trashed and not open; restored ids leave the list, open ones
+   * stay pending. With `deferData` (bootstrap, before the UI shows) only the synchronous vault removal
+   * happens now and doc/index deletion continues in the background.
+   */
+  async finishPendingPurges(opts: { deferData?: boolean } = {}): Promise<void> {
     const pending = await this.pendingPurges()
-    if (pending.length) await this.finishPurge(pending)
+    if (!pending.length) return
+    const ids = this.purgeableNow(pending)
+    if (opts.deferData) {
+      this.removeFromVault(ids)
+      this.inBackground(() => this.finishPurge(ids, pending))
+    } else await this.finishPurge(ids, pending)
+  }
+
+  /** Resolves when background work started by `finishPendingPurges({ deferData })` is done (tests). */
+  idle(): Promise<void> {
+    return this.background.then(() => undefined)
   }
 
   /**
@@ -175,14 +196,33 @@ export class Maintenance {
     }
   }
 
-  private async finishPurge(noteIds: string[]): Promise<void> {
-    const { vault, notes, indexer } = this.d
-    for (const id of noteIds) {
-      if (vault.getNote(id)) vault.purgeNote(id) // recorded but the vault change was never stored
+  /** Pending ids that may be purged now: gone from the vault, or still trashed and not open. */
+  private purgeableNow(ids: string[]): string[] {
+    return ids.filter((id) => {
+      const n = this.d.vault.getNote(id)
+      return !n || (n.deletedAt !== null && !this.d.notes.isInUse(id))
+    })
+  }
+
+  private removeFromVault(ids: string[]): void {
+    for (const id of ids) if (this.d.vault.getNote(id)) this.d.vault.purgeNote(id) // change never stored
+  }
+
+  /**
+   * Deletes doc and index data of `noteIds` (after the guard) and updates the pending list: purged and
+   * restored ids leave it, ids of trashed notes that are open stay for a later run.
+   */
+  private async finishPurge(noteIds: string[], considered: string[] = noteIds): Promise<void> {
+    const { notes, indexer, vault } = this.d
+    const ids = this.purgeableNow(noteIds)
+    this.removeFromVault(ids)
+    for (const id of ids) {
       await notes.remove(id)
       await indexer.removeNote(id)
     }
-    await this.updatePending((ids) => ids.filter((x) => !noteIds.includes(x)))
+    const restored = considered.filter((id) => vault.getNote(id)?.deletedAt === null)
+    const done = new Set([...ids, ...restored])
+    await this.updatePending((list) => list.filter((x) => !done.has(x)))
   }
 
   private async pendingPurges(): Promise<string[]> {
@@ -235,13 +275,20 @@ export class Maintenance {
   }
 
   /** Blob first, metadata second: a crash in between leaves metadata the next GC removes, never a lost blob. */
-  private async deleteAttachments(ids: string[]): Promise<void> {
+  private async deleteAttachments(ids: string[]): Promise<string[]> {
+    const deleted: string[] = []
     for (const id of ids) {
       await this.step(async () => {
         await this.d.storage.deleteBlob(id)
         this.d.vault.removeAttachment(id)
+        deleted.push(id)
       })
     }
+    return deleted
+  }
+
+  private inBackground(fn: () => Promise<void>): void {
+    this.background = this.background.then(fn).catch((e) => this.report(e))
   }
 
   private async step(fn: () => Promise<void>): Promise<void> {
