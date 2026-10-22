@@ -117,6 +117,7 @@ function editing(r: GuideRefs): J {
       ['螢光標記', code('Ctrl+Shift+H'), code('⌘⇧H')],
       ['標題 1／2／3', code('Ctrl+Alt+1／2／3'), code('⌘⌥1／2／3')],
       ['編號／項目／待辦清單', code('Ctrl+Shift+7／8／9'), code('⌘⇧7／8／9')],
+      ['引用', code('Ctrl+Shift+B'), code('⌘⇧B')],
       ['程式碼區塊', code('Ctrl+Alt+C'), code('⌘⌥C')],
       ['復原', code('Ctrl+Z'), code('⌘Z')],
       ['重做', [code('Ctrl+Shift+Z'), ' 或 ', code('Ctrl+Y')], code('⌘⇧Z')],
@@ -168,7 +169,12 @@ function blocks(r: GuideRefs): J {
     codeBlock('abap', "REPORT zdemo.\n\nDATA lv_total TYPE i VALUE 0.\n\nLOOP AT lt_items INTO DATA(ls_item).\n  lv_total = lv_total + ls_item-amount.\nENDLOOP.\n\nWRITE: / '合計：', lv_total."),
     codeBlock('typescript', "const notes = vault.listNotes()\nconsole.log(`共有 ${notes.length} 篇筆記`)"),
     h(3, '表格'),
-    p(code('/表格'), ' 插入 3 × 3 的表格，第一列是標題列。在儲存格裡按 ', code('Tab'), ' 移到下一格、', code('Shift+Tab'), ' 回到上一格；拖曳欄與欄之間的邊線可以調整欄寬。'),
+    p(code('/表格'), ' 插入 3 × 3 的表格，第一列是標題列。'),
+    ul(
+      ['在儲存格裡按 ', code('Tab'), ' 移到下一格、', code('Shift+Tab'), ' 回到上一格；在最後一格按 ', code('Tab'), ' 會新增一列。'],
+      ['游標在表格裡時，所在儲存格的右上角會出現 ', b('⋯'), '（表格操作），點開可以：上方插入列、下方插入列、左側插入欄、右側插入欄、刪除列、刪除欄、刪除表格。'],
+      ['滑鼠移到欄與欄之間的邊線，出現色條後按住拖曳，就能調整欄寬。'],
+    ),
     table(
       ['功能', '怎麼叫出來', '說明'],
       [
@@ -206,7 +212,8 @@ function links(r: GuideRefs): J {
       ['連到已刪除筆記的連結會變成灰色並劃掉，點了不會有反應。'],
     ),
     h(2, '標籤'),
-    p('輸入 ', code('#'), ' 加名稱再按空白鍵，例如 ', tag(GUIDE_TAG), '，就會變成標籤（英文字母會轉成小寫）。按 ', keys('Ctrl+K', '⌘K'), ' 輸入 ', code('#功能導覽'), '，或點工具列的「標籤」圖示，就能找出所有帶這個標籤的筆記。'),
+    p('輸入 ', code('#'), ' 加名稱再按空白鍵，例如 ', tag(GUIDE_TAG), '，就會變成標籤（英文字母會轉成小寫）。'),
+    p(b('點一下標籤'), '，就會打開搜尋並列出所有帶這個標籤的筆記。也可以按 ', keys('Ctrl+K', '⌘K'), ' 輸入 ', code('#功能導覽'), '，或點工具列的「標籤」圖示。'),
     h(2, '右側面板：大綱與反向連結'),
     p('點筆記右上角的膠囊打開：'),
     ul(

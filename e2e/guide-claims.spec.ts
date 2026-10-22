@@ -90,3 +90,25 @@ test('導覽寫的復原／重做、Shift+Enter、Ctrl+K 與 Ctrl+\\ 都有效',
   await page.keyboard.press('ControlOrMeta+\\')
   await expect(rail.getByRole('button', { name: '設定' })).toBeVisible()
 })
+
+test('導覽寫的表格操作、最後一格 Tab 新增列與點標籤搜尋都有效', async ({ page }) => {
+  await page.goto('/')
+  const editor = await clearBody(page)
+  await page.keyboard.type('/表格')
+  await page.keyboard.press('Enter')
+  await page.getByRole('button', { name: '表格操作' }).click()
+  for (const label of ['上方插入列', '下方插入列', '左側插入欄', '右側插入欄', '刪除列', '刪除欄', '刪除表格']) {
+    await expect(page.getByRole('menuitem', { name: label })).toBeVisible()
+  }
+  await page.keyboard.press('Escape')
+  await editor.locator('td').last().click()
+  await page.keyboard.type('z')
+  await expect(editor.locator('td').last()).toHaveText('z')
+  await page.keyboard.press('Tab')
+  await expect(editor.locator('tr')).toHaveCount(4)
+
+  await clearBody(page)
+  await page.keyboard.type('#導覽 ')
+  await editor.getByRole('button', { name: '搜尋標籤 #導覽' }).click()
+  await expect(page.getByRole('dialog', { name: '快速切換' }).getByLabel('搜尋筆記')).toHaveValue('#導覽')
+})
