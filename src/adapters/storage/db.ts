@@ -2,7 +2,8 @@ import Dexie, { type Table } from 'dexie'
 
 export interface UpdateRow { seq?: number; docId: string; update: Uint8Array }
 export interface SnapshotRow { docId: string; state: Uint8Array }
-export interface BlobRow { id: string; blob: Blob }
+/** Bytes + type (WebKit cannot reliably persist Blobs in IndexedDB). `blob` is the legacy shape, still readable. */
+export interface BlobRow { id: string; data?: ArrayBuffer; type?: string; blob?: Blob }
 export interface NoteTextRow { noteId: string; title: string; text: string; updatedAt: number }
 export interface LinkRow {
   id?: number

@@ -78,12 +78,17 @@ export class DexieStorage implements StorageAdapter {
 
   putBlob(id: string, blob: Blob): Promise<void> {
     return guard(async () => {
-      await this.db.blobs.put({ id, blob })
+      await this.db.blobs.put({ id, data: await blob.arrayBuffer(), type: blob.type })
     })
   }
 
   getBlob(id: string): Promise<Blob | undefined> {
-    return guard(async () => (await this.db.blobs.get(id))?.blob)
+    return guard(async () => {
+      const row = await this.db.blobs.get(id)
+      if (!row) return undefined
+      if (row.data) return new Blob([row.data], { type: row.type ?? '' })
+      return row.blob
+    })
   }
 
   deleteBlob(id: string): Promise<void> {

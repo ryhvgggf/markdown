@@ -153,6 +153,31 @@ describe('editor integration', () => {
     expect(img[0]).toHaveAttribute('alt', '1.png')
     expect(editor!.state.doc.lastChild?.type.name).toBe('paragraph')
   })
+  it('lets text paste win when the clipboard has an image plus text', async () => {
+    await setup()
+    await act(async () => {
+      fireEvent.paste(editor!.view.dom, {
+        clipboardData: { files: [png()], getData: (t: string) => (t === 'text/plain' ? 'hello' : ''), types: ['Files', 'text/plain'] },
+      })
+    })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(mediaNodes()).toHaveLength(0)
+    expect(vault.doc.getMap('attachments').size).toBe(0)
+  })
+  it('keeps the document valid when inserting into an empty list item', async () => {
+    await setup()
+    await act(async () => {
+      editor!.commands.setContent('<ul><li><p></p></li></ul>')
+      editor!.commands.focus('end')
+    })
+    await act(async () => {
+      fireEvent.paste(editor!.view.dom, { clipboardData: { files: [png()], getData: () => '', types: ['Files'] } })
+    })
+    await waitFor(() => expect(mediaNodes()).toHaveLength(1))
+    expect(() => editor!.state.doc.check()).not.toThrow()
+    expect(editor!.state.doc.firstChild?.type.name).toBe('bulletList')
+    expect(editor!.state.doc.firstChild?.firstChild?.firstChild?.type.name).toBe('paragraph')
+  })
   it('inserts media nodes on drop of files, ignoring drops without files', async () => {
     await setup()
     vi.spyOn(editor!.view, 'posAtCoords').mockReturnValue({ pos: 1, inside: -1 })

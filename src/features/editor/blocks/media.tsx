@@ -161,8 +161,11 @@ export const Media = Node.create<MediaOptions>({
           },
           handlePaste(view, event) {
             if (view.composing) return false
-            const files = Array.from(event.clipboardData?.files ?? [])
+            const data = event.clipboardData
+            const files = Array.from(data?.files ?? [])
             if (!files.length || !ctx) return false
+            // Office / browser copies carry an image next to text: let the text handlers win.
+            if (data?.getData('text/html') || data?.getData('text/plain')) return false
             event.preventDefault()
             void insertMediaFiles(editor, files, ctx)
             return true

@@ -24,7 +24,14 @@ export async function insertMediaFiles(editor: Editor, files: File[], ctx: Edito
   const p = Math.max(0, Math.min(at, doc.content.size))
   const $p = doc.resolve(p)
   const empty = $p.parent.isTextblock && $p.parent.content.size === 0
-  const range = empty ? { from: $p.before(), to: $p.after() } : { from: p, to: p }
+  let range = { from: p, to: p }
+  if (empty && $p.depth === 1) {
+    range = { from: $p.before(), to: $p.after() }
+  } else if (empty && $p.depth > 1) {
+    // Empty paragraph inside a list / task item / callout: keep it, insert after the outermost container.
+    const after = $p.after(1)
+    range = { from: after, to: after }
+  }
   const atEnd = range.to >= doc.content.size
   editor
     .chain()
