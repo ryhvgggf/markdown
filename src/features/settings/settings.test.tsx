@@ -113,7 +113,7 @@ describe('SettingsDialog', () => {
 
     it('uploads an image: stores the blob, shows it, and replaces the previous one', async () => {
       const { dialog, user, services } = await setup()
-      const input = within(dialog).getByLabelText('上傳圖片') as HTMLInputElement
+      const input = within(dialog).getByLabelText('背景圖片檔案') as HTMLInputElement
       expect(input).toHaveAttribute('accept', 'image/*')
       await user.upload(input, png())
       await waitFor(() => expect(services.prefs.get().backgroundBlobId).not.toBeNull())
@@ -125,18 +125,47 @@ describe('SettingsDialog', () => {
       await waitFor(async () => expect(await services.storage.getBlob(first)).toBeFalsy())
     })
 
+    it('labels the upload button 上傳圖片 and rejects SVG (M6, M7)', async () => {
+      const { dialog, user, services } = await setup()
+      expect(within(dialog).getByRole('button', { name: '上傳圖片' })).toBeInTheDocument()
+      await user.upload(within(dialog).getByLabelText('背景圖片檔案'), new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' }))
+      expect(await within(dialog).findByText('不支援 SVG 圖片，請改用 PNG、JPEG 或 GIF。')).toBeInTheDocument()
+      expect(services.prefs.get().backgroundBlobId).toBeNull()
+    })
+
+    it('concurrent uploads keep only the winning blob (M7)', async () => {
+      const { dialog, user, services } = await setup()
+      const put = services.storage.putBlob.bind(services.storage)
+      const ids: string[] = []
+      let call = 0
+      services.storage.putBlob = async (id, blob) => {
+        ids.push(id)
+        if (call++ === 0) await new Promise((r) => setTimeout(r, 50)) // first upload is slow
+        return put(id, blob)
+      }
+      const input = within(dialog).getByLabelText('背景圖片檔案')
+      await user.upload(input, png())
+      await user.upload(input, png(20))
+      await waitFor(() => expect(ids).toHaveLength(2))
+      await new Promise((r) => setTimeout(r, 120))
+      const current = services.prefs.get().backgroundBlobId
+      expect(ids).toContain(current)
+      const loser = ids.find((x) => x !== current)!
+      await waitFor(async () => expect(await services.storage.getBlob(loser)).toBeFalsy())
+    })
+
     it('rejects images over 20 MB', async () => {
       const { dialog, user, services } = await setup()
       const big = png(1)
       Object.defineProperty(big, 'size', { value: 20 * 1024 * 1024 + 1 })
-      await user.upload(within(dialog).getByLabelText('上傳圖片'), big)
+      await user.upload(within(dialog).getByLabelText('背景圖片檔案'), big)
       expect(await within(dialog).findByText('圖片超過 20 MB，請選擇較小的檔案。')).toBeInTheDocument()
       expect(services.prefs.get().backgroundBlobId).toBeNull()
     })
 
     it('raises applied blur and dim for busy images but keeps stored sliders', async () => {
       const { dialog, user, services } = await setup()
-      await user.upload(within(dialog).getByLabelText('上傳圖片'), png())
+      await user.upload(within(dialog).getByLabelText('背景圖片檔案'), png())
       await waitFor(() => expect(screen.getByTestId('background').innerHTML).toContain('blur(24px)'))
       expect(screen.getByTestId('background').innerHTML).toContain('rgba(255, 255, 255, 0.3)')
       expect(services.prefs.get().backgroundBlur).toBe(DEFAULT_PREFS.backgroundBlur)
@@ -154,7 +183,7 @@ describe('SettingsDialog', () => {
 
     it('恢復預設 clears the image and resets sliders', async () => {
       const { dialog, user, services } = await setup()
-      await user.upload(within(dialog).getByLabelText('上傳圖片'), png())
+      await user.upload(within(dialog).getByLabelText('背景圖片檔案'), png())
       await waitFor(() => expect(services.prefs.get().backgroundBlobId).not.toBeNull())
       const id = services.prefs.get().backgroundBlobId!
       services.prefs.set({ backgroundBlur: 0.9, backgroundDim: 0.7 })

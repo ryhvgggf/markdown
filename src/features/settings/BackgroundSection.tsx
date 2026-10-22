@@ -3,6 +3,7 @@ import { useServices } from '@/app/services-context'
 import { usePrefs } from '@/app/use-prefs'
 import { newId } from '@/core/ids'
 import { useBlobUrl } from '@/features/editor/media/use-blob-url'
+import { isSvg, SVG_REJECTED } from '@/features/editor/media/add-media'
 import { DEFAULT_PREFS } from '@/core/preferences/preferences'
 import { Button } from '@/ui/components/Button'
 import { SectionLabel, SliderRow } from './controls'
@@ -22,10 +23,13 @@ export function BackgroundSection() {
     setError(null)
     if (file.size > MAX_BYTES) return setError('圖片超過 20 MB，請選擇較小的檔案。')
     if (file.type && !file.type.startsWith('image/')) return setError('請選擇圖片檔案。')
-    const previous = prefs.get().backgroundBlobId
+    if (isSvg(file.type, file.name)) return setError(SVG_REJECTED)
     const id = newId()
     try {
       await storage.putBlob(id, file)
+      // Read the previous id only now (synchronously with the swap): with two uploads in flight, each
+      // replaces whatever is current, so the loser's blob is always deleted (M7).
+      const previous = prefs.get().backgroundBlobId
       prefs.set({ backgroundBlobId: id })
       if (previous) await storage.deleteBlob(previous)
     } catch {
@@ -55,13 +59,13 @@ export function BackgroundSection() {
         />
         <div className="flex flex-col items-start gap-2">
           <Button onClick={() => input.current?.click()}>
-            選擇圖片…
+            上傳圖片
           </Button>
           <input
             ref={input}
             type="file"
             accept="image/*"
-            aria-label="上傳圖片"
+            aria-label="背景圖片檔案"
             className="sr-only"
             tabIndex={-1}
             onChange={(e) => {

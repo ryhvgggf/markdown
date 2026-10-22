@@ -59,6 +59,15 @@ describe('addMedia', () => {
     expect(err).toMatchObject({ code: 'unsupported', message: '目前只支援圖片與影片。' })
     expect(vault.doc.getMap('attachments').size).toBe(0)
   })
+  it('rejects SVG images, which can run scripts when opened (M6)', async () => {
+    const vault = await makeVault()
+    const storage = new MemoryStorage()
+    const put = vi.spyOn(storage, 'putBlob')
+    const err = await addMedia(new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' }), { vault, storage }).catch((e) => e)
+    expect(err).toMatchObject({ code: 'unsupported', message: '不支援 SVG 圖片，請改用 PNG、JPEG 或 GIF。' })
+    expect(put).not.toHaveBeenCalled()
+    expect(vault.doc.getMap('attachments').size).toBe(0)
+  })
   it('stores metadata and blob on success', async () => {
     const vault = await makeVault()
     const storage = new MemoryStorage()
