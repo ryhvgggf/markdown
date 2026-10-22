@@ -49,9 +49,15 @@ function ownText(el: Parent): string {
   return out
 }
 
-/** Own text like `ownText`, but noteLinks become tokens; cut to SNIPPET_LENGTH without splitting a token. */
+/**
+ * Own text like `ownText`, but noteLinks become tokens; cut to SNIPPET_LENGTH *visible* characters without
+ * splitting a token. A token is rendered as a note title, so it costs LINK_TOKEN_BUDGET, not its length
+ * (a block-link token is ~50 characters of ids).
+ */
+const LINK_TOKEN_BUDGET = 8
 function snippetText(el: Parent): string {
   let out = ''
+  let used = 0
   for (const c of el.toArray() as XmlChild[]) {
     let piece = ''
     if (isText(c)) piece = plainText(c)
@@ -59,14 +65,15 @@ function snippetText(el: Parent): string {
     else if (isElement(c) && c.nodeName === 'noteLink') {
       const id = c.getAttribute('noteId')
       if (id) {
-        const token = linkToken(id, c.getAttribute('blockId'))
-        if (out.length + token.length > SNIPPET_LENGTH) return out
-        out += token
+        if (used + LINK_TOKEN_BUDGET > SNIPPET_LENGTH) return out
+        out += linkToken(id, c.getAttribute('blockId'))
+        used += LINK_TOKEN_BUDGET
       }
       continue
     }
-    if (out.length + piece.length > SNIPPET_LENGTH) return out + piece.slice(0, SNIPPET_LENGTH - out.length)
+    if (used + piece.length > SNIPPET_LENGTH) return out + piece.slice(0, SNIPPET_LENGTH - used)
     out += piece
+    used += piece.length
   }
   return out
 }

@@ -51,19 +51,34 @@ describe('extractNote', () => {
   it('never cuts a link token in half: a token that does not fit is dropped', () => {
     const f = build([
       el('paragraph', { id: 'b1' }, [
-        new Y.XmlText('a'.repeat(70)),
+        new Y.XmlText('a'.repeat(75)), // 75 + 8 (a token's budget) > 80
         el('noteLink', { noteId: 'nnnnnnnnnnnnnnnn' }),
         new Y.XmlText('tail'),
       ]),
     ])
     const [l] = extractNote(f).links
-    expect(l.snippet).toBe('a'.repeat(70))
+    expect(l.snippet).toBe('a'.repeat(75))
     const g = build([
       el('paragraph', { id: 'b1' }, [new Y.XmlText('a'.repeat(30)), el('noteLink', { noteId: 'n2' }), new Y.XmlText('b'.repeat(80))]),
     ])
     const s = extractNote(g).links[0].snippet
-    expect(s.length).toBe(80)
-    expect(s.startsWith('a'.repeat(30) + '\u2063link:n2\u2063')).toBe(true)
+    expect(s).toBe('a'.repeat(30) + '\u2063link:n2\u2063' + 'b'.repeat(42)) // the token counts as 8
+  })
+
+  it('keeps a block link after 40 chars of text (a token costs 8, whatever its length)', () => {
+    const noteId = 'N'.repeat(21)
+    const blockId = 'B'.repeat(21)
+    const f = build([
+      el('paragraph', { id: 'b1' }, [
+        new Y.XmlText('x'.repeat(40)),
+        el('noteLink', { noteId, blockId }),
+        new Y.XmlText('y'.repeat(50)),
+      ]),
+    ])
+    const s = extractNote(f).links[0].snippet
+    const token = `\u2063link:${noteId}#${blockId}\u2063`
+    expect(token.length).toBeGreaterThan(40)
+    expect(s).toBe('x'.repeat(40) + token + 'y'.repeat(32))
   })
 
   it('walks nested lists and tables, joins with newline', () => {
