@@ -3,6 +3,7 @@ import { NoteEditor } from '@/features/editor/NoteEditor'
 import { TitleBlock } from '@/features/editor/TitleBlock'
 import { Panel } from '@/features/panel/Panel'
 import { PanelPills } from '@/features/panel/PanelPills'
+import { QuickSwitcher } from '@/features/search/QuickSwitcher'
 import { Sidebar } from '@/features/sidebar/Sidebar'
 import { Shell } from '@/features/shell/Shell'
 import { StorageBanner } from '@/features/shell/StorageBanner'
@@ -66,6 +67,7 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
         panel={<Panel />}
         headerActions={<PanelPills />}
       />
+      <QuickSwitcher />
     </ServicesProvider>
   )
 }

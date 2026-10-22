@@ -38,6 +38,7 @@ export function Rail() {
   }
   const tags = () => {
     if (mode === 'narrow') ui.getState().setSidebarOverlay(true)
+    else ui.getState().setQuickSwitcher(true, '#')
   }
 
   return (

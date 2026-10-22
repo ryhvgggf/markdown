@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { usePrefs } from '@/app/use-prefs'
 import { useUi } from '@/app/ui-store'
 
-const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform)
+export const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform)
 
 /** Rail open state + the Ctrl/⌘+\ shortcut (ignored during IME composition). */
 export function useRail(): { open: boolean; pinned: boolean; setOpen: (v: boolean) => void } {
