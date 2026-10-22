@@ -5,6 +5,8 @@ import { Panel } from '@/features/panel/Panel'
 import { PanelPills } from '@/features/panel/PanelPills'
 import { QuickSwitcher } from '@/features/search/QuickSwitcher'
 import { Sidebar } from '@/features/sidebar/Sidebar'
+import { AppearanceEffects } from '@/features/settings/AppearanceEffects'
+import { SettingsDialog } from '@/features/settings/SettingsDialog'
 import { Shell } from '@/features/shell/Shell'
 import { StorageBanner } from '@/features/shell/StorageBanner'
 import { bootstrap, type AppServices } from './bootstrap'
@@ -60,6 +62,7 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
   }
   return (
     <ServicesProvider services={state.services}>
+      <AppearanceEffects />
       <StorageBanner />
       <Shell
         sidebar={<Sidebar />}
@@ -68,6 +71,7 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
         headerActions={<PanelPills />}
       />
       <QuickSwitcher />
+      <SettingsDialog />
     </ServicesProvider>
   )
 }

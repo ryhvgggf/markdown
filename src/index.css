@@ -7,8 +7,8 @@
   max-width: var(--editor-width, 680px);
   margin: 0 auto;
   padding-top: 8px;
-  font-size: 16px;
-  line-height: 1.8;
+  font-size: var(--font-size-body, 16px);
+  line-height: var(--line-height-body, 1.8);
   outline: none;
 }
 .note-editor > * + * {
