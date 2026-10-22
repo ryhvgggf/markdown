@@ -9,10 +9,15 @@ export type ExtractedLink = {
 }
 
 const SNIPPET_LENGTH = 80
-/** Invisible-separator-delimited marker standing in for a noteLink inside a link snippet. */
+/**
+ * Invisible-separator-delimited marker standing in for a noteLink inside a link snippet:
+ * `link:<noteId>` or, for a block link, `link:<noteId>#<blockId>` (index version 3; older rows lack the block part).
+ */
 export const LINK_SENTINEL = '\u2063'
-export const linkToken = (noteId: string) => `${LINK_SENTINEL}link:${noteId}${LINK_SENTINEL}`
-export const LINK_TOKEN_RE = new RegExp(`${LINK_SENTINEL}link:([^${LINK_SENTINEL}]*)${LINK_SENTINEL}`, 'g')
+export const linkToken = (noteId: string, blockId?: string | null) =>
+  `${LINK_SENTINEL}link:${noteId}${blockId ? `#${blockId}` : ''}${LINK_SENTINEL}`
+/** Groups: 1 = note id, 2 = block id (undefined for a note link or an old token). */
+export const LINK_TOKEN_RE = new RegExp(`${LINK_SENTINEL}link:([^${LINK_SENTINEL}#]*)(?:#([^${LINK_SENTINEL}]*))?${LINK_SENTINEL}`, 'g')
 
 type XmlChild = Y.XmlElement | Y.XmlText | Y.XmlHook
 type Parent = Y.XmlFragment | Y.XmlElement
@@ -54,7 +59,7 @@ function snippetText(el: Parent): string {
     else if (isElement(c) && c.nodeName === 'noteLink') {
       const id = c.getAttribute('noteId')
       if (id) {
-        const token = linkToken(id)
+        const token = linkToken(id, c.getAttribute('blockId'))
         if (out.length + token.length > SNIPPET_LENGTH) return out
         out += token
       }

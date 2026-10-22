@@ -1,8 +1,13 @@
 import { LINK_TOKEN_RE } from '@/core/extract/extract'
 import { Highlighted } from './Highlighted'
 
-const mark = (t: string, k: number) => (
-  <mark key={k} data-link-kind="note" className="rounded-[4px] bg-link-note/12 px-0.5 text-link-note">
+type Kind = 'note' | 'block'
+const mark = (t: string, k: number, kind: Kind) => (
+  <mark
+    key={k}
+    data-link-kind={kind}
+    className={`rounded-[4px] px-0.5 ${kind === 'block' ? 'bg-link-block/12 text-link-block' : 'bg-link-note/12 text-link-note'}`}
+  >
     {t}
   </mark>
 )
@@ -26,13 +31,14 @@ function Snippet({
     const at = m.index
     if (at > from) out.push(text.slice(from, at))
     const id = m[1]
+    const kind: Kind = m[2] ? 'block' : 'note'
     const title = titleOf(id)
     if (title === undefined) {
       out.push(<span key={at} className="text-fg-tertiary">已刪除的筆記</span>)
-    } else if (id === currentId) out.push(mark(title || '未命名', at))
+    } else if (id === currentId) out.push(mark(title || '未命名', at, kind))
     else
       out.push(
-        <span key={at} data-link-kind="note" className="text-link-note">
+        <span key={at} data-link-kind={kind} className={kind === 'block' ? 'text-link-block' : 'text-link-note'}>
           {title || '未命名'}
         </span>,
       )

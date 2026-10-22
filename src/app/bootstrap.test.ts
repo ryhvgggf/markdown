@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
-import { bootstrap, type AppServices } from './bootstrap'
+import { bootstrap, INDEX_VERSION, type AppServices } from './bootstrap'
 import { Indexer } from '@/core/indexer/indexer'
 import { LocalSearch } from '@/core/search/search-service'
 import { createDb } from '@/adapters/storage/db'
@@ -102,6 +102,10 @@ describe('bootstrap: built-in guide', () => {
 })
 
 describe('bootstrap', () => {
+  it('index version 3: link snippets carry block ids, so older indexes are rebuilt once', () => {
+    expect(INDEX_VERSION).toBe(3)
+  })
+
   it('creates a welcome note on first run and records lastNoteId', async () => {
     const s = await boot(name())
     const notes = s.vault.listNotes()
@@ -125,7 +129,7 @@ describe('bootstrap', () => {
     const dbName = name()
     const a = await boot(dbName)
     await a.maintenance.runStartup()
-    expect((await a.db.meta.get('indexVersion'))?.value).toBe(2)
+    expect((await a.db.meta.get('indexVersion'))?.value).toBe(INDEX_VERSION)
     await until(async () => (await a.storage.listDocs()).length > 0)
     const spy = vi.spyOn(Indexer.prototype, 'rebuildAll')
     await (await boot(dbName)).maintenance.runStartup()
@@ -135,7 +139,7 @@ describe('bootstrap', () => {
     expect(spy).not.toHaveBeenCalled() // not on the critical path
     await c.maintenance.runStartup()
     expect(spy).toHaveBeenCalledTimes(1)
-    expect((await c.db.meta.get('indexVersion'))?.value).toBe(2)
+    expect((await c.db.meta.get('indexVersion'))?.value).toBe(INDEX_VERSION)
     spy.mockRestore()
   })
 
@@ -193,7 +197,7 @@ describe('bootstrap', () => {
     const report = await b.maintenance.runStartup()
     expect(report.unreadable).toContain(victim.id)
     expect(b.vault.getAttachment(img.id)).toBeDefined()
-    expect((await b.db.meta.get('indexVersion'))?.value).toBe(2)
+    expect((await b.db.meta.get('indexVersion'))?.value).toBe(INDEX_VERSION)
   })
 
   it('stashes unsaved updates synchronously and recovers them on the next start (I2)', async () => {

@@ -99,6 +99,21 @@ describe('backlinks tab', () => {
     expect(await screen.findByText('還沒有其他筆記連結到這裡')).toBeInTheDocument()
   })
 
+  it('snippet tokens: block links (link:<note>#<block>) take the block-link colour; old tokens still render', async () => {
+    const target = vault.createNote({ title: '採購流程' })
+    const other = vault.createNote({ title: '別篇' })
+    const a = vault.createNote({ title: '來源' })
+    await link(a.id, target.id, `看 \u2063link:${target.id}#blk-1\u2063 與 \u2063link:${other.id}#blk-2\u2063 和 \u2063link:${other.id}\u2063`)
+    useUi.setState({ openNoteId: target.id, panel: 'backlinks' })
+    mount()
+    const heading = await screen.findByRole('heading', { name: '已連結' })
+    const card = within(heading.parentElement!).getByRole('button', { name: /來源/ })
+    expect(card.textContent).toContain('看 採購流程 與 別篇 和 別篇')
+    expect(card.querySelector('mark')).toHaveAttribute('data-link-kind', 'block')
+    const kinds = [...card.querySelectorAll('[data-link-kind]')].map((e) => e.getAttribute('data-link-kind'))
+    expect(kinds).toEqual(['block', 'block', 'note'])
+  })
+
   it('lists linked cards with folder path and highlighted title; click opens the source block', async () => {
     const f = vault.createFolder({ name: 'SAP', parentId: null })
     const sub = vault.createFolder({ name: 'MM', parentId: f.id })

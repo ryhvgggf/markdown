@@ -34,7 +34,7 @@ describe('extractNote', () => {
       { id: 'b2', type: 'heading', text: 'Title' },
     ])
     expect(r.links).toEqual([
-      { sourceBlockId: 'b1', targetNoteId: 'n2', targetBlockId: 'x9', snippet: 'see \u2063link:n2\u2063 now #Work#work' },
+      { sourceBlockId: 'b1', targetNoteId: 'n2', targetBlockId: 'x9', snippet: 'see \u2063link:n2#x9\u2063 now #Work#work' }, // block links carry the block id
     ])
     expect(r.tags).toEqual(['work'])
   })
