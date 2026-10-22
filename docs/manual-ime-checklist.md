@@ -61,5 +61,8 @@
 <img width="472" height="513" alt="image" src="https://github.com/user-attachments/assets/6ea0b26b-770b-42c9-9ffa-dabc22c9b87b" />
 圖三 連結需要顏色標示 而且筆記連結 內文連結 外部連結 需用不同的顏色做標示
 <img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/f0899c2c-ef28-4819-a394-027a98ac3dc5" />
+圖四跟圖五 在將文字轉為時 滑鼠點下去 我的清單 變到圖五的位置
+<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/4dd80182-7c54-46f4-ae40-760eae224243" />
+<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/9a143063-accd-4161-8ea7-78a3058fecb5" />
 
 
