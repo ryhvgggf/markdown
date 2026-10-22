@@ -90,7 +90,9 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   const search = createSearch(db, mode)
 
   // Startup maintenance: purge expired trash.
-  const purged = vault.purgeExpired(Date.now(), await indexer.referencedAttachmentIds())
+  // Scanning every note for attachment references is O(vault); only pay for it when something could be purged.
+  const now = Date.now()
+  const purged = vault.purgeExpired(now, vault.hasStaleAttachments(now) ? await indexer.referencedAttachmentIds() : undefined)
   for (const id of purged.noteIds) {
     await notes.remove(id)
     await indexer.removeNote(id)

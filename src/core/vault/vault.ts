@@ -236,6 +236,11 @@ export class Vault {
    * they are older than 30 days AND absent from `referencedAttachmentIds`; that set must include
    * references from trashed-but-unexpired notes too. Omitted set: no attachments are touched.
    */
+  /** True when some attachment is old enough to be purged if unreferenced (cheap pre-check for startup). */
+  hasStaleAttachments(now: number): boolean {
+    for (const m of this.attachments.values()) if (now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS) return true
+    return false
+  }
   purgeExpired(now: number, referencedAttachmentIds?: Set<string>): { noteIds: string[]; attachmentIds: string[] } {
     const expired = (m: YM) => {
       const d = m.get('deletedAt') as number | null | undefined

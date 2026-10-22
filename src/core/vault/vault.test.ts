@@ -130,6 +130,7 @@ describe('Vault', () => {
       att.get(oldUnref.id)!.set('createdAt', now - 31 * DAY)
       att.get(oldRef.id)!.set('createdAt', now - 31 * DAY)
     })
+    expect(v.hasStaleAttachments(now)).toBe(true)
     expect(v.purgeExpired(now).attachmentIds).toEqual([])
     const r = v.purgeExpired(now, new Set([oldRef.id]))
     expect(r.attachmentIds).toEqual([oldUnref.id])
@@ -137,6 +138,13 @@ describe('Vault', () => {
     expect(att.has(oldUnref.id)).toBe(false)
     expect(att.has(fresh.id)).toBe(true)
     expect(att.has(oldRef.id)).toBe(true)
+  })
+
+  it('hasStaleAttachments is false for an empty vault or only fresh attachments', async () => {
+    const v = await open()
+    expect(v.hasStaleAttachments(Date.now())).toBe(false)
+    v.addAttachment({ filename: 'f', mimeType: 'image/png', size: 1 })
+    expect(v.hasStaleAttachments(Date.now())).toBe(false)
   })
 
   it('resolveDuplicateTitles renames the later-created note', async () => {

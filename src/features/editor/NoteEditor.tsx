@@ -84,6 +84,7 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
   const editor = useEditor(
     {
       extensions,
+      shouldRerenderOnTransaction: false, // toolbar subscribes through useEditorState; avoid re-rendering the whole editor per keystroke
       editorProps: { attributes: { class: 'note-editor', 'aria-label': '筆記內容' } },
       onUpdate: ({ transaction }) => {
         if (transaction.getMeta('y-sync$')) return // remote / initial load, not a local edit

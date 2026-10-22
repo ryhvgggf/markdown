@@ -16,7 +16,7 @@ const forbidden = {
 }
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'test-results', 'playwright-report', '.superpowers'] },
+  { ignores: ['dist', 'dist-bench', 'node_modules', 'test-results', 'playwright-report', '.superpowers'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -26,7 +26,7 @@ export default tseslint.config(
     rules: { ...reactHooks.configs.recommended.rules },
   },
   {
-    files: ['*.config.{js,ts}', 'e2e/**'],
+    files: ['*.config.{js,ts}', 'e2e/**', 'scripts/**'],
     languageOptions: { globals: { ...globals.node } },
   },
   {
