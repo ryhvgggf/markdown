@@ -32,9 +32,9 @@ test('筆記連結、區塊連結、外部連結各有顏色；外部連結帶 �
   await expect(block).toBeVisible()
   await expect(external).toBeVisible()
 
-  expect(await color(note)).toBe('rgb(0, 122, 255)')
-  expect(await color(block)).toBe('rgb(175, 82, 222)')
-  expect(await color(external)).toBe('rgb(14, 154, 167)')
+  expect(await color(note)).toBe('rgb(0, 102, 214)')
+  expect(await color(block)).toBe('rgb(155, 63, 204)')
+  expect(await color(external)).toBe('rgb(11, 124, 135)')
   expect(await after(external)).toContain('↗')
   await expect(external).toHaveText('https://example.com') // the glyph is not text content
 

@@ -40,7 +40,7 @@ test('設定：強調色與字級立即套用並在重新載入後保留', async
   await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'))).toBe('#0B7A75')
   await expect.poll(accentColor).not.toBe(before)
   await expect.poll(accentColor).toBe('rgb(11, 122, 117)')
-  expect(await linkColor()).toBe('rgb(0, 122, 255)') // note links keep systemBlue whatever the accent
+  expect(await linkColor()).toBe('rgb(0, 102, 214)') // note links keep their own blue whatever the accent
 
   await dialog.getByRole('tab', { name: '文字' }).click()
   await dialog.getByRole('radiogroup', { name: '字級' }).getByText('大').click()
