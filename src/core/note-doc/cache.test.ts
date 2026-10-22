@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { MemoryStorage } from '@/adapters/storage/memory-storage'
+import { StorageError } from '@/adapters/storage/types'
 import { NoteDocCache, NoteDocError } from './cache'
 
 const mk = (max?: number) => {
@@ -76,5 +77,65 @@ describe('NoteDocCache', () => {
     await cache.remove('n1')
     expect(cache.peek('n1')).toBeUndefined()
     expect(await storage.loadDoc('n1')).toHaveLength(0)
+  })
+
+  describe('unsaved writes (I2, M3)', () => {
+    function flaky() {
+      const mem = new MemoryStorage()
+      const state = { fail: false, gate: null as Promise<void> | null }
+      const storage = new Proxy(mem, {
+        get(t, k) {
+          if (k === 'appendUpdate')
+            return async (id: string, u: Uint8Array) => {
+              if (state.gate) await state.gate
+              if (state.fail) throw new StorageError('quota', 'full')
+              return t.appendUpdate(id, u)
+            }
+          const v = (t as never)[k as never] as unknown
+          return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v
+        },
+      }) as MemoryStorage
+      return { mem, storage, state }
+    }
+
+    it('never evicts a doc whose updates are not stored yet', async () => {
+      const { mem, storage, state } = flaky()
+      const cache = new NoteDocCache(storage, { max: 1, onStorageError: () => {} })
+      const d = await cache.acquire('a')
+      state.fail = true
+      d.getText('t').insert(0, 'unsaved')
+      cache.release('a')
+      await new Promise((r) => setTimeout(r, 10))
+      await cache.acquire('b')
+      expect(cache.peek('a')).toBe(d)
+      expect(cache.hasUnsaved()).toBe(true)
+      state.fail = false
+      cache.retryAll()
+      await cache.flushAll()
+      expect(cache.hasUnsaved()).toBe(false)
+      cache.release('b')
+      await cache.acquire('c')
+      expect(cache.peek('a')).toBeUndefined()
+      const again = await new NoteDocCache(mem).acquire('a')
+      expect(again.getText('t').toString()).toBe('unsaved')
+    })
+
+    it('remove waits for the in-flight write before deleting stored data', async () => {
+      const { mem, storage, state } = flaky()
+      const cache = new NoteDocCache(storage)
+      const d = await cache.acquire('n1')
+      let open!: () => void
+      state.gate = new Promise<void>((r) => (open = r))
+      d.getText('t').insert(0, 'late')
+      await new Promise((r) => setTimeout(r, 0))
+      const p = cache.remove('n1')
+      setTimeout(() => {
+        state.gate = null
+        open()
+      }, 10)
+      await p
+      await new Promise((r) => setTimeout(r, 10))
+      expect(await mem.loadDoc('n1')).toHaveLength(0)
+    })
   })
 })

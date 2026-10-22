@@ -1,6 +1,6 @@
 import * as Y from 'yjs'
 import type { StorageAdapter, StorageError } from '@/adapters/storage/types'
-import { bindPersistence } from '../persist'
+import { bindPersistence, type PersistBinding } from '../persist'
 import { TAB_ORIGIN, connectTabs } from '../tabs-bridge'
 import { newId } from '../ids'
 import { orderForIndex } from '../order'
@@ -37,6 +37,10 @@ function toFolder(m: YM): FolderMeta {
     deletedAt: (m.get('deletedAt') as number | null) ?? null,
   }
 }
+function isExpired(m: YM, now: number): boolean {
+  const d = m.get('deletedAt') as number | null | undefined
+  return typeof d === 'number' && now - d > TRASH_TTL_MS
+}
 const byOrder = (a: { order: string }, b: { order: string }) => (a.order < b.order ? -1 : a.order > b.order ? 1 : 0)
 
 export class Vault {
@@ -46,9 +50,16 @@ export class Vault {
   private readonly attachments: Y.Map<YM>
   private readonly meta: YM
   private readonly teardown: Array<() => void>
+  private readonly binding: PersistBinding
 
-  private constructor(doc: Y.Doc, teardown: Array<() => void>) {
+  private constructor(
+    private readonly id: string,
+    doc: Y.Doc,
+    binding: PersistBinding,
+    teardown: Array<() => void>,
+  ) {
     this.doc = doc
+    this.binding = binding
     this.teardown = teardown
     this.meta = doc.getMap('meta')
     this.notes = doc.getMap('notes')
@@ -67,7 +78,7 @@ export class Vault {
     if (opts.channelFactory || typeof BroadcastChannel !== 'undefined') {
       teardown.push(connectTabs(doc, vaultId, opts.channelFactory))
     }
-    const vault = new Vault(doc, teardown)
+    const vault = new Vault(vaultId, doc, binding, teardown)
     if (!vault.meta.has('schemaVersion')) {
       doc.transact(() => {
         vault.meta.set('schemaVersion', 1)
@@ -216,13 +227,17 @@ export class Vault {
     })
   }
 
-  /** Permanently removes a folder subtree and every note inside it; returns the purged note ids. */
-  purgeFolder(id: string): string[] {
+  /** Ids of every note inside a folder subtree (trashed included). */
+  folderNoteIds(id: string): string[] {
     this.folder(id)
     const ids = this.subtreeIds(id)
-    const noteIds = [...this.notes.entries()]
-      .filter(([, m]) => ids.has((m.get('folderId') as string | null) ?? ''))
-      .map(([k]) => k)
+    return [...this.notes.entries()].filter(([, m]) => ids.has((m.get('folderId') as string | null) ?? '')).map(([k]) => k)
+  }
+
+  /** Permanently removes a folder subtree and every note inside it; returns the purged note ids. */
+  purgeFolder(id: string): string[] {
+    const noteIds = this.folderNoteIds(id)
+    const ids = this.subtreeIds(id)
     this.doc.transact(() => {
       noteIds.forEach((k) => this.notes.delete(k))
       ids.forEach((k) => this.folders.delete(k))
@@ -231,28 +246,33 @@ export class Vault {
   }
 
   // ---- maintenance ----
-  /**
-   * Removes notes/folders trashed more than 30 days ago. Attachments are returned and removed only if
-   * they are older than 30 days AND absent from `referencedAttachmentIds`; that set must include
-   * references from trashed-but-unexpired notes too. Omitted set: no attachments are touched.
-   */
   /** True when some attachment is old enough to be purged if unreferenced (cheap pre-check for startup). */
   hasStaleAttachments(now: number): boolean {
     for (const m of this.attachments.values()) if (now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS) return true
     return false
   }
+  /** Ids of notes trashed more than 30 days ago (what `purgeExpired(now)` would remove). */
+  expiredNoteIds(now: number): string[] {
+    return [...this.notes.entries()].filter(([, m]) => isExpired(m, now)).map(([k]) => k)
+  }
+  /**
+   * Attachments that may be purged (R8): older than 30 days AND absent from `referencedAttachmentIds`,
+   * which must include references from trashed-but-unexpired notes too.
+   */
+  unreferencedAttachmentIds(now: number, referencedAttachmentIds: Set<string>): string[] {
+    return [...this.attachments.entries()]
+      .filter(([k, m]) => !referencedAttachmentIds.has(k) && now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS)
+      .map(([k]) => k)
+  }
+  /**
+   * Removes notes/folders trashed more than 30 days ago. Attachments are returned and removed only if
+   * they are older than 30 days AND absent from `referencedAttachmentIds`; that set must include
+   * references from trashed-but-unexpired notes too. Omitted set: no attachments are touched.
+   */
   purgeExpired(now: number, referencedAttachmentIds?: Set<string>): { noteIds: string[]; attachmentIds: string[] } {
-    const expired = (m: YM) => {
-      const d = m.get('deletedAt') as number | null | undefined
-      return typeof d === 'number' && now - d > TRASH_TTL_MS
-    }
-    const noteIds = [...this.notes.entries()].filter(([, m]) => expired(m)).map(([k]) => k)
-    const folderIds = [...this.folders.entries()].filter(([, m]) => expired(m)).map(([k]) => k)
-    const attachmentIds = referencedAttachmentIds
-      ? [...this.attachments.entries()]
-          .filter(([k, m]) => !referencedAttachmentIds.has(k) && now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS)
-          .map(([k]) => k)
-      : []
+    const noteIds = this.expiredNoteIds(now)
+    const folderIds = [...this.folders.entries()].filter(([, m]) => isExpired(m, now)).map(([k]) => k)
+    const attachmentIds = referencedAttachmentIds ? this.unreferencedAttachmentIds(now, referencedAttachmentIds) : []
     this.doc.transact(() => {
       noteIds.forEach((k) => this.notes.delete(k))
       folderIds.forEach((k) => this.folders.delete(k))
@@ -298,6 +318,25 @@ export class Vault {
       }
     })
     return renamed
+  }
+
+  /** Persistence state of the vault doc itself (see PersistBinding). */
+  hasPendingWrites(): boolean {
+    return this.binding.hasPending()
+  }
+  hasFailedWrites(): boolean {
+    return this.binding.isFailing()
+  }
+  /** Hands the vault's not-yet-stored updates to `stash` (synchronous; used on pagehide). */
+  stashUnsaved(stash: (docId: string, update: Uint8Array) => void): void {
+    const u = this.binding.pendingUpdate()
+    if (u) stash(this.id, u)
+  }
+  retryWrites(): void {
+    this.binding.retry()
+  }
+  flushWrites(): Promise<void> {
+    return this.binding.flush()
   }
 
   observe(cb: () => void): () => void {

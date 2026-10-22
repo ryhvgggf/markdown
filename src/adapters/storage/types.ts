@@ -22,3 +22,16 @@ export class StorageError extends Error {
     this.kind = kind
   }
 }
+
+/** Maps a Dexie / IndexedDB error (or anything thrown) to a StorageError. */
+export function toStorageError(e: unknown): StorageError {
+  if (e instanceof StorageError) return e
+  const err = e as { name?: string; message?: string; inner?: { name?: string } } | null
+  const name = err?.inner?.name ?? err?.name ?? ''
+  const message = err?.message ?? String(e)
+  if (name === 'QuotaExceededError') return new StorageError('quota', message, { cause: e })
+  if (['DatabaseClosedError', 'OpenFailedError', 'InvalidStateError', 'SecurityError', 'MissingAPIError'].includes(name)) {
+    return new StorageError('unavailable', message, { cause: e })
+  }
+  return new StorageError('unknown', message, { cause: e })
+}

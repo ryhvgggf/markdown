@@ -1,18 +1,6 @@
 import * as Y from 'yjs'
 import type { NotesDb } from './db'
-import { StorageError, type StorageAdapter } from './types'
-
-function toStorageError(e: unknown): StorageError {
-  if (e instanceof StorageError) return e
-  const err = e as { name?: string; message?: string; inner?: { name?: string } } | null
-  const name = err?.inner?.name ?? err?.name ?? ''
-  const message = err?.message ?? String(e)
-  if (name === 'QuotaExceededError') return new StorageError('quota', message, { cause: e })
-  if (['DatabaseClosedError', 'OpenFailedError', 'InvalidStateError', 'SecurityError', 'MissingAPIError'].includes(name)) {
-    return new StorageError('unavailable', message, { cause: e })
-  }
-  return new StorageError('unknown', message, { cause: e })
-}
+import { toStorageError, type StorageAdapter } from './types'
 
 async function guard<T>(fn: () => Promise<T>): Promise<T> {
   try {

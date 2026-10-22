@@ -1,6 +1,6 @@
 import * as Y from 'yjs'
 import { StorageError, type StorageAdapter } from '@/adapters/storage/types'
-import { bindPersistence, PERSIST_ORIGIN } from '../persist'
+import { bindPersistence, PERSIST_ORIGIN, type PersistBinding } from '../persist'
 import { TAB_ORIGIN, connectTabs } from '../tabs-bridge'
 
 export class NoteDocError extends Error {
@@ -23,6 +23,7 @@ const INIT_ORIGIN = Symbol('note-doc-init')
 interface Entry {
   doc: Y.Doc
   refs: number
+  binding: PersistBinding
   teardown: Array<() => void>
 }
 
@@ -66,10 +67,47 @@ export class NoteDocCache {
     return this.loaded.get(noteId)?.doc
   }
 
+  /** Deletes a note's doc for good: stops writing, waits for the write in flight, then deletes stored data. */
   async remove(noteId: string): Promise<void> {
+    await this.loading.get(noteId)?.catch(() => undefined)
     const entry = this.loaded.get(noteId)
-    if (entry) this.dispose(noteId, entry)
+    if (entry) {
+      this.loaded.delete(noteId)
+      for (const t of entry.teardown) t()
+      await entry.binding.close()
+      entry.doc.destroy()
+    }
     await this.storage.deleteDoc(noteId)
+  }
+
+  /** True while some loaded doc has local updates that are not stored yet (queued or awaiting a retry). */
+  hasUnsaved(): boolean {
+    for (const e of this.loaded.values()) if (e.binding.hasPending()) return true
+    return false
+  }
+
+  /** Hands every doc's not-yet-stored updates to `stash` (synchronous; used on pagehide). */
+  stashUnsaved(stash: (docId: string, update: Uint8Array) => void): void {
+    for (const [id, e] of this.loaded) {
+      const u = e.binding.pendingUpdate()
+      if (u) stash(id, u)
+    }
+  }
+
+  /** True while some loaded doc's last write failed (a retry is scheduled). */
+  hasFailedWrites(): boolean {
+    for (const e of this.loaded.values()) if (e.binding.isFailing()) return true
+    return false
+  }
+
+  /** Waits for every queued write (one attempt each; failures stay queued for retry). */
+  async flushAll(): Promise<void> {
+    await Promise.all([...this.loaded.values()].map((e) => e.binding.flush()))
+  }
+
+  /** Retries failed writes now (e.g. when the page becomes visible again or the device goes online). */
+  retryAll(): void {
+    for (const e of this.loaded.values()) e.binding.retry()
   }
 
   onChange(cb: (noteId: string, doc: Y.Doc) => void): () => void {
@@ -80,8 +118,9 @@ export class NoteDocCache {
   private async load(noteId: string): Promise<Entry> {
     const doc = new Y.Doc()
     const teardown: Array<() => void> = []
+    let binding: PersistBinding
     try {
-      const binding = await bindPersistence(doc, noteId, this.storage, {
+      binding = await bindPersistence(doc, noteId, this.storage, {
         ignoreOrigins: [TAB_ORIGIN],
         onError: this.opts.onStorageError,
       })
@@ -104,7 +143,7 @@ export class NoteDocCache {
     }
     doc.on('update', onUpdate)
     teardown.push(() => doc.off('update', onUpdate))
-    const entry: Entry = { doc, refs: 0, teardown }
+    const entry: Entry = { doc, refs: 0, binding, teardown }
     this.loaded.set(noteId, entry)
     return entry
   }
@@ -117,7 +156,8 @@ export class NoteDocCache {
   private evict(): void {
     for (const [id, entry] of this.loaded) {
       if (this.loaded.size <= this.max) return
-      if (entry.refs === 0) this.dispose(id, entry)
+      // A doc with unsaved updates stays loaded (its writes keep retrying) so nothing typed is dropped.
+      if (entry.refs === 0 && !entry.binding.hasPending()) this.dispose(id, entry)
     }
   }
 
