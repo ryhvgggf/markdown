@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-const SHOT = '/home/claude/markdown/.superpowers/sdd/2026-10-21-notes-v2-phase1'
+const SHOT = process.env.SHOTS // set to a directory to capture review screenshots
 
 test('Slash 選單：插入表格並移除 /表格 文字', async ({ page }, info) => {
   await page.goto('/')
@@ -11,7 +11,7 @@ test('Slash 選單：插入表格並移除 /表格 文字', async ({ page }, inf
   await page.keyboard.type('/')
   const menu = page.getByRole('listbox')
   await expect(menu).toBeVisible()
-  if (info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-17-slash.png` })
+  if (SHOT && info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-17-slash.png` })
   await page.keyboard.type('表格')
   await expect(page.getByRole('option')).toHaveCount(1)
   await page.keyboard.press('Enter')
@@ -35,7 +35,7 @@ test('拖曳把手：懸停顯示，選單可刪除區塊', async ({ page }, inf
   await expect(page.getByRole('menuitem', { name: '複製區塊連結' })).toBeEnabled()
   await page.getByRole('menuitem', { name: '轉換類型' }).hover()
   await expect(page.getByRole('menuitem', { name: '標題 1' })).toBeVisible()
-  if (info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-17-grip.png` })
+  if (SHOT && info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-17-grip.png` })
   await page.getByRole('menuitem', { name: '刪除' }).click()
   await expect(editor).not.toContainText('待刪除的段落 xyz')
 })

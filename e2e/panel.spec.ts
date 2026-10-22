@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-const SHOT = '/home/claude/markdown/.superpowers/sdd/2026-10-21-notes-v2-phase1'
+const SHOT = process.env.SHOTS // set to a directory to capture review screenshots
 const tree = (page: Page, name: string) => page.getByRole('treeitem', { name })
 
 test('反向連結：已連結卡片、提到但未連結、轉為連結；大綱', async ({ page }, info) => {
@@ -36,7 +36,7 @@ test('反向連結：已連結卡片、提到但未連結、轉為連結；大�
   const convert = panel.getByRole('button', { name: '轉為連結' })
   await expect(convert).toBeVisible({ timeout: 8000 })
   await expect(panel.getByText('筆記C')).toBeVisible()
-  if (info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-21-backlinks.png` })
+  if (SHOT && info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-21-backlinks.png` })
 
   await convert.click()
   await expect(convert).toBeHidden()
@@ -58,7 +58,7 @@ test('反向連結：已連結卡片、提到但未連結、轉為連結；大�
   await panel.getByRole('tab', { name: '大綱' }).click()
   const nav = panel.getByRole('navigation', { name: '大綱' })
   await expect(nav.getByRole('button')).toHaveText(['概觀', '申請', '核准'])
-  if (info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-21-outline.png` })
+  if (SHOT && info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-21-outline.png` })
   await nav.getByRole('button', { name: '核准' }).click()
   await expect(editor.locator('h3', { hasText: '核准' })).toBeInViewport()
 

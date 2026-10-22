@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-const SHOT = '/home/claude/markdown/.superpowers/sdd/2026-10-21-notes-v2-phase1'
+const SHOT = process.env.SHOTS // set to a directory to capture review screenshots
 
 /** Dispatches a paste carrying only text/plain at the editor's caret (works in every engine). */
 async function pastePlain(page: Page, text: string) {
@@ -73,7 +73,7 @@ test('筆記連結、區塊連結與標籤', async ({ page, context }, info) => 
   if (chromium) {
     await page.keyboard.type('[[採')
     await expect(page.getByRole('listbox')).toBeVisible()
-    await page.screenshot({ path: `${SHOT}/task-18-links.png` })
+    if (SHOT) await page.screenshot({ path: `${SHOT}/task-18-links.png` })
     await page.keyboard.press('Escape')
   }
 

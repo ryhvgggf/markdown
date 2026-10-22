@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-const SHOT = '/home/claude/markdown/.superpowers/sdd/2026-10-21-notes-v2-phase1'
+const SHOT = process.env.SHOTS // set to a directory to capture review screenshots
 
 test('快速切換：Ctrl/⌘+K 搜尋內文並開啟，找不到時可新增', async ({ page }, info) => {
   await page.goto('/')
@@ -33,7 +33,7 @@ test('快速切換：Ctrl/⌘+K 搜尋內文並開啟，找不到時可新增', 
   await expect(hit).toContainText('內文提到「')
   await expect(hit).toContainText('建立採購申請')
   await expect(dialog.getByRole('option', { name: '新增筆記「購申」' })).toBeVisible()
-  if (info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-22-switcher.png` })
+  if (SHOT && info.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/task-22-switcher.png` })
 
   // open another note first so Enter's effect is observable
   await page.keyboard.press('Escape')
