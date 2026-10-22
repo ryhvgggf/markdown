@@ -43,6 +43,8 @@ export interface BootstrapOptions {
   channelFactory?: (name: string) => BroadcastChannel
   createSearch?: (db: NotesDb, mode: 'persistent' | 'memory') => SearchService
   forceMemory?: boolean
+  /** Seed the 「功能導覽」 notes into a brand-new vault (default true; off for the bench and e2e runs). */
+  seedGuide?: boolean
 }
 
 const VAULT_ID = 'default-vault'
@@ -104,6 +106,24 @@ async function recoverStashed(storage: StorageAdapter, db: NotesDb, phase: 'meta
   }
 }
 
+/**
+ * First start of an empty vault: adds the built-in guide once per device (meta `guideSeeded`, so deleting
+ * the guide never brings it back) and returns its first note. Loaded on demand: it pulls in the editor
+ * schema, which a normal start does not need before the first render. Failures fall back to the plain
+ * welcome note.
+ */
+async function seedGuideOnce(vault: Vault, storage: StorageAdapter, db: NotesDb, report: (e: StorageError) => void): Promise<string | null> {
+  try {
+    const { addGuide, GUIDE_SEEDED_KEY } = await import('@/features/guide/guide')
+    if ((await db.meta.get(GUIDE_SEEDED_KEY))?.value) return null
+    await db.meta.put({ key: GUIDE_SEEDED_KEY, value: Date.now() })
+    return (await addGuide({ vault, storage, db })).noteIds[0] ?? null
+  } catch (e) {
+    report(e instanceof StorageError ? e : new StorageError('unknown', String(e), { cause: e }))
+    return null
+  }
+}
+
 export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppServices> {
   const dbName = opts.dbName ?? 'notes-v2'
   const { db, mode } = await openDb(dbName, opts.forceMemory ?? false)
@@ -139,7 +159,9 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   }
   let initialNoteId: string | null
   if (vault.listNotes({ includeTrashed: true }).length === 0) {
-    initialNoteId = vault.createNote({ title: '歡迎使用' }).id
+    initialNoteId = (opts.seedGuide ?? true) ? await seedGuideOnce(vault, storage, db, errors.emit) : null
+    // (a guide that failed half-way may already hold 歡迎使用)
+    initialNoteId ??= vault.isTitleAvailable('歡迎使用') ? vault.createNote({ title: '歡迎使用' }).id : vault.listNotes()[0].id
     await db.meta.put({ key: LAST_NOTE_KEY, value: initialNoteId })
   } else {
     const saved = (await db.meta.get(LAST_NOTE_KEY))?.value

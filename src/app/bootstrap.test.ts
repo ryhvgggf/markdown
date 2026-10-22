@@ -11,7 +11,7 @@ const channelFactory = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
 const stubSearch = () => ({ search: async () => [], searchTags: async () => [], mentions: async () => [], dispose() {} })
 const boot = (dbName: string, extra: Parameters<typeof bootstrap>[0] = {}) =>
-  bootstrap({ dbName, channelFactory, createSearch: stubSearch, ...extra })
+  bootstrap({ dbName, channelFactory, createSearch: stubSearch, seedGuide: false, ...extra })
 
 async function until(fn: () => Promise<boolean>) {
   for (let i = 0; i < 100; i++) {
@@ -20,6 +20,45 @@ async function until(fn: () => Promise<boolean>) {
   }
   throw new Error('timeout')
 }
+
+describe('bootstrap: built-in guide', () => {
+  it('seeds the 功能導覽 folder on a fresh vault and opens 歡迎使用 from it', async () => {
+    const s = await boot(name(), { seedGuide: true })
+    const folder = s.vault.listFolders().find((f) => f.name === '功能導覽')
+    expect(folder).toBeDefined()
+    const inFolder = s.vault.listNotes().filter((n) => n.folderId === folder!.id)
+    expect(inFolder.length).toBeGreaterThanOrEqual(8)
+    expect(s.vault.listNotes()).toHaveLength(inFolder.length) // no separate empty welcome note
+    const opened = s.vault.getNote(s.initialNoteId!)
+    expect(opened?.title).toBe('歡迎使用')
+    expect(opened?.folderId).toBe(folder!.id)
+    expect((await s.db.meta.get('guideSeeded'))?.value).toBeTruthy()
+    expect((await s.storage.loadDoc(s.initialNoteId!)).length).toBeGreaterThan(0)
+  })
+
+  it('does not reseed on the next start, even after the guide was deleted', async () => {
+    const dbName = name()
+    const a = await boot(dbName, { seedGuide: true })
+    const count = a.vault.listNotes().length
+    const b = await boot(dbName, { seedGuide: true })
+    expect(b.vault.listNotes()).toHaveLength(count)
+    for (const n of b.vault.listNotes()) b.vault.purgeNote(n.id)
+    for (const f of b.vault.listFolders()) b.vault.purgeFolder(f.id)
+    await b.vault.flushWrites()
+    const c = await boot(dbName, { seedGuide: true })
+    expect(c.vault.listFolders()).toHaveLength(0)
+    expect(c.vault.listNotes().map((n) => n.title)).toEqual(['歡迎使用']) // the plain empty welcome note
+  })
+
+  it('does not seed a vault that already has notes', async () => {
+    const dbName = name()
+    const a = await boot(dbName) // seedGuide: false → plain welcome note
+    await a.vault.flushWrites()
+    const b = await boot(dbName, { seedGuide: true })
+    expect(b.vault.listFolders()).toHaveLength(0)
+    expect(b.vault.listNotes()).toHaveLength(1)
+  })
+})
 
 describe('bootstrap', () => {
   it('creates a welcome note on first run and records lastNoteId', async () => {

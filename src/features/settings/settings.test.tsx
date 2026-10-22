@@ -16,7 +16,7 @@ vi.mock('./background-busyness', async (orig) => ({
 
 let n = 0
 async function setup(over: Partial<AppServices> = {}, opts: { open?: boolean } = {}) {
-  const base = await bootstrap({ dbName: `settings-${n++}`, forceMemory: true })
+  const base = await bootstrap({ dbName: `settings-${n++}`, forceMemory: true, seedGuide: false })
   const services = { ...base, ...over } as AppServices
   render(
     <ServicesProvider services={services}>
@@ -196,6 +196,19 @@ describe('SettingsDialog', () => {
   })
 
   describe('data', () => {
+    it('加入功能導覽筆記 adds the guide folder (again, with suffixed titles) and opens its first note', async () => {
+      const { dialog, user, tab, services } = await setup()
+      await tab('資料')
+      await user.click(within(dialog).getByRole('button', { name: '加入功能導覽筆記' }))
+      expect(await within(dialog).findByText('已加入「功能導覽」資料夾。')).toBeInTheDocument()
+      const first = services.vault.listFolders().find((f) => f.name === '功能導覽')!
+      // the vault already holds the plain 歡迎使用 note, so the guide's copy gets the usual suffix
+      expect(services.vault.getNote(useUi.getState().openNoteId!)).toMatchObject({ title: '歡迎使用 (2)', folderId: first.id })
+      await user.click(within(dialog).getByRole('button', { name: '加入功能導覽筆記' }))
+      await waitFor(() => expect(services.vault.listFolders().map((f) => f.name)).toEqual(['功能導覽', '功能導覽 (2)']))
+      await waitFor(() => expect(services.vault.getNote(useUi.getState().openNoteId!)?.title).toBe('歡迎使用 (3)'))
+    })
+
     it('rebuilds the index with progress copy and disables while running', async () => {
       const { dialog, user, tab, services } = await setup()
       let finish!: () => void

@@ -5,7 +5,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
-  use: { baseURL: 'http://localhost:4173' },
+  use: {
+    baseURL: 'http://localhost:4173',
+    // Specs start from an empty vault (one blank 歡迎使用 note): skip the built-in guide (honoured only
+    // under automation, see src/main.tsx). guide.spec.ts opts back in.
+    storageState: { cookies: [], origins: [{ origin: 'http://localhost:4173', localStorage: [{ name: 'notes-v2:e2e-no-guide', value: '1' }] }] },
+  },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'webkit', use: { ...devices['Desktop Safari'] } },
