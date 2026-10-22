@@ -4,6 +4,15 @@ import * as Y from 'yjs'
 import { bootstrap, type AppServices } from './bootstrap'
 import { Indexer } from '@/core/indexer/indexer'
 import { LocalSearch } from '@/core/search/search-service'
+import { createDb } from '@/adapters/storage/db'
+import { DexieStorage } from '@/adapters/storage/dexie-storage'
+import { Vault } from '@/core/vault/vault'
+import * as guide from '@/features/guide/guide'
+
+vi.mock('@/features/guide/guide', async (orig) => {
+  const m = await orig<typeof import('@/features/guide/guide')>()
+  return { ...m, addGuide: vi.fn(m.addGuide) }
+})
 
 let n = 0
 const name = () => `boot-${Date.now()}-${n++}`
@@ -48,6 +57,38 @@ describe('bootstrap: built-in guide', () => {
     const c = await boot(dbName, { seedGuide: true })
     expect(c.vault.listFolders()).toHaveLength(0)
     expect(c.vault.listNotes().map((n) => n.title)).toEqual(['歡迎使用']) // the plain empty welcome note
+  })
+
+  it('writes guideSeeded only after the guide was added; a failure falls back to the plain welcome note', async () => {
+    vi.mocked(guide.addGuide).mockRejectedValueOnce(new Error('boom'))
+    const s = await boot(name(), { seedGuide: true })
+    expect((await s.db.meta.get('guideSeeded'))?.value).toBeUndefined()
+    expect(s.vault.listNotes().map((n) => n.title)).toEqual(['歡迎使用'])
+  })
+
+  it('seeds inside the notes-v2-seed lock and re-checks the vault there (another tab won the race)', async () => {
+    const dbName = name()
+    const nav = globalThis.navigator as Navigator & { locks?: unknown }
+    const had = Object.getOwnPropertyDescriptor(nav, 'locks')
+    const request = vi.fn(async (_lock: string, cb: () => Promise<unknown>) => {
+      // while this tab waited for the lock, another tab created a note and stored it
+      const other = await Vault.open(new DexieStorage(createDb(dbName)), 'default-vault', { channelFactory })
+      other.createNote({ title: '別的分頁' })
+      await other.flushWrites()
+      other.close()
+      return cb()
+    })
+    Object.defineProperty(nav, 'locks', { value: { request }, configurable: true })
+    try {
+      const s = await boot(dbName, { seedGuide: true })
+      expect(request).toHaveBeenCalledWith('notes-v2-seed', expect.any(Function))
+      expect(s.vault.listFolders()).toHaveLength(0) // not seeded
+      expect(s.vault.listNotes().map((n) => n.title)).toEqual(['別的分頁']) // and no extra welcome note
+      expect(s.vault.getNote(s.initialNoteId!)?.title).toBe('別的分頁')
+    } finally {
+      if (had) Object.defineProperty(nav, 'locks', had)
+      else delete (nav as { locks?: unknown }).locks
+    }
   })
 
   it('does not seed a vault that already has notes', async () => {

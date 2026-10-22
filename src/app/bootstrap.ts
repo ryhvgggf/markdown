@@ -1,3 +1,4 @@
+import * as Y from 'yjs'
 import { createDb, type NotesDb } from '@/adapters/storage/db'
 import { DexieStorage } from '@/adapters/storage/dexie-storage'
 import { requestPersistence } from '@/adapters/storage/persistence'
@@ -6,6 +7,7 @@ import { StorageError, type StorageAdapter } from '@/adapters/storage/types'
 import { DIRTY_PREFIX, Indexer } from '@/core/indexer/indexer'
 import { Maintenance } from '@/core/maintenance/maintenance'
 import { NoteDocCache } from '@/core/note-doc/cache'
+import { PERSIST_ORIGIN } from '@/core/persist'
 import { Preferences } from '@/core/preferences/preferences'
 import { SearchClient } from '@/core/search/search-client'
 import { LocalSearch, type SearchService } from '@/core/search/search-service'
@@ -106,22 +108,49 @@ async function recoverStashed(storage: StorageAdapter, db: NotesDb, phase: 'meta
   }
 }
 
+/** Serialises first-start work (guide seeding / the welcome note) across tabs; runs `fn` directly without Web Locks. */
+async function withSeedLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = (globalThis.navigator as (Navigator & { locks?: LockManager }) | undefined)?.locks
+  return locks?.request ? (locks.request('notes-v2-seed', fn) as Promise<T>) : fn()
+}
+
 /**
- * First start of an empty vault: adds the built-in guide once per device (meta `guideSeeded`, so deleting
- * the guide never brings it back) and returns its first note. Loaded on demand: it pulls in the editor
- * schema, which a normal start does not need before the first render. Failures fall back to the plain
- * welcome note.
+ * The note to open on the first start of an empty vault, decided under the `notes-v2-seed` lock so two tabs
+ * opened at once cannot both seed. Inside the lock the vault is caught up from storage (another tab may have
+ * written while we waited) and re-checked: if it has notes now, the most recent one opens. Otherwise the
+ * built-in guide is added once per device (meta `guideSeeded`, written only after it succeeded, so deleting
+ * the guide never brings it back) and its first note opens; else, or on failure, a plain 歡迎使用 note.
+ * The guide module is loaded on demand: it pulls in the editor schema, which a normal start does not need.
  */
-async function seedGuideOnce(vault: Vault, storage: StorageAdapter, db: NotesDb, report: (e: StorageError) => void): Promise<string | null> {
-  try {
-    const { addGuide, GUIDE_SEEDED_KEY } = await import('@/features/guide/guide')
-    if ((await db.meta.get(GUIDE_SEEDED_KEY))?.value) return null
-    await db.meta.put({ key: GUIDE_SEEDED_KEY, value: Date.now() })
-    return (await addGuide({ vault, storage, db })).noteIds[0] ?? null
-  } catch (e) {
-    report(e instanceof StorageError ? e : new StorageError('unknown', String(e), { cause: e }))
-    return null
-  }
+async function firstStartNote(
+  vault: Vault,
+  storage: StorageAdapter,
+  db: NotesDb,
+  seedGuide: boolean,
+  report: (e: StorageError) => void,
+): Promise<string> {
+  return withSeedLock(async () => {
+    for (const u of await storage.loadDoc(VAULT_ID)) Y.applyUpdate(vault.doc, u, PERSIST_ORIGIN)
+    const existing = vault.listNotes({ includeTrashed: true })
+    if (existing.length > 0) {
+      const live = vault.listNotes()
+      return ([...live].sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? existing[0]).id
+    }
+    if (seedGuide) {
+      try {
+        const { addGuide, GUIDE_SEEDED_KEY } = await import('@/features/guide/guide')
+        if (!(await db.meta.get(GUIDE_SEEDED_KEY))?.value) {
+          const { noteIds } = await addGuide({ vault, storage, db })
+          await db.meta.put({ key: GUIDE_SEEDED_KEY, value: Date.now() })
+          if (noteIds[0]) return noteIds[0]
+        }
+      } catch (e) {
+        report(e instanceof StorageError ? e : new StorageError('unknown', String(e), { cause: e }))
+      }
+    }
+    // (a guide that failed half-way may already hold 歡迎使用)
+    return vault.isTitleAvailable('歡迎使用') ? vault.createNote({ title: '歡迎使用' }).id : vault.listNotes()[0].id
+  })
 }
 
 export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppServices> {
@@ -159,9 +188,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   }
   let initialNoteId: string | null
   if (vault.listNotes({ includeTrashed: true }).length === 0) {
-    initialNoteId = (opts.seedGuide ?? true) ? await seedGuideOnce(vault, storage, db, errors.emit) : null
-    // (a guide that failed half-way may already hold 歡迎使用)
-    initialNoteId ??= vault.isTitleAvailable('歡迎使用') ? vault.createNote({ title: '歡迎使用' }).id : vault.listNotes()[0].id
+    initialNoteId = await firstStartNote(vault, storage, db, opts.seedGuide ?? true, errors.emit)
     await db.meta.put({ key: LAST_NOTE_KEY, value: initialNoteId })
   } else {
     const saved = (await db.meta.get(LAST_NOTE_KEY))?.value
