@@ -262,3 +262,29 @@ describe('ArrowDown in the title', () => {
     }
   })
 })
+
+describe('title ↔ body focus hand-over', () => {
+  it('moving into the body never leaves a deferred focus that pulls the caret back later (webkit flake)', async () => {
+    const queued: FrameRequestCallback[] = []
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => (queued.push(cb), queued.length))
+    try {
+      render(
+        wrap(
+          <>
+            <TitleBlock noteId={noteId} />
+            <NoteEditor noteId={noteId} />
+          </>,
+        ),
+      )
+      await waitFor(() => expect(document.querySelector('.ProseMirror')).not.toBeNull())
+      title().focus()
+      fireEvent.keyDown(title(), { key: 'ArrowDown' })
+      expect(document.querySelector('.ProseMirror')).toHaveFocus() // focused right away
+      title().focus() // the user goes back up before the next frame
+      act(() => queued.splice(0).forEach((cb) => cb(0)))
+      expect(title()).toHaveFocus()
+    } finally {
+      raf.mockRestore()
+    }
+  })
+})
