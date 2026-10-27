@@ -30,7 +30,7 @@ test('第一次開啟：建立「功能導覽」資料夾並打開歡迎使用',
 
   // 整理筆記 mentions 搜尋與快速切換 in plain text → 提到但未連結 on that note
   await page.getByRole('treeitem', { name: '搜尋與快速切換' }).click()
-  await page.getByRole('group', { name: '筆記面板' }).getByRole('button', { name: /^反向連結/ }).click()
+  await page.getByRole('button', { name: /^反向連結/ }).click()
   await expect(page.getByRole('heading', { name: '提到但未連結' })).toBeVisible()
   await expect(page.getByRole('button', { name: '轉為連結' }).first()).toBeVisible()
 

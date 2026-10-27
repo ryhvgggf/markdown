@@ -7,7 +7,8 @@ const DEBOUNCE_MS = 300
 const isBlank = (title: string) => !title.trim() || title.trim() === '未命名'
 
 /** Notes whose body mentions `title` but do not link to `noteId`, plus the 轉為連結 action. */
-export function useMentions(noteId: string, title: string, linkedIds: string[]) {
+/** `refresh`: a changed value re-runs the search (e.g. each time the panel opens: the index may have caught up). */
+export function useMentions(noteId: string, title: string, linkedIds: string[], refresh: unknown = 0) {
   const { search, notes } = useServices()
   const [res, setRes] = useState<{ base: string; full: string; hits: SearchHit[] } | null>(null)
   const [hiddenState, setHidden] = useState<{ base: string; ids: Set<string> }>({ base: '', ids: new Set() })
@@ -26,7 +27,7 @@ export function useMentions(noteId: string, title: string, linkedIds: string[]) 
       cancelled = true
       clearTimeout(timer)
     }
-  }, [search, noteId, title, linkedKey, base, full])
+  }, [search, noteId, title, linkedKey, base, full, refresh])
 
   const hidden = hiddenState.base === base ? hiddenState.ids : new Set<string>()
   const setHiddenIds = (fn: (s: Set<string>) => Set<string>) =>

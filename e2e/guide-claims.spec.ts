@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { newNote } from './helpers'
 
 // Every Markdown shortcut and keyboard shortcut the built-in guide documents
 // (src/features/guide/guide-content.ts, 「編輯與格式」). `ControlOrMeta` = Ctrl on Windows/Linux, ⌘ on macOS.
@@ -124,4 +125,36 @@ test('導覽寫的表格操作、最後一格 Tab 新增列與點標籤搜尋都
   await page.keyboard.type('#導覽 ')
   await editor.getByRole('button', { name: '搜尋標籤 #導覽' }).click()
   await expect(page.getByRole('dialog', { name: '快速切換' }).getByLabel('搜尋筆記')).toHaveValue('#導覽')
+})
+
+test('導覽寫的大綱短線與反向連結面板都如所述', async ({ page }) => {
+  await page.goto('/')
+  const editor = await clearBody(page)
+  await page.keyboard.type('# 第一節\n內容\n## 第二節\n更多')
+  // 「用鍵盤時，按 Tab 移到「大綱」再按 Enter」
+  const ticks = page.getByRole('button', { name: '大綱', exact: true })
+  await expect(ticks.locator('.outline-tick')).toHaveCount(3)
+  await ticks.focus()
+  await page.keyboard.press('Enter')
+  const card = page.getByRole('navigation', { name: '大綱' })
+  await expect(card.getByRole('button')).toHaveText(['歡迎使用', '第一節', '第二節'])
+  await card.getByRole('button', { name: '第二節' }).click()
+  await page.keyboard.type('!')
+  await expect(editor.locator('h2')).toContainText('!')
+  // 「右上角會出現「反向連結 N」」 once another note links here; 📌 keeps it open across notes
+  const pill = page.getByRole('button', { name: /^反向連結/ })
+  await expect(pill).toHaveCount(0)
+  await newNote(page, '來源')
+  await page.keyboard.type('[[歡迎')
+  await page.getByRole('option', { name: /歡迎使用/ }).first().click()
+  await page.getByRole('treeitem', { name: '歡迎使用', exact: true }).click()
+  await expect(pill).toContainText('1', { timeout: 8000 })
+  await pill.click()
+  const panel = page.getByRole('complementary', { name: '反向連結面板' })
+  await expect(panel.getByRole('heading', { name: /^已連結/ })).toBeVisible()
+  await panel.getByRole('button', { name: '釘選面板' }).click()
+  await page.getByRole('treeitem', { name: '來源', exact: true }).click()
+  await expect(panel).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(panel).toBeHidden()
 })

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NoteEditor } from '@/features/editor/NoteEditor'
 import { TitleBlock } from '@/features/editor/TitleBlock'
-import { Panel } from '@/features/panel/Panel'
-import { PanelPills } from '@/features/panel/PanelPills'
+import { BacklinksLayer } from '@/features/panel/BacklinksPanel'
+import { OutlineTicks } from '@/features/panel/OutlineTicks'
 import { QuickSwitcher } from '@/features/search/QuickSwitcher'
 import { Sidebar } from '@/features/sidebar/Sidebar'
 import { AppearanceEffects } from '@/features/settings/AppearanceEffects'
@@ -71,8 +71,7 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
       <Shell
         sidebar={<Sidebar />}
         main={<MainNote />}
-        panel={<Panel />}
-        headerActions={<PanelPills />}
+        overlay={<NoteOverlay />}
       />
       <QuickSwitcher />
       <SettingsDialog />
@@ -83,15 +82,34 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
 function MainNote() {
   const { vault } = useServices()
   const openNoteId = useUi((s) => s.openNoteId)
+  // After the first switch every note shown fades in (noteSwitchFade in Shell); the first one on start does not.
+  const [firstId] = useState(openNoteId)
+  const [switched, setSwitched] = useState(false)
+  if (!switched && openNoteId !== firstId) setSwitched(true)
   const [, bump] = useState(0)
   useEffect(() => vault.observe(() => bump((n) => n + 1)), [vault])
   if (!openNoteId || !vault.getNote(openNoteId)) {
     return <p className="p-6 text-fg-secondary">選擇或新增一篇筆記</p>
   }
   return (
-    <div key={openNoteId}>
+    <div key={openNoteId} data-note-page className="note-page" data-entering={switched ? 'true' : undefined}>
       <TitleBlock noteId={openNoteId} />
       <NoteEditor noteId={openNoteId} />
     </div>
+  )
+}
+
+/** Floating layers over the note card: the 反向連結 pill + panel and the outline ticks. */
+function NoteOverlay() {
+  const { vault } = useServices()
+  const openNoteId = useUi((s) => s.openNoteId)
+  const [, bump] = useState(0)
+  useEffect(() => vault.observe(() => bump((n) => n + 1)), [vault])
+  if (!openNoteId || !vault.getNote(openNoteId)) return null
+  return (
+    <>
+      <OutlineTicks key={openNoteId} noteId={openNoteId} />
+      <BacklinksLayer noteId={openNoteId} />
+    </>
   )
 }

@@ -17,9 +17,9 @@ export function Mentions({
   const snap = useVaultSnapshot()
   if (mentions.length === 0) return null
   return (
-    <section aria-labelledby="mentions-h" className="mt-5">
-      <h3 id="mentions-h" className="mb-2 text-xs font-semibold text-fg-secondary">
-        提到但未連結
+    <section aria-labelledby="mentions-h">
+      <h3 id="mentions-h" className="panel-section">
+        提到但未連結 · {mentions.length}
       </h3>
       <ul className="flex flex-col gap-2">
         {mentions.map((h) => {
@@ -35,7 +35,7 @@ export function Mentions({
               action={
                 <button
                   type="button"
-                  className="mt-2 rounded-full bg-accent/12 px-3 py-1 text-xs font-medium text-accent hover:bg-accent/20"
+                  className="panel-chip mt-2"
                   onClick={() => onConvert(h.noteId)}
                 >
                   轉為連結

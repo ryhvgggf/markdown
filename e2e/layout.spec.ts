@@ -14,22 +14,23 @@ async function box(page: Page, name: string | 'main') {
 const overlaps = (a: { x: number; width: number }, b: { x: number; width: number }) =>
   a.x < b.x + b.width && b.x < a.x + a.width
 
-test('wide: right card sits beside the note card', async ({ page }) => {
-  await boot(page, 1500)
-  await page.getByRole('button', { name: '大綱', exact: true }).click()
-  const panel = page.getByRole('complementary', { name: '筆記資訊' })
-  await expect(panel).toBeVisible()
-  await expect(panel).not.toHaveAttribute('data-overlay', 'true')
-  expect(overlaps(await box(page, '筆記資訊'), await box(page, 'main'))).toBe(false)
-})
-
-test('medium: right card overlays the note card', async ({ page }) => {
-  await boot(page, 1200)
-  await page.getByRole('button', { name: '大綱', exact: true }).click()
-  const panel = page.getByRole('complementary', { name: '筆記資訊' })
-  await expect(panel).toHaveAttribute('data-overlay', 'true')
-  expect(overlaps(await box(page, '筆記資訊'), await box(page, 'main'))).toBe(true)
-})
+for (const width of [1500, 1200]) {
+  test(`${width}px: no right column; the note card keeps its size (outline lives in the ticks)`, async ({ page }) => {
+    await boot(page, width)
+    await expect(page.getByRole('complementary', { name: '筆記資訊' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '大綱', exact: true })).toHaveCount(0) // no headings yet
+    const before = await box(page, 'main')
+    const editor = page.locator('.ProseMirror')
+    await editor.click()
+    await page.keyboard.type('# 標題一')
+    await expect(page.getByRole('button', { name: '大綱', exact: true })).toBeAttached()
+    expect(await box(page, 'main')).toEqual(before)
+    // the ticks sit inside the card, at its right edge
+    const ticks = (await page.getByRole('button', { name: '大綱', exact: true }).boundingBox())!
+    expect(overlaps(ticks, before)).toBe(true)
+    expect(before.x + before.width - (ticks.x + ticks.width)).toBeLessThan(30)
+  })
+}
 
 test('narrow: sidebar hidden until 檔案 is clicked', async ({ page }) => {
   await boot(page, 1000, 800)
@@ -76,7 +77,6 @@ test('screenshots', async ({ page }, info) => {
   test.skip(info.project.name !== 'chromium' || !process.env.SHOTS)
   const dir = process.env.SHOTS!
   await boot(page, 1500)
-  await page.getByRole('button', { name: '大綱', exact: true }).click()
   await page.mouse.move(3, 450)
   await page.waitForTimeout(500)
   await page.screenshot({ path: `${dir}/task-12-wide.png` })

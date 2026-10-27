@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { installTypingWatch } from '@/features/editor/typing'
 import { useUi } from '@/app/ui-store'
 import { useServices } from '@/app/services-context'
 import { usePrefs } from '@/app/use-prefs'
@@ -10,21 +11,22 @@ import { useLayoutMode } from './layout-mode'
 export interface ShellProps {
   sidebar: ReactNode
   main: ReactNode
-  panel: ReactNode
-  /** Right-aligned slot in the note card's header row. */
-  headerActions?: ReactNode
+  /** Floating layers over the note card (反向連結 pill and panel, outline ticks): the card never resizes. */
+  overlay?: ReactNode
 }
 
-export function Shell({ sidebar, main, panel, headerActions }: ShellProps) {
+export function Shell({ sidebar, main, overlay }: ShellProps) {
   const { prefs } = useServices()
-  const { sidebarWidth, panelWidth } = usePrefs()
+  const { sidebarWidth } = usePrefs()
   const mode = useLayoutMode()
-  const panelOpen = useUi((s) => s.panel !== 'none')
   const overlayOpen = useUi((s) => s.sidebarOverlayOpen)
   const setOverlay = useUi((s) => s.setSidebarOverlay)
 
+  useEffect(() => installTypingWatch(), [])
+  const scroller = useRef<HTMLDivElement>(null)
+  const ghosts = useRef<HTMLDivElement>(null)
+  useEffect(() => noteSwitchFade(scroller, ghosts), [])
   const narrow = mode === 'narrow'
-  const panelOverlay = mode !== 'wide'
 
   const sidebarCard = (
     <aside
@@ -40,31 +42,21 @@ export function Shell({ sidebar, main, panel, headerActions }: ShellProps) {
     </aside>
   )
 
-  const panelCard = (
-    <aside
-      aria-label="筆記資訊"
-      data-overlay={panelOverlay ? 'true' : undefined}
-      className={`glass-card ${panelOverlay ? 'absolute top-0 right-0 bottom-0 z-20' : 'relative shrink-0'}`}
-      style={{ width: panelWidth }}
-    >
-      <ResizeHandle edge="left" width={panelWidth} label="調整右側面板寬度" onResize={(w) => prefs.set({ panelWidth: w })} />
-      <div className="h-full overflow-auto rounded-[inherit]">{panel}</div>
-    </aside>
-  )
-
   return (
     <div className="relative h-dvh w-full overflow-hidden">
       <Background />
       <div className="relative flex h-full gap-[14px] p-[14px]">
         {!narrow && sidebarCard}
         <div className="relative min-w-0 flex-1">
-          <main className="flex h-full flex-col overflow-hidden rounded-card bg-surface shadow-card">
-            <header className="flex h-11 shrink-0 items-center justify-end gap-2 px-4">{headerActions}</header>
-            <div data-note-scroll className="min-h-0 flex-1 overflow-auto">{main}</div>
+          <main className="note-card relative flex h-full flex-col overflow-hidden rounded-card bg-surface shadow-card">
+            <div aria-hidden="true" className="h-11 shrink-0" />
+            <div ref={scroller} data-note-scroll className="min-h-0 flex-1 overflow-auto">
+              {main}
+            </div>
+            <div ref={ghosts} aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-11 bottom-0 overflow-hidden" />
+            {overlay}
           </main>
-          {panelOpen && panelOverlay && panelCard}
         </div>
-        {panelOpen && !panelOverlay && panelCard}
       </div>
       {narrow && overlayOpen && (
         <>
@@ -75,4 +67,39 @@ export function Shell({ sidebar, main, panel, headerActions }: ShellProps) {
       <Rail />
     </div>
   )
+}
+
+/**
+ * Note switch: a short fade-out of the old page, then the new one fades in (CSS `.note-page[data-entering]`).
+ * The new note mounts at once (focus and typing go to it); what fades out is an inert copy of the old page,
+ * taken synchronously when openNoteId changes, before React replaces it.
+ */
+function noteSwitchFade(scroller: React.RefObject<HTMLDivElement | null>, layer: React.RefObject<HTMLDivElement | null>) {
+  return useUi.subscribe((s, prev) => {
+    if (s.openNoteId === prev.openNoteId) return
+    const sc = scroller.current
+    const box = layer.current
+    if (!sc || !box) return
+    const page = sc.querySelector<HTMLElement>('[data-note-page]')
+    if (page && prev.openNoteId) {
+      const ghost = page.cloneNode(true) as HTMLElement
+      ghost.removeAttribute('data-note-page')
+      ghost.removeAttribute('data-entering')
+      for (const el of [ghost, ...ghost.querySelectorAll<HTMLElement>('*')]) {
+        el.classList.remove('ProseMirror')
+        for (const a of ['id', 'aria-label', 'contenteditable', 'data-note-editor', 'data-block-id', 'role', 'tabindex']) el.removeAttribute(a)
+      }
+      const wrap = document.createElement('div')
+      wrap.style.position = 'absolute'
+      wrap.style.inset = '0'
+      wrap.style.top = `${-sc.scrollTop}px`
+      ghost.classList.add('note-ghost')
+      wrap.append(ghost)
+      box.replaceChildren(wrap)
+      const done = () => wrap.remove()
+      ghost.addEventListener('animationend', done, { once: true })
+      setTimeout(done, 600) // no animations (tests, reduced motion edge cases)
+    }
+    sc.scrollTop = 0
+  })
 }

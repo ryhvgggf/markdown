@@ -57,6 +57,7 @@ export const Settings = make(
 export const Plus = make('Plus', <path d="M12 5v14M5 12h14" />)
 export const ChevronDown = make('ChevronDown', <path d="m6 9 6 6 6-6" />)
 export const ChevronRight = make('ChevronRight', <path d="m9 6 6 6-6 6" />)
+export const Pin = make('Pin', <path d="M9 3h6l-.75 6 3.75 3H6l3.75-3zM12 12v9" />)
 export const Close = make('Close', <path d="M6 6l12 12M18 6 6 18" />)
 export const More = make(
   'More',

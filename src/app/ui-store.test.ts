@@ -2,18 +2,28 @@ import { describe, expect, it, vi } from 'vitest'
 import { createUiStore } from './ui-store'
 
 describe('ui store', () => {
-  it('togglePanel twice returns to none', () => {
+  it('backlinks panel: toggle, pin, and close (an unpinned close is ignored while pinned)', () => {
     const s = createUiStore()
-    s.getState().togglePanel('backlinks')
-    expect(s.getState().panel).toBe('backlinks')
-    s.getState().togglePanel('backlinks')
-    expect(s.getState().panel).toBe('none')
+    s.getState().toggleBacklinks()
+    expect(s.getState().backlinksOpen).toBe(true)
+    s.getState().toggleBacklinks()
+    expect(s.getState().backlinksOpen).toBe(false)
+    s.getState().toggleBacklinks()
+    s.getState().setBacklinksPinned(true)
+    s.getState().closeBacklinks() // e.g. pointer left the panel
+    expect(s.getState().backlinksOpen).toBe(true)
+    s.getState().closeBacklinks({ force: true }) // × / Esc: closes and unpins
+    expect(s.getState()).toMatchObject({ backlinksOpen: false, backlinksPinned: false })
   })
-  it('togglePanel switches between panels', () => {
+  it('switching notes closes the backlinks panel unless pinned', () => {
     const s = createUiStore()
-    s.getState().togglePanel('outline')
-    s.getState().togglePanel('backlinks')
-    expect(s.getState().panel).toBe('backlinks')
+    s.getState().toggleBacklinks()
+    s.getState().openNote('a')
+    expect(s.getState().backlinksOpen).toBe(false)
+    s.getState().toggleBacklinks()
+    s.getState().setBacklinksPinned(true)
+    s.getState().openNote('b')
+    expect(s.getState().backlinksOpen).toBe(true)
   })
   it('openNote sets highlight, persists, and clearHighlight clears', () => {
     const persist = vi.fn()

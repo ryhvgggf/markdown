@@ -104,8 +104,9 @@ test('核心流程：建立、連結、區塊、重新整理、反向連結、�
   const pill = page.getByRole('button', { name: /^反向連結/ })
   await expect(pill).toContainText('1', { timeout: 10000 })
   await pill.click()
-  const panel = page.getByRole('complementary', { name: '筆記資訊' })
+  const panel = page.getByRole('complementary', { name: '反向連結面板' })
   await expect(panel.getByRole('button', { name: /年度計畫/ })).toBeVisible()
+  await panel.getByRole('button', { name: '關閉面板' }).click()
 
   // rename the target: link text in the source follows
   await title.fill('採購管理')

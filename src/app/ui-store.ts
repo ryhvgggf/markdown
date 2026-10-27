@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 
-export type Panel = 'none' | 'outline' | 'backlinks'
-
 export interface UiState {
   openNoteId: string | null
-  panel: Panel
+  /** The floating 反向連結 panel (summoned by the pill at the card's top right). */
+  backlinksOpen: boolean
+  /** Pinned: stays open when the pointer leaves and across note switches (per session). */
+  backlinksPinned: boolean
   railHover: boolean
   quickSwitcherOpen: boolean
   /** Text the switcher starts with when opened (e.g. '#' from the rail's tag button). */
@@ -13,8 +14,10 @@ export interface UiState {
   settingsOpen: boolean
   highlightBlockId: string | null
   openNote(id: string, blockId?: string): void
-  setPanel(p: Panel): void
-  togglePanel(p: Exclude<Panel, 'none'>): void
+  toggleBacklinks(): void
+  /** Without `force` (pointer left) a pinned panel stays; `force` (×, Esc) closes and unpins. */
+  closeBacklinks(opts?: { force?: boolean }): void
+  setBacklinksPinned(v: boolean): void
   setRailHover(v: boolean): void
   setQuickSwitcher(v: boolean, seed?: string): void
   setSidebarOverlay(v: boolean): void
@@ -25,7 +28,8 @@ export interface UiState {
 export function createUiStore(deps: { persistLastNote?: (id: string) => void } = {}) {
   return create<UiState>((set) => ({
     openNoteId: null,
-    panel: 'none',
+    backlinksOpen: false,
+    backlinksPinned: false,
     railHover: false,
     quickSwitcherOpen: false,
     quickSwitcherSeed: '',
@@ -33,11 +37,13 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     settingsOpen: false,
     highlightBlockId: null,
     openNote: (id, blockId) => {
-      set({ openNoteId: id, highlightBlockId: blockId ?? null })
+      set((s) => ({ openNoteId: id, highlightBlockId: blockId ?? null, backlinksOpen: s.backlinksOpen && s.backlinksPinned }))
       deps.persistLastNote?.(id)
     },
-    setPanel: (panel) => set({ panel }),
-    togglePanel: (p) => set((s) => ({ panel: s.panel === p ? 'none' : p })),
+    toggleBacklinks: () => set((s) => (s.backlinksOpen ? { backlinksOpen: false, backlinksPinned: false } : { backlinksOpen: true })),
+    closeBacklinks: (opts) =>
+      set((s) => (opts?.force ? { backlinksOpen: false, backlinksPinned: false } : s.backlinksPinned ? s : { backlinksOpen: false })),
+    setBacklinksPinned: (backlinksPinned) => set({ backlinksPinned }),
     setRailHover: (railHover) => set({ railHover }),
     setQuickSwitcher: (quickSwitcherOpen, seed = '') => set({ quickSwitcherOpen, quickSwitcherSeed: seed }),
     setSidebarOverlay: (sidebarOverlayOpen) => set({ sidebarOverlayOpen }),
