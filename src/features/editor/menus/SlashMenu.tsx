@@ -48,10 +48,10 @@ const SlashList = forwardRef<PopupListHandle, ListProps>(function SlashList({ it
   }, [selected])
 
   return (
-    <div data-slash-menu className="glass-float max-h-80 w-[300px] overflow-y-auto p-1.5">
-      <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-fg-tertiary">基本區塊</div>
+    <div data-slash-menu className="glass-float popup-pop max-h-80 w-[300px] overflow-y-auto p-1.5">
+      <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-fg-secondary">基本區塊</div>
       {items.length === 0 ? (
-        <div className="px-2 py-3 text-sm text-fg-tertiary">沒有符合的區塊</div>
+        <div className="px-2 py-3 text-sm text-fg-secondary">沒有符合的區塊</div>
       ) : (
         <div role="listbox" aria-label="基本區塊">
           {items.map((item, i) => {
@@ -74,7 +74,7 @@ const SlashList = forwardRef<PopupListHandle, ListProps>(function SlashList({ it
                 </span>
                 <span className="min-w-0">
                   <span className="block text-base text-fg">{item.label}</span>
-                  <span className="block truncate text-xs text-fg-tertiary">{item.hint}</span>
+                  <span className="block truncate text-xs text-fg-secondary">{item.hint}</span>
                 </span>
               </div>
             )

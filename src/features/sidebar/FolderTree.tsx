@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -117,6 +117,32 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
     }
   }, [dragging])
 
+  const renderNodes = (nodes: TreeNode[], level: number): ReactNode =>
+    nodes.map((node) => {
+      const ref = nodeRef(node)
+      const folderOpen = node.kind === 'folder' && expanded.has(node.folder.id)
+      const item = (
+        <TreeItem
+          key={ref.id}
+          node={node}
+          level={level}
+          expanded={folderOpen}
+          current={node.kind === 'note' && node.note.id === openNoteId}
+          tabbable={ref.id === tabbableId}
+          drop={drop && drop.over !== ROOT && drop.over.id === ref.id ? drop.zone : null}
+          renaming={renamingId === ref.id}
+          api={api}
+        />
+      )
+      if (node.kind !== 'folder' || node.children.length === 0) return item
+      return (
+        <Fragment key={ref.id}>
+          {item}
+          <FolderKids open={folderOpen}>{() => renderNodes(node.children, level + 1)}</FolderKids>
+        </Fragment>
+      )
+    })
+
   const onDragEnd = (e: DragEndEvent) => {
     const t = final.current
     final.current = null
@@ -140,23 +166,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
         aria-label="筆記樹狀清單"
         className={`min-h-full px-2 pb-2 ${drop?.over === ROOT ? 'bg-accent/5' : ''}`}
       >
-        {rows.map(({ node, level }) => {
-          const ref = nodeRef(node)
-          const folderOpen = node.kind === 'folder' && expanded.has(node.folder.id)
-          return (
-            <TreeItem
-              key={ref.id}
-              node={node}
-              level={level}
-              expanded={folderOpen}
-              current={node.kind === 'note' && node.note.id === openNoteId}
-              tabbable={ref.id === tabbableId}
-              drop={drop && drop.over !== ROOT && drop.over.id === ref.id ? drop.zone : null}
-              renaming={renamingId === ref.id}
-              api={api}
-            />
-          )
-        })}
+        {renderNodes(tree, 1)}
       </div>
       <DragOverlay dropAnimation={null} style={{ pointerEvents: 'none' }}>
         {dragging && (
@@ -179,4 +189,28 @@ function labelOf(nodes: TreeNode[], ref: Ref): string {
     }
   }
   return ''
+}
+
+/** A folder's rows; expanding and collapsing animate the row height (grid-template-rows). */
+function FolderKids({ open, children }: { open: boolean; children: () => ReactNode }) {
+  const [mounted, setMounted] = useState(open)
+  const [shown, setShown] = useState(open)
+  if (open && !mounted) setMounted(true)
+  if (!open && shown) setShown(false) // collapse from the open height; a reopen starts again from 0fr
+  useEffect(() => {
+    if (open) {
+      const f = requestAnimationFrame(() => setShown(true)) // start from 0fr so the expansion animates
+      return () => cancelAnimationFrame(f)
+    }
+    const ms = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--d3')) || 340
+    const t = setTimeout(() => setMounted(false), ms + 40)
+    return () => clearTimeout(t)
+  }, [open])
+  if (!mounted) return null
+  const closing = !open
+  return (
+    <div role="group" className="tree-kids" data-open={shown && open ? 'true' : 'false'} aria-hidden={closing || undefined} inert={closing || undefined}>
+      <div>{children()}</div>
+    </div>
+  )
 }

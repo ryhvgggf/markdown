@@ -148,7 +148,7 @@ export function FormatToolbar({ editor }: { editor: Editor | null }) {
       <div
         role="toolbar"
         aria-label="文字格式"
-        className="glass-float flex items-center gap-0.5 p-1"
+        className="glass-float format-bar flex items-center gap-0.5 p-1"
         onPointerDown={keepShownOnMenuPress}
       >
         {linkOpen ? (

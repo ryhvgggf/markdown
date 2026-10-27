@@ -3,6 +3,7 @@ import { useServices } from '@/app/services-context'
 import { usePrefs } from '@/app/use-prefs'
 import { ACCENTS } from '@/core/preferences/accents'
 import type { Prefs, Tri } from '@/core/preferences/preferences'
+import { Tooltip } from '@/ui/components/Tooltip'
 import { SectionLabel, Segmented, SliderRow, Row } from './controls'
 
 export function ColorSection() {
@@ -16,7 +17,8 @@ export function ColorSection() {
       <Row label="強調色" id={labelId}>
         <div role="radiogroup" aria-labelledby={labelId} className="flex flex-wrap justify-end gap-3 p-1">
           {ACCENTS.map((a) => (
-            <label key={a.id} title={a.name} className="relative">
+            <Tooltip key={a.id} content={a.name}>
+            <label className="relative">
               <input
                 type="radio"
                 name={name}
@@ -30,6 +32,7 @@ export function ColorSection() {
                 style={{ background: a.hex, ['--tw-ring-color' as string]: a.hex }}
               />
             </label>
+            </Tooltip>
           ))}
         </div>
       </Row>

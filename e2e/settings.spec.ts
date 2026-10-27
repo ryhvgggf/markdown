@@ -36,7 +36,7 @@ test('設定：強調色與字級立即套用並在重新載入後保留', async
 
   const dialog = await openSettings(page)
   await dialog.getByRole('tab', { name: '色彩' }).click()
-  await dialog.getByTitle('青').click()
+  await dialog.locator('label', { has: page.getByRole('radio', { name: '青' }) }).click()
   await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'))).toBe('#0B7A75')
   await expect.poll(accentColor).not.toBe(before)
   await expect.poll(accentColor).toBe('rgb(11, 122, 117)')

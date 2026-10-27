@@ -34,7 +34,7 @@ export function Menu({
     <DM.Root open={open} onOpenChange={onOpenChange}>
       <DM.Trigger asChild>{trigger}</DM.Trigger>
       <DM.Portal>
-        <DM.Content align={align} onCloseAutoFocus={onCloseAutoFocus} sideOffset={6} className="glass-float z-50 min-w-40 p-1">
+        <DM.Content align={align} onCloseAutoFocus={onCloseAutoFocus} sideOffset={6} className="glass-float menu-pop z-50 min-w-40 p-1">
           {children}
         </DM.Content>
       </DM.Portal>
@@ -52,7 +52,7 @@ function Sub({ label, children }: { label: ReactNode; children: ReactNode }) {
         {label}
       </DM.SubTrigger>
       <DM.Portal>
-        <DM.SubContent sideOffset={6} className="glass-float z-50 min-w-40 p-1">
+        <DM.SubContent sideOffset={6} className="glass-float menu-pop z-50 min-w-40 p-1">
           {children}
         </DM.SubContent>
       </DM.Portal>

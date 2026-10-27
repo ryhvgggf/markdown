@@ -5,10 +5,11 @@ import { Tooltip } from './Tooltip'
 export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label'> {
   label: string
   tooltip?: boolean
+  tooltipSide?: 'top' | 'right' | 'bottom' | 'left'
 }
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { label, tooltip = false, type = 'button', className = '', ...rest },
+  { label, tooltip = false, tooltipSide, type = 'button', className = '', ...rest },
   ref,
 ) {
   const button = (
@@ -20,5 +21,9 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       {...rest}
     />
   )
-  return tooltip ? <Tooltip content={label}>{button}</Tooltip> : button
+  return tooltip ? (
+    <Tooltip content={label} side={tooltipSide}>
+      {button}
+    </Tooltip>
+  ) : button
 })

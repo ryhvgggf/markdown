@@ -5,6 +5,8 @@ import { Folder, Search, Settings, Tag } from '@/ui/icons'
 import { useLayoutMode } from '@/features/shell/layout-mode'
 import { useRail } from './use-rail'
 
+const RAIL_BTN = '!size-[38px] !rounded-[11px]'
+
 export function Rail() {
   const { open, pinned, setOpen } = useRail()
   const mode = useLayoutMode()
@@ -62,9 +64,7 @@ export function Rail() {
         ref={navRef}
         aria-label="主要功能"
         data-open={open ? 'true' : 'false'}
-        className={`glass-float fixed top-1/2 left-[10px] z-50 flex -translate-y-1/2 flex-col items-center gap-1 p-1.5 transition-transform duration-[320ms] ease-spring ${
-          open ? 'translate-x-0' : 'pointer-events-none -translate-x-[calc(100%+16px)]'
-        }`}
+        className="glass rail fixed top-1/2 left-[10px] z-50 flex flex-col items-center gap-1 rounded-[16px] p-1.5"
         onPointerEnter={cancelClose}
         onPointerLeave={scheduleClose}
         onFocus={() => setOpen(true)}
@@ -72,17 +72,17 @@ export function Rail() {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false)
         }}
       >
-        <IconButton label="檔案" tooltip onClick={files}>
+        <IconButton label="檔案" tooltip tooltipSide="right" className={RAIL_BTN} onClick={files}>
           <Folder />
         </IconButton>
-        <IconButton label="搜尋" tooltip onClick={() => ui.getState().setQuickSwitcher(true)}>
+        <IconButton label="搜尋" tooltip tooltipSide="right" className={RAIL_BTN} onClick={() => ui.getState().setQuickSwitcher(true)}>
           <Search />
         </IconButton>
-        <IconButton label="標籤" tooltip onClick={tags}>
+        <IconButton label="標籤" tooltip tooltipSide="right" className={RAIL_BTN} onClick={tags}>
           <Tag />
         </IconButton>
         <div role="separator" className="my-1 h-px w-5 bg-black/10" />
-        <IconButton label="設定" tooltip onClick={() => ui.getState().setSettings(true)}>
+        <IconButton label="設定" tooltip tooltipSide="right" className={RAIL_BTN} onClick={() => ui.getState().setSettings(true)}>
           <Settings />
         </IconButton>
       </nav>

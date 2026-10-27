@@ -118,7 +118,7 @@ function Panel() {
         ) : (
           <>
             <span className="shrink-0 text-fg">{row.match ? <Bold text={row.title} term={query.replace(/^\s*#/, '')} /> : row.title}</span>
-            <span className="min-w-0 flex-1 truncate text-right text-xs text-fg-tertiary">{row.right}</span>
+            <span className="min-w-0 flex-1 truncate text-right text-xs text-fg-secondary">{row.right}</span>
           </>
         )}
       </div>
@@ -145,12 +145,12 @@ function Panel() {
           placeholder="搜尋或建立筆記…"
           className="min-w-0 flex-1 bg-transparent text-lg text-fg outline-none placeholder:text-fg-tertiary"
         />
-        <kbd className="rounded border border-black/10 px-1.5 py-0.5 text-xs text-fg-tertiary">Esc</kbd>
+        <kbd className="rounded border border-black/10 px-1.5 py-0.5 text-xs text-fg-secondary">Esc</kbd>
       </div>
       <div id="qs-list" role="listbox" aria-label="搜尋結果" className="max-h-[380px] overflow-y-auto p-2">
         {notes.length > 0 && (
           <div role="group" aria-labelledby="qs-group">
-            <div id="qs-group" className="px-3 pt-1 pb-1 text-xs text-fg-tertiary">
+            <div id="qs-group" className="px-3 pt-1 pb-1 text-xs text-fg-secondary">
               筆記
             </div>
             {notes.map(option)}

@@ -270,6 +270,7 @@ describe('row menus (typing cost)', () => {
     const ids = Array.from({ length: 30 }, (_, i) => vault.createNote({ title: `M${i}` }).id)
     mount()
     await screen.findByRole('treeitem', { name: /M29/ })
+    await act(async () => void (await new Promise((r) => setTimeout(r, 100)))) // let the initial loads settle
     rowRenders.count = 0
     act(() => vault.touchNote(ids[5]))
     expect(rowRenders.count).toBeLessThanOrEqual(2)

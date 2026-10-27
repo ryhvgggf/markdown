@@ -1,32 +1,390 @@
-.glass-card {
-  background: rgba(255, 255, 255, 0.58);
-  -webkit-backdrop-filter: blur(30px) saturate(160%);
-  backdrop-filter: blur(30px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.65);
-  box-shadow: var(--shadow-card);
-  border-radius: var(--radius-card);
-}
-
+/*
+ * One shared glass material (tokens in tokens.css, values from the approved Task 27 prototype).
+ * Standard glass for every floating layer; thin refractive glass for the 反向連結 panel. The note card
+ * stays opaque paper. Only transform and opacity animate (folder rows excepted: grid-template-rows).
+ */
+.glass,
+.glass-card,
 .glass-float {
-  background: rgba(255, 255, 255, 0.76);
-  -webkit-backdrop-filter: blur(26px) saturate(180%);
-  backdrop-filter: blur(26px) saturate(180%);
-  box-shadow:
-    var(--shadow-float),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+.glass-card {
+  border-radius: 18px;
+}
+.glass-float {
   border-radius: 14px;
 }
 
-html[data-reduce-transparency='true'] .glass-card,
-html[data-reduce-transparency='true'] .glass-float {
-  background: #ffffff;
+.glass-panel {
+  background: var(--glass-panel-bg);
+  -webkit-backdrop-filter: var(--glass-panel-filter);
+  backdrop-filter: var(--glass-panel-filter);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-panel-shadow);
+}
+.panel-card {
+  display: block;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--glass-card-bg);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--glass-card-edge);
+  transition:
+    transform var(--d2) var(--ease-out),
+    opacity var(--d2) var(--ease-out),
+    background-color var(--d1) var(--ease-out);
+}
+.panel-card-link:hover {
+  background: rgba(255, 255, 255, 0.78);
+}
+.panel-card-mention {
+  border-style: dashed;
+  border-color: rgba(20, 20, 40, 0.16);
+}
+.panel-section {
+  padding: 8px 4px 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-fg-secondary);
+}
+.panel-chip {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--accent-soft);
+  color: var(--accent);
+  transition: transform var(--d1) var(--ease-pop);
+}
+.panel-chip:active {
+  transform: scale(calc(1 - 0.06 * var(--shift)));
+}
+
+/* No blur available (or 降低透明度): near-opaque white, still legible over anything. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-card,
+  .glass-float,
+  .glass-panel {
+    background: var(--glass-solid);
+  }
+}
+html[data-reduce-transparency='true'] :is(.glass, .glass-card, .glass-float, .glass-panel, .panel-card) {
+  background: var(--glass-solid);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
+/* ---------- Motion ---------- */
+
+/* Menus, popovers and tooltips scale-and-fade from their trigger (Radix sets the transform origin). */
+@keyframes glass-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(calc(1 - 0.04 * var(--shift)));
+  }
+}
+@keyframes glass-pop-out {
+  to {
+    opacity: 0;
+    transform: scale(calc(1 - 0.04 * var(--shift)));
+  }
+}
+.menu-pop {
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin, var(--radix-tooltip-content-transform-origin, center));
+}
+.menu-pop[data-state='open'] {
+  animation: glass-pop-in var(--d2) var(--ease-pop);
+}
+.menu-pop[data-state='closed'] {
+  animation: glass-pop-out var(--d1) var(--ease-out);
+}
+.tooltip-pop {
+  transform-origin: var(--radix-tooltip-content-transform-origin);
+}
+.tooltip-pop[data-state='delayed-open'],
+.tooltip-pop[data-state='instant-open'] {
+  animation: glass-pop-in var(--d1) var(--ease-out);
+}
+.tooltip-pop[data-state='closed'] {
+  animation: glass-pop-out var(--d1) var(--ease-out);
+}
+/* Popups without Radix (slash, [[, tags): they appear under the caret. */
+.popup-pop {
+  transform-origin: top left;
+  animation: glass-pop-in var(--d2) var(--ease-pop);
+}
+/* Dialogs (quick switcher, settings) */
+.dialog-pop[data-state='open'] {
+  animation: glass-pop-in var(--d2) var(--ease-pop);
+}
+.dialog-pop[data-state='closed'] {
+  animation: glass-pop-out var(--d1) var(--ease-out);
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.dialog-scrim[data-state='open'] {
+  animation: fade-in var(--d2) var(--ease-out);
+}
+.dialog-scrim[data-state='closed'] {
+  animation: fade-out var(--d1) var(--ease-out);
+}
+
+/* Format toolbar: rises from the selection. */
+.format-bar {
+  transform-origin: center bottom;
+  animation: format-in var(--d2) var(--ease-pop);
+}
+@keyframes format-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(4px * var(--shift))) scale(calc(1 - 0.06 * var(--shift)));
+  }
+}
+
+/* Rail: summoned from the left edge with the pop easing. */
+.rail {
+  transform: translate(calc(-120% * var(--shift)), -50%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--d3) var(--ease-pop),
+    opacity var(--d2) var(--ease-out);
+}
+.rail[data-open='true'] {
+  transform: translate(0, -50%);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Note switch: the old page fades out, the new one fades in with a 4 px drop. */
+@keyframes note-leave {
+  to {
+    opacity: 0;
+    transform: translateY(calc(4px * var(--shift)));
+  }
+}
+@keyframes note-enter {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-4px * var(--shift)));
+  }
+}
+.note-ghost {
+  animation: note-leave var(--d1) var(--ease-out) forwards;
+}
+.note-page[data-entering='true'] {
+  animation: note-enter var(--d2) var(--ease-out) var(--d1) backwards;
+}
+
+/* Folders expand and collapse (the one layout animation: grid rows). */
+.tree-kids {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--d3) var(--ease-out),
+    opacity var(--d2) var(--ease-out);
+}
+.tree-kids > div {
+  overflow: hidden;
+  min-height: 0;
+}
+.tree-kids[data-open='false'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+/* ---------- 反向連結 pill and panel ---------- */
+.backlinks-pill {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  z-index: 7;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  background: var(--color-fill);
+  color: var(--color-fg-secondary);
+  transition:
+    background-color var(--d1) var(--ease-out),
+    color var(--d1) var(--ease-out);
+}
+.backlinks-pill:hover,
+.backlinks-pill[data-on='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.backlinks-panel {
+  position: absolute;
+  top: 52px;
+  right: 30px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 318px;
+  max-height: calc(100% - 80px);
+  padding: 12px;
+  border-radius: 20px;
+  outline: none;
+  transform: translateX(calc((100% + 40px) * var(--shift)));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform var(--d3) var(--ease-pop),
+    opacity var(--d2) var(--ease-out),
+    visibility 0s linear var(--d3);
+}
+.backlinks-panel[data-open='true'] {
+  transform: none;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    transform var(--d3) var(--ease-pop),
+    opacity var(--d2) var(--ease-out),
+    visibility 0s;
+}
+
+/* ---------- Outline ticks and their card ---------- */
+.outline-layer {
+  transition: opacity var(--d2) var(--ease-out);
+}
+.outline-layer[data-typing='true'] {
+  opacity: 0;
+  pointer-events: none;
+}
+.outline-ticks {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: clamp(4px, 1.4vh, 12px);
+  max-height: calc(100% - 140px);
+  overflow: hidden;
+  padding: 10px 6px;
+  border-radius: 8px;
+  transform: translateY(-50%);
+}
+.outline-tick {
+  display: block;
+  flex: none;
+  height: 2px;
+  border-radius: 2px;
+  background: #cfcfd6;
+  transition: background-color var(--d2) var(--ease-out);
+}
+.outline-tick[data-level='0'] {
+  width: 22px;
+}
+.outline-tick[data-level='1'] {
+  width: 18px;
+}
+.outline-tick[data-level='2'] {
+  width: 13px;
+}
+.outline-tick[data-level='3'] {
+  width: 9px;
+}
+.outline-tick[data-on='true'] {
+  height: 3px;
+  background: var(--accent);
+}
+.outline-card {
+  position: absolute;
+  top: 50%;
+  right: 50px;
+  z-index: 6;
+  width: 230px;
+  max-height: calc(100% - 80px);
+  overflow: auto;
+  padding: 7px;
+  border-radius: 16px;
+  transform-origin: right center;
+  transform: translateY(-50%) translateX(calc(8px * var(--shift))) scale(calc(1 - 0.04 * var(--shift)));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--d2) var(--ease-out),
+    transform var(--d2) var(--ease-pop),
+    visibility 0s linear var(--d2);
+}
+.outline-card[data-open='true'] {
+  transform: translateY(-50%);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity var(--d2) var(--ease-out),
+    transform var(--d2) var(--ease-pop),
+    visibility 0s;
+}
+.outline-card button {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 9px;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-fg);
+  transition: background-color var(--d1) var(--ease-out);
+}
+.outline-card button:hover {
+  background: rgba(255, 255, 255, 0.7);
+}
+.outline-card button[data-level='0'] {
+  font-weight: 600;
+}
+.outline-card button[data-level='2'] {
+  padding-left: 22px;
+}
+.outline-card button[data-level='3'] {
+  padding-left: 34px;
+}
+.outline-card button[aria-current='location'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+@media (max-width: 860px) {
+  .outline-layer {
+    display: none;
+  }
+  .backlinks-panel {
+    right: 10px;
+    left: 10px;
+    width: auto;
+  }
+}
+
+/* Reduced motion: whatever is not driven by the tokens above is capped to a 120 ms fade. */
 html[data-reduce-motion='true'] *,
 html[data-reduce-motion='true'] *::before,
 html[data-reduce-motion='true'] *::after {
-  transition-duration: 0s !important;
-  animation-duration: 0s !important;
+  transition-duration: 0.12s !important;
+  animation-duration: 0.12s !important;
+  animation-delay: 0s !important;
+  scroll-behavior: auto !important;
 }

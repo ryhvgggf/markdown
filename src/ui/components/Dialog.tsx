@@ -20,16 +20,16 @@ export function Dialog({ title, trigger, description, palette, settings, onClose
     <RD.Root {...state}>
       {trigger && <RD.Trigger asChild>{trigger}</RD.Trigger>}
       <RD.Portal>
-        <RD.Overlay className="fixed inset-0 z-40 bg-black/20" />
+        <RD.Overlay className="dialog-scrim fixed inset-0 z-40 bg-black/15" />
         <RD.Content
           onCloseAutoFocus={onCloseAutoFocus}
           {...(description ? {} : { 'aria-describedby': undefined })}
           className={
             palette
-              ? 'glass-float fixed top-[110px] left-1/2 z-50 w-[min(92vw,560px)] -translate-x-1/2 overflow-hidden outline-none'
+              ? 'glass-float dialog-pop fixed top-[110px] left-1/2 z-50 w-[min(92vw,560px)] -translate-x-1/2 overflow-hidden outline-none'
               : settings
-                ? 'glass-float fixed top-1/2 left-1/2 z-50 flex h-[min(88vh,520px)] w-[min(94vw,720px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden outline-none'
-                : 'glass-float fixed top-1/2 left-1/2 z-50 w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 p-5 outline-none'
+                ? 'glass-float dialog-pop fixed top-1/2 left-1/2 z-50 flex h-[min(88vh,520px)] w-[min(94vw,720px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden outline-none'
+                : 'glass-float dialog-pop fixed top-1/2 left-1/2 z-50 w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 p-5 outline-none'
           }
         >
           <RD.Title className={palette ? 'sr-only' : settings ? 'px-6 pt-5 text-md font-semibold text-fg' : 'text-md font-semibold text-fg'}>{title}</RD.Title>

@@ -132,9 +132,9 @@ const LinkList = forwardRef<PopupListHandle, ListProps>(function LinkList({ item
   }, [selected])
 
   return (
-    <div data-link-menu className="glass-float max-h-80 w-[320px] overflow-y-auto p-1.5">
+    <div data-link-menu className="glass-float popup-pop max-h-80 w-[320px] overflow-y-auto p-1.5">
       {items.length === 0 ? (
-        <div className="px-2 py-3 text-sm text-fg-tertiary">{blockPhase ? '沒有符合的區塊' : '沒有符合的筆記'}</div>
+        <div className="px-2 py-3 text-sm text-fg-secondary">{blockPhase ? '沒有符合的區塊' : '沒有符合的筆記'}</div>
       ) : (
         <div role="listbox" aria-label={blockPhase ? '連結到區塊' : '連結到筆記'}>
           {items.map((item, i) => (
@@ -150,7 +150,7 @@ const LinkList = forwardRef<PopupListHandle, ListProps>(function LinkList({ item
               {item.kind === 'note' && (
                 <span className="min-w-0">
                   <span className="block truncate text-base text-fg">{item.title}</span>
-                  {item.path && <span className="block truncate text-xs text-fg-tertiary">{item.path}</span>}
+                  {item.path && <span className="block truncate text-xs text-fg-secondary">{item.path}</span>}
                 </span>
               )}
               {item.kind === 'create' && <span className="truncate text-base text-accent">建立新筆記「{item.title}」</span>}
