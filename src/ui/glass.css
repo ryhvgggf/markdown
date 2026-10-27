@@ -80,10 +80,19 @@
   pointer-events: none;
 }
 .glass-baked > div {
+  /* the viewport-sized page background (inner div), with an 80 px margin so the blur has no faded edge */
   position: absolute;
-  inset: -80px;
-  background-attachment: fixed !important; /* aligned with the page background behind the card */
+  box-sizing: content-box;
+  width: 100vw;
+  height: 100dvh;
+  padding: 80px;
+  background: #e8e9ee;
   filter: blur(calc(30px + var(--bg-blur, 0px))) saturate(200%) brightness(1.04);
+  will-change: transform; /* its own layer: rasterised once, not repainted with the sidebar */
+}
+.glass-baked > div > div {
+  width: 100%;
+  height: 100%;
 }
 .glass-baked::after {
   content: '';
@@ -380,7 +389,7 @@ html[data-reduce-transparency='true'] :is(.glass, .glass-card, .glass-float, .gl
   padding: 6px 10px;
   text-align: left;
   font-size: 13px;
-  color: var(--color-fg);
+  color: #3a3a40; /* prototype .pop: 11:1 on the card over paper */
   transition: background-color var(--d1) var(--ease-out);
 }
 .outline-card button:hover {
