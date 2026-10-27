@@ -4,6 +4,7 @@ import * as Y from 'yjs'
 import { useServices } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
 import { NoteDocError } from '@/core/note-doc/cache'
+import { onIdle } from '@/core/idle'
 import { createExtensions } from './extensions'
 import { registerEditor } from './focus-bridge'
 import { FormatToolbar } from './menus/FormatToolbar'
@@ -93,7 +94,10 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
         const now = Date.now()
         if (now - lastTouch.current < TOUCH_INTERVAL) return
         lastTouch.current = now
-        if (vault.getNote(noteId)) vault.touchNote(noteId)
+        // Not in the keystroke: the timestamp bump re-renders the tree and reruns vault observers.
+        onIdle(() => {
+          if (vault.getNote(noteId)) vault.touchNote(noteId)
+        })
       },
     },
     [extensions],
