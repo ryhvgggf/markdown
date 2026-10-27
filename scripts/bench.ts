@@ -13,7 +13,7 @@ import { chromium, type Page } from '@playwright/test'
 const OUT_DIR = 'dist-bench'
 const VITE = join(process.cwd(), 'node_modules', '.bin', 'vite')
 const NOTES = 1000
-const THRESHOLDS = { coldStart: 1500, search: 100, keystroke: 16 }
+const THRESHOLDS = { coldStart: 1500, search: 100, keystroke: 16, frame: 16.7 }
 
 const median = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b)
@@ -21,6 +21,7 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
 }
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
+const p95 = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(xs.length * 0.95))]
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -119,6 +120,8 @@ async function main() {
       w.__keys = [] as number[] // per keystroke: summed handler time (Event Timing's processingEnd - processingStart)
       w.__e2e = [] as number[] // per keystroke: keydown → end of the input task (includes any rendering in between)
       w.__slow = [] as number[]
+      w.__frame = [] as number[] // per keystroke: keydown → the next animation frame after its input event (rAF callback)
+      w.__painted = [] as number[] // per keystroke: keydown → the task right after that frame (the frame has been produced)
       // Event Timing only reports events whose duration >= 16 ms, so its mean is biased. The same quantity is
       // measured for EVERY event here: capture listener = processingStart, bubble listener = processingEnd.
       const types = ['keydown', 'keypress', 'beforeinput', 'input', 'keyup']
@@ -136,6 +139,13 @@ async function main() {
             w.__keys.push(sum)
             sum = 0
             chan.port2.postMessage(0)
+            const k0 = t0
+            requestAnimationFrame(() => {
+              w.__frame.push(performance.now() - k0)
+              const after = new MessageChannel()
+              after.port1.onmessage = () => w.__painted.push(performance.now() - k0)
+              after.port2.postMessage(0)
+            })
           }
         })
       }
@@ -152,7 +162,7 @@ async function main() {
     await page.waitForTimeout(500)
     const typing = await page.evaluate(() => {
       const w = window as any // eslint-disable-line @typescript-eslint/no-explicit-any
-      return { keys: w.__keys as number[], e2e: w.__e2e as number[], slow: w.__slow as number[] }
+      return { keys: w.__keys as number[], e2e: w.__e2e as number[], slow: w.__slow as number[], frame: w.__frame as number[], painted: w.__painted as number[] }
     })
 
     await context.close()
@@ -161,6 +171,7 @@ async function main() {
       { name: '冷啟動 (reload → 可輸入, 中位數 of 5)', value: median(cold), limit: THRESHOLDS.coldStart },
       { name: `搜尋「採購」(中位數 of 20, ${search.hits} 筆結果)`, value: median(search.ms), limit: THRESHOLDS.search },
       { name: `按鍵處理 (平均 of ${typing.keys.length} 鍵, 筆記 ${textLen} 字)`, value: mean(typing.keys), limit: THRESHOLDS.keystroke },
+      { name: `按鍵 → 下一幀 (keydown → rAF after input, p95 of ${typing.frame.length})`, value: p95(typing.frame), limit: THRESHOLDS.frame },
     ]
     console.log('\n| 指標 | 結果 (ms) | 門檻 (ms) | 判定 |')
     console.log('|---|---|---|---|')
@@ -177,6 +188,10 @@ async function main() {
       `  keystroke median/p95/max (ms): ${median(typing.keys).toFixed(1)} / ${[...typing.keys].sort((a, b) => a - b)[Math.floor(typing.keys.length * 0.95)]?.toFixed(1)} / ${Math.max(...typing.keys).toFixed(1)}`,
     )
     console.log(`  keystroke end-to-end (keydown → input task end) mean/median: ${mean(typing.e2e).toFixed(1)} / ${median(typing.e2e).toFixed(1)}`)
+    console.log(
+      `  keydown → next frame (rAF) median/p95/max (ms): ${median(typing.frame).toFixed(1)} / ${p95(typing.frame).toFixed(1)} / ${Math.max(...typing.frame).toFixed(1)}; ` +
+        `→ after that frame median/p95: ${median(typing.painted).toFixed(1)} / ${p95(typing.painted).toFixed(1)}`,
+    )
     console.log(
       `  Event Timing (only reports events with duration >= 16 ms): ${typing.slow.length} slow keydown/keypress/input events` +
         (typing.slow.length ? `, mean handler ${mean(typing.slow).toFixed(1)} ms` : ''),
