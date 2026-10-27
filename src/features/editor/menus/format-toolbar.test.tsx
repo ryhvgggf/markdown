@@ -31,6 +31,28 @@ afterEach(() => {
 const LABELS = ['粗體', '斜體', '底線', '刪除線', '行內程式碼', '連結', '文字顏色', '螢光標記', '轉為…']
 
 describe('FormatToolbar', () => {
+  it('typing with a collapsed caret dispatches nothing extra (no per-key option updates)', async () => {
+    render(<Harness />)
+    await act(async () => {
+      editor!.commands.setContent('<p>hello</p>')
+      editor!.commands.setTextSelection(6)
+    })
+    await act(async () => {}) // let mount effects settle
+    let extra = 0
+    const count = ({ transaction }: { transaction: import('@tiptap/pm/state').Transaction }) => {
+      if (!transaction.docChanged && !transaction.selectionSet) extra++
+    }
+    editor!.on('transaction', count)
+    for (const ch of 'abcde') {
+      await act(async () => {
+        editor!.commands.insertContent(ch)
+      })
+    }
+    await act(async () => {})
+    editor!.off('transaction', count)
+    expect(extra).toBe(0)
+  })
+
   it('is hidden without a selection', async () => {
     render(<Harness />)
     await act(async () => {

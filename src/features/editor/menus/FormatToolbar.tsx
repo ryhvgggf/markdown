@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { Editor } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import { useEditorState } from '@tiptap/react'
@@ -83,6 +83,14 @@ function keepShownOnMenuPress(e: ReactPointerEvent<HTMLDivElement>) {
   if (e.isDefaultPrevented()) e.currentTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
 }
 
+const BUBBLE_OPTIONS = { placement: 'top', offset: 8 } as const
+
+/** A collapsed caret: the toolbar is hidden, so its state must not change per keystroke (no re-render). */
+const IDLE = {
+  bold: false, italic: false, underline: false, strike: false, code: false, link: false,
+  href: '', color: '', highlight: '', from: 0, to: 0,
+}
+
 export function FormatToolbar({ editor }: { editor: Editor | null }) {
   const [linkFor, setLinkFor] = useState<string | null>(null)
   const menusOpen = useRef(0)
@@ -91,7 +99,7 @@ export function FormatToolbar({ editor }: { editor: Editor | null }) {
   const s = useEditorState({
     editor,
     selector: ({ editor: e }) =>
-      e && {
+      e && (e.state.selection.empty ? IDLE : {
         bold: e.isActive('bold'),
         italic: e.isActive('italic'),
         underline: e.isActive('underline'),
@@ -103,7 +111,7 @@ export function FormatToolbar({ editor }: { editor: Editor | null }) {
         highlight: (e.getAttributes('highlight').color as string | undefined) ?? '',
         from: e.state.selection.from,
         to: e.state.selection.to,
-      },
+      }),
   })
 
   const range = s ? `${s.from}-${s.to}` : ''
@@ -111,6 +119,18 @@ export function FormatToolbar({ editor }: { editor: Editor | null }) {
   useEffect(() => {
     linkRef.current = linkOpen
   }, [linkOpen])
+
+  // Stable identities: BubbleMenu dispatches an `updateOptions` transaction whenever these change.
+  const shouldShow = useCallback(
+    ({ editor: ed, view, state }: { editor: Editor; view: import('@tiptap/pm/view').EditorView; state: import('@tiptap/pm/state').EditorState }) => {
+      const sel = state.selection
+      if (sel.empty || !(sel instanceof TextSelection) || !ed.isEditable) return false
+      if (ed.isActive('codeBlock') || !state.doc.textBetween(sel.from, sel.to).length) return false
+      const root = view.dom.parentElement?.parentElement
+      return view.hasFocus() || menusOpen.current > 0 || linkRef.current || Boolean(root?.contains(document.activeElement))
+    },
+    [],
+  )
 
   if (!editor || !s) return null
   const track = (open: boolean) => {
@@ -122,14 +142,8 @@ export function FormatToolbar({ editor }: { editor: Editor | null }) {
       editor={editor}
       pluginKey="formatToolbar"
       updateDelay={60}
-      options={{ placement: 'top', offset: 8 }}
-      shouldShow={({ editor: ed, view, state }) => {
-        const sel = state.selection
-        if (sel.empty || !(sel instanceof TextSelection) || !ed.isEditable) return false
-        if (ed.isActive('codeBlock') || !state.doc.textBetween(sel.from, sel.to).length) return false
-        const root = view.dom.parentElement?.parentElement
-        return view.hasFocus() || menusOpen.current > 0 || linkRef.current || Boolean(root?.contains(document.activeElement))
-      }}
+      options={BUBBLE_OPTIONS}
+      shouldShow={shouldShow}
     >
       <div
         role="toolbar"
