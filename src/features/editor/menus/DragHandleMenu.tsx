@@ -23,6 +23,7 @@ const COPIED_MS = 700
 
 export function DragHandleMenu({ editor, noteId }: { editor: Editor | null; noteId: string }) {
   const hovered = useRef<Target | null>(null)
+  const gripRef = useRef<HTMLButtonElement>(null)
   const target = useRef<Target | null>(null)
   const [open, setOpen] = useState(false)
   const [targetBlockId, setTargetBlockId] = useState<string | null>(null)
@@ -94,7 +95,10 @@ export function DragHandleMenu({ editor, noteId }: { editor: Editor | null; note
       editor={editor}
       className="note-drag-handle"
       onNodeChange={({ node, pos }) => {
-        hovered.current = node && pos >= 0 ? { node, pos } : null
+        // Dividers have nothing to grab: no grip (CSS hides the handle; the plugin re-shows it after this call).
+        const noGrip = node?.type.name === 'horizontalRule'
+        hovered.current = node && pos >= 0 && !noGrip ? { node, pos } : null
+        gripRef.current?.closest('.note-drag-handle')?.toggleAttribute('data-no-grip', noGrip)
       }}
     >
       <Menu
@@ -104,6 +108,7 @@ export function DragHandleMenu({ editor, noteId }: { editor: Editor | null; note
         onCloseAutoFocus={(e) => e.preventDefault()}
         trigger={
           <button
+            ref={gripRef}
             type="button"
             aria-label="拖曳以移動，點擊開啟選單"
             className="inline-flex h-6 w-5 cursor-grab items-center justify-center rounded-control text-fg-tertiary hover:bg-fill hover:text-fg active:cursor-grabbing"

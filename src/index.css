@@ -114,6 +114,10 @@
   padding-right: 4px;
   z-index: 20;
 }
+.note-drag-handle[data-no-grip] {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
 
 /* Links, tags and block highlight */
 .note-link[data-state='ok'] { color: var(--color-link-note); }
