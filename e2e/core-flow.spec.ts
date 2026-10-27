@@ -12,6 +12,9 @@ async function pastePlain(page: Page, text: string) {
   }, text)
 }
 
+// Long multi-step flows: WebKit on the 2-core CI box needs ~30 s for some of them.
+test.describe.configure({ timeout: 90_000 })
+
 test('核心流程：建立、連結、區塊、重新整理、反向連結、改名、垃圾桶', async ({ page, context }, info) => {
   const chromium = info.project.name === 'chromium'
   if (chromium) await context.grantPermissions(['clipboard-read', 'clipboard-write'])

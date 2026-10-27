@@ -3,6 +3,9 @@ import { expect, test, type Page } from '@playwright/test'
 const SHOT = process.env.SHOTS // set to a directory to capture review screenshots
 const tree = (page: Page, name: string) => page.getByRole('treeitem', { name })
 
+// Long multi-step flows: WebKit on the 2-core CI box needs ~30 s for some of them.
+test.describe.configure({ timeout: 90_000 })
+
 test('反向連結：浮動面板、已連結卡片、提到但未連結、轉為連結、釘選', async ({ page }, testInfo) => {
   await page.goto('/')
   const title = page.getByLabel('筆記標題')
@@ -34,6 +37,20 @@ test('反向連結：浮動面板、已連結卡片、提到但未連結、轉�
   const panel = page.getByRole('complementary', { name: '反向連結面板' })
   await expect(panel).toBeVisible()
   expect(await page.getByRole('main').boundingBox()).toEqual(card)
+  // at rest (after the slide-in) the panel sits fully inside the note card, 30 px from its right edge, 318 px wide
+  await expect
+    .poll(async () => {
+      const p = (await panel.boundingBox())!
+      return { inside: p.x >= card!.x && p.x + p.width <= card!.x + card!.width && p.y + p.height <= card!.y + card!.height, right: Math.round(card!.x + card!.width - (p.x + p.width)), width: Math.round(p.width) }
+    })
+    .toEqual({ inside: true, right: 30, width: 318 })
+  // the thin refractive glass of the prototype's .panel.glass, with .55 cards and a hairline
+  const style = await panel.evaluate((el) => {
+    const s = getComputedStyle(el)
+    return { bg: s.backgroundImage, filter: s.backdropFilter || s.getPropertyValue('-webkit-backdrop-filter') }
+  })
+  expect(style.bg).toMatch(/linear-gradient\(160deg, rgba\(255, 255, 255, 0\.34\), rgba\(245, 246, 252, 0\.14\)\)/)
+  expect(style.filter).toMatch(/blur\(9px\) saturate\(1\.9\)|blur\(9px\) saturate\(190%\)/)
   const linked = panel.getByRole('button', { name: /歡迎使用/ })
   await expect(linked).toBeVisible()
   const convert = panel.getByRole('button', { name: '轉為連結' })
@@ -116,6 +133,8 @@ test('大綱：右緣刻度、懸停卡片、點擊跳轉、打字時讓開', as
   const card = page.getByRole('navigation', { name: '大綱' })
   await expect(card).toBeVisible()
   await expect(card.getByRole('button')).toHaveText(['歡迎使用', '概觀', '申請', '核准'])
+  await expect.poll(() => card.evaluate((el) => getComputedStyle(el).opacity)).toBe('1') // at rest, fully shown
+  expect(await card.locator('button:not([aria-current])').first().evaluate((el) => getComputedStyle(el).color)).toBe('rgb(58, 58, 64)')
   if (SHOT && testInfo.project.name === 'chromium') {
     await page.waitForTimeout(400) // let the card finish its entrance
     await page.screenshot({ path: `${SHOT}/outline-ticks-card.png` })

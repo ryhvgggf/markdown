@@ -6,3 +6,4 @@ playwright-report/
 .superpowers/
 *.local
 .DS_Store
+dist-prof/

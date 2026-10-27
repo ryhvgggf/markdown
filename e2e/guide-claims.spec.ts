@@ -14,6 +14,9 @@ async function clearBody(page: Page) {
   return editor
 }
 
+// Long multi-step flows: WebKit on the 2-core CI box needs ~30 s for some of them.
+test.describe.configure({ timeout: 90_000 })
+
 test('導覽寫的 Markdown 區塊快捷輸入都有效', async ({ page }) => {
   await page.goto('/')
   const cases: Array<[string, string]> = [
