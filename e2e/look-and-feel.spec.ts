@@ -102,6 +102,8 @@ test('screenshots', async ({ page }, info) => {
   await bar.getByRole('button', { name: '文字顏色' }).click()
   await expect(page.getByRole('menu')).toBeVisible()
   await page.waitForTimeout(400)
+  // the hidden backlinks panel sits off the card's right edge: the card must never be scrolled sideways to it
+  expect(await page.locator('main').evaluate((el) => el.scrollLeft)).toBe(0)
   await page.screenshot({ path: `${dir}/format-toolbar-submenu.png` })
   await page.keyboard.press('Escape')
   // slash menu
@@ -127,4 +129,21 @@ test('screenshots', async ({ page }, info) => {
   await expect(page.getByRole('dialog', { name: '設定' })).toBeVisible()
   await page.waitForTimeout(500)
   await page.screenshot({ path: `${dir}/settings.png` })
+})
+
+test('docked sidebar glass is baked from the static background (no live backdrop-filter); the overlay sheet keeps it live', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  const side = page.getByRole('complementary', { name: '資料夾' })
+  await expect(side).toBeVisible()
+  expect(await side.evaluate((el) => getComputedStyle(el).backdropFilter)).toBe('none')
+  const baked = side.locator('.glass-baked > div')
+  await expect(baked).toHaveCount(1)
+  expect(await baked.evaluate((el) => getComputedStyle(el).filter)).toContain('blur(30px)')
+  await page.setViewportSize({ width: 1000, height: 800 })
+  await page.mouse.move(200, 400)
+  await page.mouse.move(3, 400, { steps: 4 })
+  await page.getByRole('button', { name: '檔案' }).click()
+  await expect(side).toBeVisible()
+  expect(await side.evaluate((el) => getComputedStyle(el).backdropFilter || getComputedStyle(el).getPropertyValue('-webkit-backdrop-filter'))).toContain('blur(30px)')
 })

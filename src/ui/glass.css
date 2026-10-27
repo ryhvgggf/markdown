@@ -66,6 +66,38 @@
   transform: scale(calc(1 - 0.06 * var(--shift)));
 }
 
+/* Baked glass (see BakedGlass): the filtered background is a child layer, the white tint sits above it. */
+.glass-baked-host {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.glass-baked {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.glass-baked > div {
+  position: absolute;
+  inset: -80px;
+  background-attachment: fixed !important; /* aligned with the page background behind the card */
+  filter: blur(calc(30px + var(--bg-blur, 0px))) saturate(200%) brightness(1.04);
+}
+.glass-baked::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--glass-bg);
+}
+html[data-reduce-transparency='true'] .glass-baked {
+  display: none;
+}
+html[data-reduce-transparency='true'] .glass-baked-host {
+  background: var(--glass-solid);
+}
+
 /* No blur available (or 降低透明度): near-opaque white, still legible over anything. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass,

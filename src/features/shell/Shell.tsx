@@ -4,7 +4,7 @@ import { useUi } from '@/app/ui-store'
 import { useServices } from '@/app/services-context'
 import { usePrefs } from '@/app/use-prefs'
 import { Rail } from '@/features/rail/Rail'
-import { Background } from './Background'
+import { Background, BakedGlass } from './Background'
 import { ResizeHandle } from './ResizeHandle'
 import { useLayoutMode } from './layout-mode'
 
@@ -33,11 +33,13 @@ export function Shell({ sidebar, main, overlay }: ShellProps) {
       aria-label="資料夾"
       data-overlay={narrow ? 'true' : undefined}
       className={`glass-card relative flex shrink-0 flex-col overflow-visible ${
-        narrow ? 'absolute top-[14px] bottom-[14px] left-[14px] z-20' : ''
+        narrow ? 'absolute top-[14px] bottom-[14px] left-[14px] z-20' : 'glass-baked-host'
       }`}
       style={{ width: sidebarWidth }}
     >
-      <div className="min-h-0 flex-1 overflow-auto rounded-[inherit]">{sidebar}</div>
+      {/* Docked, the card sits over the static background only: bake its glass. The overlay sheet floats over the note card: live. */}
+      {!narrow && <BakedGlass />}
+      <div className="relative min-h-0 flex-1 overflow-auto rounded-[inherit]">{sidebar}</div>
       <ResizeHandle edge="right" width={sidebarWidth} label="調整側欄寬度" onResize={(w) => prefs.set({ sidebarWidth: w })} />
     </aside>
   )
@@ -48,7 +50,7 @@ export function Shell({ sidebar, main, overlay }: ShellProps) {
       <div className="relative flex h-full gap-[14px] p-[14px]">
         {!narrow && sidebarCard}
         <div className="relative min-w-0 flex-1">
-          <main className="note-card relative flex h-full flex-col overflow-hidden rounded-card bg-surface shadow-card">
+          <main className="note-card relative flex h-full flex-col overflow-clip rounded-card bg-surface shadow-card">
             <div aria-hidden="true" className="h-11 shrink-0" />
             <div ref={scroller} data-note-scroll className="min-h-0 flex-1 overflow-auto">
               {main}
