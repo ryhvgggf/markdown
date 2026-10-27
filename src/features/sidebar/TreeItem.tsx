@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import type { TreeNode } from '@/core/vault/tree'
 import { displayTitle } from '@/core/vault/titles'
@@ -10,6 +10,15 @@ import type { RenameResult } from './use-actions'
 
 export const INDENT = 20
 
+/** Row callbacks keyed by row id; one stable object for the whole tree, so rows can be memoised. */
+export interface RowApi {
+  menu(id: string): RowMenuActions
+  activate(id: string): void
+  expand(id: string, open: boolean): void
+  rename(id: string, value: string): RenameResult
+  renameDone(): void
+}
+
 export interface TreeItemProps {
   node: TreeNode
   level: number
@@ -18,16 +27,44 @@ export interface TreeItemProps {
   tabbable: boolean
   drop: Zone | null
   renaming: boolean
-  menu: RowMenuActions
-  onActivate(): void
-  onExpand(open: boolean): void
-  onRename(value: string): RenameResult
-  onRenameDone(): void
+  api: RowApi
 }
 
-export function TreeItem(p: TreeItemProps) {
-  const ref = nodeRef(p.node)
-  const label = p.node.kind === 'folder' ? p.node.folder.name || '未命名資料夾' : displayTitle(p.node.note.title)
+/** Test hook: counts row renders. */
+export const rowRenders = { count: 0 }
+
+const label = (n: TreeNode) => (n.kind === 'folder' ? n.folder.name || '未命名資料夾' : displayTitle(n.note.title))
+
+// A row shows only its own name; a new tree snapshot (e.g. one note's updatedAt) must not re-render every row.
+const same = (a: TreeItemProps, b: TreeItemProps) =>
+  a.level === b.level &&
+  a.expanded === b.expanded &&
+  a.current === b.current &&
+  a.tabbable === b.tabbable &&
+  a.drop === b.drop &&
+  a.renaming === b.renaming &&
+  a.api === b.api &&
+  a.node.kind === b.node.kind &&
+  nodeRef(a.node).id === nodeRef(b.node).id &&
+  label(a.node) === label(b.node)
+
+export const TreeItem = memo(TreeItemRow, same)
+
+function TreeItemRow(props: TreeItemProps) {
+  useEffect(() => {
+    rowRenders.count++ // after every render
+  })
+  const { api } = props
+  const ref = nodeRef(props.node)
+  const p = {
+    ...props,
+    menu: api.menu(ref.id),
+    onActivate: () => api.activate(ref.id),
+    onExpand: (open: boolean) => api.expand(ref.id, open),
+    onRename: (v: string) => api.rename(ref.id, v),
+    onRenameDone: () => api.renameDone(),
+  }
+  const name = label(p.node)
   const [menuOpen, setMenuOpen] = useState(false)
   const drag = useDraggable({ id: ref.id, data: ref, disabled: p.renaming })
 
@@ -57,7 +94,7 @@ export function TreeItem(p: TreeItemProps) {
       data-node-id={ref.id}
       data-kind={ref.kind}
       role="treeitem"
-      aria-label={label}
+      aria-label={name}
       aria-level={p.level}
       aria-expanded={p.node.kind === 'folder' ? p.expanded : undefined}
       aria-current={p.current ? 'page' : undefined}
@@ -89,7 +126,7 @@ export function TreeItem(p: TreeItemProps) {
       {p.renaming ? (
         <RenameInput initial={p.node.kind === 'folder' ? p.node.folder.name : p.node.note.title} onCommit={p.onRename} onDone={p.onRenameDone} />
       ) : (
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="min-w-0 flex-1 truncate">{name}</span>
       )}
       {!p.renaming && <RowMenu kind={ref.kind} open={menuOpen} onOpenChange={setMenuOpen} actions={p.menu} />}
     </div>

@@ -7,6 +7,7 @@ import type { AppServices } from '@/app/bootstrap'
 import { Vault } from '@/core/vault/vault'
 import { Sidebar } from './Sidebar'
 import { TRASH_DAY_MS } from './TrashView'
+import { rowRenders } from './TreeItem'
 
 const focusTitleEnd = vi.hoisted(() => vi.fn(() => true))
 vi.mock('@/features/editor/focus-bridge', () => ({ focusTitleEnd }))
@@ -250,5 +251,35 @@ describe('Trash', () => {
     expect(vault.listFolders({ includeTrashed: true })).toHaveLength(0)
     expect(vault.getNote(n.id)).toBeUndefined()
     expect(maintenance.purge).toHaveBeenCalledWith({ kind: 'folder', id: f.id })
+  })
+})
+
+describe('row menus (typing cost)', () => {
+  it('a closed row menu does not listen to every keydown (1000 rows must not cost the editor per key)', async () => {
+    for (let i = 0; i < 30; i++) vault.createNote({ title: `N${i}` })
+    mount()
+    await screen.findByRole('treeitem', { name: /N29/ })
+    const spy = vi.spyOn(document, 'addEventListener')
+    fireEvent.keyDown(document.body, { key: 'a' })
+    const calls = spy.mock.calls.length
+    spy.mockRestore()
+    expect(calls).toBeLessThan(5)
+  })
+
+  it('editing one note (updatedAt touch) re-renders only that row, not the whole tree', async () => {
+    const ids = Array.from({ length: 30 }, (_, i) => vault.createNote({ title: `M${i}` }).id)
+    mount()
+    await screen.findByRole('treeitem', { name: /M29/ })
+    rowRenders.count = 0
+    act(() => vault.touchNote(ids[5]))
+    expect(rowRenders.count).toBeLessThanOrEqual(2)
+  })
+
+  it('更多操作 still opens the menu on press', async () => {
+    vault.createNote({ title: 'Solo' })
+    mount()
+    const r = await screen.findByRole('treeitem', { name: /Solo/ })
+    fireEvent.pointerDown(within(r).getByRole('button', { name: '更多操作', hidden: true }), { button: 0, pointerType: 'mouse' })
+    expect(await screen.findByRole('menuitem', { name: '重新命名' })).toBeInTheDocument()
   })
 })

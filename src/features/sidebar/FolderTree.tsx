@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -11,10 +11,13 @@ import { useUi } from '@/app/ui-store'
 import type { TreeNode } from '@/core/vault/tree'
 import { displayTitle } from '@/core/vault/titles'
 import { computeMove, dropZone, nodeRef, ROOT, type Ref, type Zone } from './dnd'
-import { TreeItem } from './TreeItem'
+import { TreeItem, type RowApi } from './TreeItem'
 import type { useActions } from './use-actions'
 
 type Row = { node: TreeNode; level: number }
+
+// Stable identity: new sensor options re-create dnd-kit's context, which re-renders every draggable row.
+const POINTER_OPTIONS = { activationConstraint: { distance: 6 } }
 
 function flatten(nodes: TreeNode[], expanded: ReadonlySet<string>, level = 1): Row[] {
   return nodes.flatMap((node): Row[] => [
@@ -47,9 +50,53 @@ export interface FolderTreeProps {
 export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRenamingId }: FolderTreeProps) {
   const openNoteId = useUi((s) => s.openNoteId)
   const rows = useMemo(() => flatten(tree, expanded), [tree, expanded])
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  const sensors = useSensors(useSensor(PointerSensor, POINTER_OPTIONS))
   const [drop, setDrop] = useState<Target | null>(null)
   const [dragging, setDragging] = useState<Ref | null>(null)
+  // Latest closures behind one stable object (rows are memoised and must not see a new prop per render).
+  const byId = new Map(rows.map((r) => [nodeRef(r.node).id, r]))
+  const latest = useRef<RowApi | null>(null)
+  const fresh: RowApi = {
+    menu: (id) => {
+      const node = byId.get(id)?.node
+      return {
+        rename: () => setRenamingId(id),
+        newNote: () => actions.createNote(id),
+        newSubfolder: () => setRenamingId(actions.createFolder(id)),
+        trash: () => node && actions.trash(node),
+      }
+    },
+    activate: (id) => {
+      const node = byId.get(id)?.node
+      if (!node) return
+      if (node.kind === 'folder') toggle(id)
+      else actions.openNote(id)
+    },
+    expand: (id, open) => {
+      if (open !== expanded.has(id)) toggle(id)
+    },
+    rename: (id, v) => {
+      const node = byId.get(id)?.node
+      return node ? actions.rename(nodeRef(node), v) : 'ok'
+    },
+    renameDone: () => setRenamingId(null),
+  }
+  useLayoutEffect(() => {
+    latest.current = fresh
+  })
+  const api = useMemo<RowApi>(
+    () => ({
+      menu: (id) => {
+        const m = () => latest.current!.menu(id)
+        return { rename: () => m().rename(), newNote: () => m().newNote?.(), newSubfolder: () => m().newSubfolder?.(), trash: () => m().trash() }
+      },
+      activate: (id) => latest.current!.activate(id),
+      expand: (id, open) => latest.current!.expand(id, open),
+      rename: (id, v) => latest.current!.rename(id, v),
+      renameDone: () => latest.current!.renameDone(),
+    }),
+    [],
+  )
   const tabbableId = rows.find((r) => r.node.kind === 'note' && r.node.note.id === openNoteId) ? openNoteId : rows[0] && nodeRef(rows[0].node).id
 
   // The drop target is hit-tested from the real pointer position, tracked with native events. dnd-kit's own
@@ -106,16 +153,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
               tabbable={ref.id === tabbableId}
               drop={drop && drop.over !== ROOT && drop.over.id === ref.id ? drop.zone : null}
               renaming={renamingId === ref.id}
-              menu={{
-                rename: () => setRenamingId(ref.id),
-                newNote: () => actions.createNote(ref.id),
-                newSubfolder: () => setRenamingId(actions.createFolder(ref.id)),
-                trash: () => actions.trash(node),
-              }}
-              onActivate={() => (node.kind === 'folder' ? toggle(ref.id) : actions.openNote(ref.id))}
-              onExpand={(open) => open !== folderOpen && toggle(ref.id)}
-              onRename={(v) => actions.rename(ref, v)}
-              onRenameDone={() => setRenamingId(null)}
+              api={api}
             />
           )
         })}
