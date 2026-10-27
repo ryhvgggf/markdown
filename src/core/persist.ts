@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import { StorageError, type StorageAdapter } from '@/adapters/storage/types'
+import { onIdle } from './idle'
 
 export const PERSIST_ORIGIN: unique symbol = Symbol('persist')
 
@@ -80,13 +81,24 @@ export async function bindPersistence(
       if (pending.length > 0) scheduleRetry()
     }
   }
-  const flush = () => (chain = chain.then(drain))
+  let idle: (() => void) | null = null
+  const flush = () => {
+    idle?.()
+    idle = null
+    return (chain = chain.then(drain))
+  }
 
   const onUpdate = (update: Uint8Array, origin: unknown) => {
     if (ignore.has(origin)) return
     pending.push(update)
     // While a retry is scheduled, new edits just join the queue (no hammering a failing store).
-    if (retryTimer === null) void flush()
+    // The write itself waits for idle time, so it never runs in a keystroke's task; a page hide
+    // still stashes `pendingUpdate()` synchronously.
+    if (retryTimer === null && idle === null)
+      idle = onIdle(() => {
+        idle = null
+        void flush()
+      })
   }
   doc.on('update', onUpdate)
 
@@ -105,6 +117,8 @@ export async function bindPersistence(
     async close() {
       closed = true
       doc.off('update', onUpdate)
+      idle?.()
+      idle = null
       if (retryTimer !== null) clearTimeout(retryTimer)
       retryTimer = null
       pending.length = 0

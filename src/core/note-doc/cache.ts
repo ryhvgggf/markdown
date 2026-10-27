@@ -143,7 +143,10 @@ export class NoteDocCache {
       teardown.push(connectTabs(doc, noteId, this.opts.channelFactory))
     }
     const meta = doc.getMap('meta')
-    if (!meta.has('schemaVersion')) doc.transact(() => meta.set('schemaVersion', 1), INIT_ORIGIN)
+    if (!meta.has('schemaVersion')) {
+      doc.transact(() => meta.set('schemaVersion', 1), INIT_ORIGIN)
+      void binding.flush() // not a keystroke: store it now so the doc is evictable at once
+    }
     doc.getXmlFragment('content')
     const onUpdate = (_u: Uint8Array, origin: unknown) => {
       if (origin === PERSIST_ORIGIN || origin === INIT_ORIGIN) return

@@ -5,6 +5,7 @@ import type { BlockRow, LinkRow, NoteTextRow, NotesDb, TagRow } from '@/adapters
 import type { Vault } from '../vault/vault'
 import type { NoteDocCache } from '../note-doc/cache'
 import { extractNote } from '../extract/extract'
+import { onIdle } from '../idle'
 
 export type { BlockRow, LinkRow, NoteTextRow, TagRow }
 
@@ -199,15 +200,21 @@ export class Indexer {
   private schedule(noteId: string): void {
     const prev = this.timers.get(noteId)
     if (prev !== undefined) clearTimeout(prev)
-    // First edit of a debounce window: persist the marker so a close/reload before indexing is caught up.
-    else void this.db.meta.put({ key: DIRTY_PREFIX + noteId, value: 1 }).catch((e) => this.report(e))
+    // First edit of a debounce window: persist the marker so a close/reload before indexing is caught up
+    // (in idle time: never inside the keystroke that caused it).
+    else onIdle(() => void this.db.meta.put({ key: DIRTY_PREFIX + noteId, value: 1 }).catch((e) => this.report(e)))
     this.timers.set(
       noteId,
       setTimeout(() => {
-        this.timers.delete(noteId)
-        void this.indexNote(noteId).catch((e) => this.report(e))
+        // Still listed until it actually runs, so flushPending (pagehide) can take it over.
+        onIdle(() => {
+          if (this.timers.get(noteId) !== timer) return
+          this.timers.delete(noteId)
+          void this.indexNote(noteId).catch((e) => this.report(e))
+        })
       }, this.debounceMs),
     )
+    const timer = this.timers.get(noteId)
   }
 
   private report(e: unknown): void {

@@ -33,6 +33,25 @@ describe('bindPersistence', () => {
     expect(text(b)).toBe('x'.repeat(500))
   })
 
+  it('writes edits in idle time, not in the edit\'s own task; flush() writes now', async () => {
+    const storage = new MemoryStorage()
+    const a = new Y.Doc()
+    const spy = vi.spyOn(storage, 'appendUpdate')
+    await bindPersistence(a, 'n1', storage)
+    a.getText('t').insert(0, 'k')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(spy).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+    const b = new Y.Doc()
+    const spyB = vi.spyOn(storage, 'appendUpdate')
+    spyB.mockClear()
+    const pb = await bindPersistence(b, 'n2', storage)
+    b.getText('t').insert(0, 'now')
+    await pb.flush()
+    expect(spyB).toHaveBeenCalledTimes(1)
+  })
+
   it('skips updates whose origin is ignored', async () => {
     const storage = new MemoryStorage()
     const a = new Y.Doc()

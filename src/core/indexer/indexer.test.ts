@@ -70,6 +70,16 @@ describe('Indexer', () => {
     expect(await db.blocks.get([n.id, 'b1'])).toMatchObject({ type: 'paragraph', text: 'hello world' })
   })
 
+  it('an edit does no storage work in its own task (marker and indexing run in idle time)', async () => {
+    const n = vault.createNote({ title: 'A' })
+    stop = indexer.start()
+    const doc = await cache.acquire(n.id)
+    const put = vi.spyOn(db.meta, 'put')
+    doc.getXmlFragment('content').insert(0, [para('b1', ['typed'])])
+    expect(put).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(put).toHaveBeenCalled())
+  })
+
   it('updates noteText.title on rename', async () => {
     const n = vault.createNote({ title: 'A' })
     await writeNote(n.id, [para('b1', ['x'])])
