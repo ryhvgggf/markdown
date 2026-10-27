@@ -82,6 +82,7 @@ export function OutlineTicks({ noteId }: { noteId: string }) {
         aria-controls="outline-card"
         className="outline-ticks"
         onPointerEnter={show}
+        onPointerMove={show} // also when pointerenter was missed (the layer was not hit-testable while typing)
         onPointerLeave={hideSoon}
         onFocus={endTyping} // reached with Tab: the user is navigating, not typing
         onClick={() => {

@@ -12,7 +12,7 @@ export interface OutlineItem {
 }
 
 /** Position from the top of the scroll container above which a heading counts as "already read". */
-export const READ_LINE = 80
+export const READ_LINE = 140
 /** Edits settle this long (then wait for idle time) before the outline is recomputed. */
 export const OUTLINE_DEBOUNCE_MS = 250
 

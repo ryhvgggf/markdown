@@ -39,7 +39,10 @@ test('反向連結：浮動面板、已連結卡片、提到但未連結、轉�
   const convert = panel.getByRole('button', { name: '轉為連結' })
   await expect(convert).toBeVisible({ timeout: 8000 })
   await expect(panel.getByText('筆記C')).toBeVisible()
-  if (SHOT && testInfo.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/backlinks-panel.png` })
+  if (SHOT && testInfo.project.name === 'chromium') {
+    await page.waitForTimeout(500)
+    await page.screenshot({ path: `${SHOT}/backlinks-panel.png` })
+  }
 
   await convert.click()
   await expect(convert).toBeHidden()
@@ -113,7 +116,10 @@ test('大綱：右緣刻度、懸停卡片、點擊跳轉、打字時讓開', as
   const card = page.getByRole('navigation', { name: '大綱' })
   await expect(card).toBeVisible()
   await expect(card.getByRole('button')).toHaveText(['歡迎使用', '概觀', '申請', '核准'])
-  if (SHOT && testInfo.project.name === 'chromium') await page.screenshot({ path: `${SHOT}/outline-ticks-card.png` })
+  if (SHOT && testInfo.project.name === 'chromium') {
+    await page.waitForTimeout(400) // let the card finish its entrance
+    await page.screenshot({ path: `${SHOT}/outline-ticks-card.png` })
+  }
   await card.getByRole('button', { name: '概觀' }).click()
   await expect(editor.locator('h1', { hasText: '概觀' })).toBeInViewport()
   await expect(card).toBeHidden()
