@@ -6,6 +6,7 @@ import { IconButton } from '@/ui/components/IconButton'
 import { Menu } from '@/ui/components/Menu'
 import { More } from '@/ui/icons'
 import { isComposingEvent } from '../ime'
+import { endTyping, isTyping, useTyping } from '../typing'
 
 type Action = { label: string; run: (e: Editor) => boolean; can: (e: Editor) => boolean; danger?: boolean }
 
@@ -58,6 +59,7 @@ export function TableMenu({ editor }: { editor: Editor | null }) {
       if (!shortcut || isComposingEvent(e, editor.view) || !editor.isEditable || cellPos(editor) < 0) return
       e.preventDefault()
       openedAt = Date.now()
+      endTyping()
       setOpen(true)
     }
     // The context-menu key also fires a `contextmenu` event: keep the browser's own menu away.
@@ -88,13 +90,22 @@ export function TableMenu({ editor }: { editor: Editor | null }) {
       el.style.left = `${Math.max(left + 4, right - 30)}px` // 8 px clear of the column-resize zone at the edge
       el.style.top = `${r.top + 4}px`
     }
+    // Typing mode: no layout reads per keystroke transaction. Typing inside a cell does not move the cell's
+    // top-right corner (fixed table layout); the cell's own resizes still reach autoUpdate's ResizeObserver.
+    const onTransaction = () => {
+      if (!isTyping()) place()
+    }
     const cell = editor.view.nodeDOM(pos) as HTMLElement | null
     const stop = cell instanceof Element ? autoUpdate(cell, el, place) : undefined
-    editor.on('transaction', place)
+    editor.on('transaction', onTransaction)
+    const offTyping = useTyping.subscribe((t, prev) => {
+      if (prev.typing && !t.typing) place()
+    })
     place()
     return () => {
       stop?.()
-      editor.off('transaction', place)
+      editor.off('transaction', onTransaction)
+      offTyping()
     }
   }, [visible, editor, pos])
 

@@ -7,6 +7,7 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { createExtensions, type EditorContext } from '../extensions'
 import { TableMenu } from './TableMenu'
+import { useTyping } from '../typing'
 
 const ctx = { noteId: 'n1' } as unknown as EditorContext
 let editor: Editor | null = null
@@ -51,6 +52,25 @@ async function setup() {
 }
 
 describe('TableMenu', () => {
+  it('typing mode: the button stays but is not re-measured per keystroke; it is re-placed when typing ends', async () => {
+    await setup()
+    await act(async () => caretIn(editor!, 'a'))
+    await screen.findByRole('button', { name: '表格操作' })
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    try {
+      act(() => useTyping.setState({ typing: true }))
+      rect.mockClear()
+      for (const ch of 'xyz') await act(async () => void editor!.commands.insertContent(ch))
+      expect(rect).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: '表格操作' })).toBeInTheDocument()
+      act(() => useTyping.setState({ typing: false }))
+      expect(rect).toHaveBeenCalled()
+    } finally {
+      rect.mockRestore()
+      useTyping.setState({ typing: false })
+    }
+  })
+
   it('shows the 表格操作 button only while the caret is in a table', async () => {
     await setup()
     await act(async () => caretIn(editor!, 'before'))

@@ -4,6 +4,7 @@ import { VaultError } from '@/core/vault/types'
 import { focusEditorStart, registerTitle } from './focus-bridge'
 import { clearTitleDraft, saveTitleDraft } from './title-drafts'
 import { isComposingEvent } from './ime'
+import { isTypingKey, markTyping } from './typing'
 
 /** Typing pauses this long before the title is saved (also saved on blur, Enter, pagehide and unmount). */
 export const TITLE_COMMIT_DELAY_MS = 500
@@ -108,6 +109,7 @@ export function TitleBlock({ noteId }: { noteId: string }) {
         }}
         onBlur={commit}
         onKeyDown={(e) => {
+          if (isTypingKey(e.nativeEvent)) markTyping() // observes only, composition included
           if (isComposingEvent(e.nativeEvent)) return
           // ArrowDown (like Enter) moves to the start of the first body block; it never creates a block.
           const down = e.key === 'ArrowDown' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey

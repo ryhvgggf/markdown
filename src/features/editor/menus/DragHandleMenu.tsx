@@ -7,6 +7,7 @@ import { Menu } from '@/ui/components/Menu'
 import { Grip, Link, Swap, Trash } from '@/ui/icons'
 import { copyBlockLink } from '../links/block-link-clipboard'
 import { CONVERT_ENTRIES } from './ConvertMenu'
+import { useTyping } from '../typing'
 
 type Target = { node: PMNode; pos: number }
 
@@ -26,18 +27,30 @@ export function DragHandleMenu({ editor, noteId }: { editor: Editor | null; note
   const gripRef = useRef<HTMLButtonElement>(null)
   const target = useRef<Target | null>(null)
   const [open, setOpen] = useState(false)
+  const openRef = useRef(false)
+  useEffect(() => {
+    openRef.current = open
+  }, [open])
   const [targetBlockId, setTargetBlockId] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(closeTimer.current), [])
 
-  // Hide the grip while an IME composition is in progress.
+  // Hide the grip while an IME composition is in progress, and whenever typing mode starts (title included).
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
     const dom = editor.view.dom
-    const hide = () => editor.view.dispatch(editor.state.tr.setMeta('hideDragHandle', true).setMeta('addToHistory', false))
+    const hide = () => {
+      if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta('hideDragHandle', true).setMeta('addToHistory', false))
+    }
     dom.addEventListener('compositionstart', hide)
-    return () => dom.removeEventListener('compositionstart', hide)
+    const off = useTyping.subscribe((s, prev) => {
+      if (s.typing && !prev.typing && !openRef.current) hide()
+    })
+    return () => {
+      dom.removeEventListener('compositionstart', hide)
+      off()
+    }
   }, [editor])
 
   if (!editor) return null

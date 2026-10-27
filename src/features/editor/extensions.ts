@@ -25,6 +25,7 @@ import { formattingExtensions } from './marks/formatting'
 import { MarkdownPaste } from './paste/markdown-paste'
 import { focusTitleEnd } from './focus-bridge'
 import { isComposingEvent } from './ime'
+import { isTyping, isTypingKey, markTyping } from './typing'
 import { SlashCommand } from './menus/SlashMenu'
 import { SuggestionKeys } from './menus/suggestion-popup'
 import { BlockLinkPaste } from './links/block-link-clipboard'
@@ -99,9 +100,35 @@ function titleNavigation(noteId: string) {
   })
 }
 
+/**
+ * Typing mode (see ./typing): any typing key, IME composition included, enters it — the handler only
+ * observes and never consumes a key. While typing, mouse moves are not passed on to the drag-handle
+ * plugin, so it neither shows the grip nor measures layout until the pointer really moves (> 2 px).
+ */
+export const TypingGate = Extension.create({
+  name: 'typingGate',
+  priority: 10001,
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handleDOMEvents: {
+            keydown: (_view, event) => {
+              if (isTypingKey(event)) markTyping()
+              return false
+            },
+            mousemove: () => isTyping(),
+          },
+        },
+      }),
+    ]
+  },
+})
+
 /** Later tasks extend the editor by adding to this list. */
 export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[] {
   return [
+    TypingGate,
     Document,
     Paragraph,
     Text,
