@@ -69,3 +69,30 @@ describe('ui components', () => {
     expect(screen.getByRole('menuitem', { name: '重新命名' })).toBeInTheDocument()
   })
 })
+
+describe('Tooltip', () => {
+  const tip = () => document.querySelector('[data-radix-popper-content-wrapper] [data-state]')
+  const show = async (user: ReturnType<typeof userEvent.setup>) => {
+    render(
+      <IconButton label="搜尋" tooltip>
+        <Close />
+      </IconButton>,
+    )
+    await user.hover(screen.getByRole('button', { name: '搜尋' }))
+    await vi.waitFor(() => expect(tip()).not.toBeNull(), { timeout: 2000 })
+  }
+
+  it('closes as soon as the pointer leaves the trigger, even onto the tooltip', async () => {
+    const user = userEvent.setup()
+    await show(user)
+    await user.hover(tip() as HTMLElement) // moving from the trigger onto the tooltip
+    await vi.waitFor(() => expect(tip()).toBeNull())
+  })
+
+  it('closes on pointerdown', async () => {
+    const user = userEvent.setup()
+    await show(user)
+    await user.pointer({ keys: '[MouseLeft>]', target: screen.getByRole('button', { name: '搜尋' }) })
+    await vi.waitFor(() => expect(tip()).toBeNull())
+  })
+})

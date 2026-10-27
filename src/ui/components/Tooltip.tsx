@@ -3,7 +3,9 @@ import type { ReactElement, ReactNode } from 'react'
 
 export function Tooltip({ content, children }: { content: ReactNode; children: ReactElement }) {
   return (
-    <RadixTooltip.Provider delayDuration={400}>
+    // disableHoverableContent: the tooltip closes the moment the pointer leaves its trigger (never lingers when
+    // the pointer passes over it); Radix also closes it on pointerdown.
+    <RadixTooltip.Provider delayDuration={400} disableHoverableContent>
       <RadixTooltip.Root>
         <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
         <RadixTooltip.Portal>
