@@ -2,6 +2,7 @@ import { strToU8, Unzip, UnzipInflate, Zip, ZipDeflate, ZipPassThrough } from 'f
 import { normalizeZipPath } from '@/core/markdown/paths'
 import type { FileEntry } from '@/core/markdown/types'
 
+const SLICE = 256 * 1024
 const TEXT = /\.(md|markdown|txt|json)$/i
 /** Already-compressed formats are stored, not deflated again. */
 const STORED = /\.(png|jpe?g|gif|webp|avif|mp4|webm|mov|m4a|mp3|zip|gz|pdf|docx|xlsx|pptx)$/i
@@ -35,7 +36,16 @@ export async function writeZip(entries: AsyncIterable<FileEntry>): Promise<Blob>
     if (e.blob) {
       for await (const c of chunksOf(e.blob)) f.push(c)
       f.push(new Uint8Array(0), true)
-    } else f.push(strToU8(e.text ?? ''), true)
+    } else {
+      // Large text (the manifest) is compressed in slices, letting the page breathe in between.
+      const bytes = strToU8(e.text ?? '')
+      if (bytes.length <= SLICE) f.push(bytes, true)
+      else
+        for (let i = 0; i < bytes.length; i += SLICE) {
+          f.push(bytes.subarray(i, i + SLICE), i + SLICE >= bytes.length)
+          await new Promise((r) => setTimeout(r, 0))
+        }
+    }
     if (fail) throw fail
   }
   zip.end()

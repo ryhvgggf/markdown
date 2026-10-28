@@ -51,6 +51,8 @@ export class Mirror {
   private stops: (() => void)[] = []
   private releaseLock: (() => void) | null = null
   private manifestAt = 0
+  /** Bumped by start / stop: work begun for an older folder must not save its records. */
+  private gen = 0
   private manifestTimer: ReturnType<typeof setTimeout> | null = null
   private readonly now: () => number
   private readonly sleep: (ms: number) => Promise<void>
@@ -74,12 +76,15 @@ export class Mirror {
 
   /** Starts writing into `dir` once this tab holds the lock (other tabs wait their turn). */
   async start(dir: Dir): Promise<void> {
-    this.stop()
+    await this.stop()
+    const gen = ++this.gen
     this.dir = dir
-    this.state = await loadState(this.deps.db)
     this.setStatus('waiting')
     const begin = async () => {
-      if (this.dir !== dir) return
+      if (this.gen !== gen) return
+      // Read the records only now: while this tab waited, another one may have written files.
+      this.state = await loadState(this.deps.db)
+      if (this.gen !== gen) return
       this.setStatus('active')
       this.stops.push(this.deps.onIndexed((id) => this.enqueue([id])))
       this.stops.push(this.deps.vault.observe(() => this.enqueue(this.moved())))
@@ -92,7 +97,9 @@ export class Mirror {
     })
   }
 
-  stop(): void {
+  /** Stops writing; resolves once a write in progress has finished. */
+  stop(): Promise<void> {
+    this.gen++
     this.stops.splice(0).forEach((f) => f())
     this.releaseLock?.()
     this.releaseLock = null
@@ -101,6 +108,7 @@ export class Mirror {
     this.queue.clear()
     this.dir = null
     if (this.status !== 'off') this.setStatus('off')
+    return this.whenIdle()
   }
 
   /** Every note checked once (startup, after a pause): new, changed, moved or removed files. */
@@ -137,14 +145,32 @@ export class Mirror {
     })
   }
 
+  private async untilNotTyping(): Promise<void> {
+    while (this.deps.isTyping()) await this.sleep(TYPING_POLL_MS)
+  }
+
+  /** The folder, with every file operation held back while keys are still coming in. */
+  private gated(dir: Dir): Dir {
+    const wait = () => this.untilNotTyping()
+    return {
+      stat: async (p) => (await wait(), dir.stat(p)),
+      read: async (p) => (await wait(), dir.read(p)),
+      write: async (p, d) => (await wait(), dir.write(p, d)),
+      remove: async (p) => (await wait(), dir.remove(p)),
+      list: () => dir.list(),
+    }
+  }
+
   private async drain(): Promise<void> {
-    while (this.queue.size && this.status === 'active') {
-      while (this.deps.isTyping()) await this.sleep(TYPING_POLL_MS)
+    const gen = this.gen
+    while (this.queue.size && this.status === 'active' && gen === this.gen) {
+      await this.untilNotTyping()
       await this.deps.idle()
       const id = this.queue.values().next().value as string
       this.queue.delete(id)
       try {
-        await this.syncNote(id)
+        await this.syncNote(id, this.gated(this.dir!))
+        if (gen !== this.gen) return
         this.tries.delete(id)
         delete this.state.failed[id]
       } catch (e) {
@@ -159,6 +185,7 @@ export class Mirror {
           this.tries.delete(id)
         }
       }
+      if (gen !== this.gen) return
       await saveState(this.deps.db, this.state)
       this.scheduleManifest()
     }
@@ -166,7 +193,8 @@ export class Mirror {
 
   private async rootExists(): Promise<boolean> {
     try {
-      for await (const f of this.dir!.list()) return !!f
+      if (!this.dir) return true
+      for await (const f of this.dir.list()) return !!f
       return true
     } catch {
       return false
@@ -188,47 +216,51 @@ export class Mirror {
 
   // ---- one note ----
 
-  private async syncNote(id: string): Promise<void> {
-    const dir = this.dir!
+  private async syncNote(id: string, dir: Dir): Promise<void> {
     const want = desiredPaths(this.deps.vault).get(id)
     const rec = this.state.files[id]
     if (!want) {
       // Deleted for good: its file goes too (unless edited outside the app).
-      if (rec && (await this.unchanged(rec.path, rec))) await dir.remove(rec.path)
+      if (rec && (await this.unchanged(dir, rec.path, rec))) await dir.remove(rec.path)
       delete this.state.files[id]
       return
     }
     const doc = await this.deps.docs.read(id)
-    const text = await this.serialize(id, doc)
+    const text = await this.serialize(id, doc, dir)
     const hash = hashText(text)
-    if (rec && rec.path === want.path && rec.hash === hash && (await this.unchanged(rec.path, rec))) return
+    if (rec && rec.path === want.path && rec.hash === hash) {
+      // Up to date — unless the file was deleted or edited in the folder since.
+      const st = await dir.stat(rec.path)
+      if (st && st.mtime === rec.mtime && st.size === rec.size) return
+    }
 
-    if (!(await this.unchanged(want.path, rec?.path === want.path ? rec : null))) await this.keepOutsideEdit(id, want.path)
+    if (!(await this.unchanged(dir, want.path, rec?.path === want.path ? rec : null))) await this.keepOutsideEdit(dir, id, want.path)
     const st = await dir.write(want.path, text)
     if (rec && rec.path !== want.path) {
-      if (await this.unchanged(rec.path, rec)) await dir.remove(rec.path)
+      if (await this.unchanged(dir, rec.path, rec)) await dir.remove(rec.path)
     }
     this.state.files[id] = { path: want.path, hash, mtime: st.mtime, size: st.size, trashed: want.trashed, blockIds: blockIdsOf(doc) }
     this.state.lastWriteAt = this.now()
   }
 
   /** True when the file is missing, or is exactly what the app last wrote there. */
-  private async unchanged(path: string, rec: { mtime: number; size: number } | null): Promise<boolean> {
-    const st = await this.dir!.stat(path)
+  private async unchanged(dir: Dir, path: string, rec: { mtime: number; size: number } | null): Promise<boolean> {
+    const st = await dir.stat(path)
     if (!st) return true
     return !!rec && st.mtime === rec.mtime && st.size === rec.size
   }
 
-  private async keepOutsideEdit(noteId: string, path: string): Promise<void> {
-    const file = await this.dir!.read(path)
+  private async keepOutsideEdit(dir: Dir, noteId: string, path: string): Promise<void> {
+    const file = await dir.read(path)
     if (!file) return
-    const stem = path.replace(/\.md$/i, '')
-    const keptAs = `${stem} (外部修改 ${localStamp(this.now())}).md`
-    await this.dir!.write(keptAs, file.data)
+    const base = `${path.replace(/\.md$/i, '')} (外部修改 ${localStamp(this.now())})`
+    let keptAs = `${base}.md`
+    for (let n = 2; await dir.stat(keptAs); n++) keptAs = `${base} (${n}).md` // never over an earlier kept copy
+    await dir.write(keptAs, file.data)
     this.state.conflicts.push({ noteId, keptAs, at: this.now() })
   }
 
-  private async serialize(noteId: string, doc: PMNode): Promise<string> {
+  private async serialize(noteId: string, doc: PMNode, dir: Dir): Promise<string> {
     const { vault, db } = this.deps
     const headings: Record<string, string> = {}
     const attachments: Record<string, string> = {}
@@ -249,7 +281,7 @@ export class Mirror {
       if (b && b.type !== 'heading') anchored.add(l.targetBlockId!)
     }
     for (const id of media) {
-      const p = await this.ensureAttachment(id)
+      const p = await this.ensureAttachment(id, dir)
       if (p) attachments[id] = p
     }
     const titles = Object.fromEntries(vault.listNotes({ includeTrashed: true }).map((n) => [n.id, n.title]))
@@ -257,18 +289,24 @@ export class Mirror {
     return text
   }
 
-  private async ensureAttachment(id: string): Promise<string | null> {
+  private async ensureAttachment(id: string, dir: Dir): Promise<string | null> {
     const a = this.deps.vault.getAttachment(id)
     if (!a || a.deletedAt !== null) return null
     const rec = this.state.attachments[id]
-    if (rec && (await this.dir!.stat(rec.path))) return rec.path
+    if (rec && (await dir.stat(rec.path))) return rec.path
     const blob = await this.deps.storage.getBlob(id)
     if (!blob) return null
     const taken = new Set(Object.values(this.state.attachments).map((x) => x.path.toLowerCase()))
     const dot = a.filename.lastIndexOf('.')
     const ext = dot > 0 ? a.filename.slice(dot) : ''
-    const path = rec?.path ?? uniqueName(`${ATTACHMENT_DIR}/${safeFileName(dot > 0 ? a.filename.slice(0, dot) : a.filename)}`, taken, ext) + ext
-    const st = await this.dir!.write(path, blob)
+    const stem = `${ATTACHMENT_DIR}/${safeFileName(dot > 0 ? a.filename.slice(0, dot) : a.filename)}`
+    let path = rec?.path ?? ''
+    // A new name never lands on a file already in the folder (the user's own, or another attachment's).
+    while (!path || (!rec && (await dir.stat(path)))) {
+      if (path) taken.add(path.toLowerCase())
+      path = uniqueName(stem, taken, ext) + ext
+    }
+    const st = await dir.write(path, blob)
     this.state.attachments[id] = { path, ...st }
     return path
   }
@@ -308,6 +346,6 @@ export class Mirror {
         return a ? [{ id, path: r.path, filename: a.filename, mimeType: a.mimeType, createdAt: a.createdAt }] : []
       }),
     }
-    await this.dir.write(MANIFEST_PATH, JSON.stringify(manifest))
+    await this.gated(this.dir).write(MANIFEST_PATH, JSON.stringify(manifest))
   }
 }

@@ -57,6 +57,7 @@ export function createDocIO(deps: { storage: StorageAdapter; db: NotesDb; notes?
       } finally {
         notes.release(noteId)
       }
+      await notes.flushAll() // stored before the caller records it as done
       await markDirty(noteId)
     },
 

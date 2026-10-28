@@ -87,6 +87,16 @@ describe('import', () => {
     expect(noteBy('F').createdAt).toBe(new Date('2024-01-02').getTime())
   })
 
+  it('a re-run with other choices starts over instead of resuming the old run', async () => {
+    const src: ImportSource = { kind: 'markdown', entries: [md('1.md', 'a'), md('2.md', 'b')] }
+    deps.docs = memoryDocIO({ failOn: 1 })
+    await expect(applyImport(await planImport(src, deps), src, { destination: { kind: 'new-dated' }, onExisting: null }, deps)).rejects.toThrow()
+    deps.docs = io
+    const report = await applyImport(await planImport(src, deps), src, { destination: { kind: 'folder', folderId: null }, onExisting: null }, deps)
+    expect(report.folderId).toBeNull()
+    expect(vault.listNotes().every((n) => n.folderId === null)).toBe(true)
+  })
+
   it('a file over 100 MB is skipped and the note still imports', async () => {
     const big = { path: 'big.mp4', blob: { size: 104_857_601, type: 'video/mp4' } as unknown as Blob }
     const report = await run({ kind: 'markdown', entries: [md('N.md', '![[big.mp4]]'), big] })
@@ -100,7 +110,7 @@ describe('import', () => {
     deps.docs = io
     const plan = await planImport(src, deps)
     await expect(applyImport(plan, src, { destination: { kind: 'new-dated' }, onExisting: null }, deps)).rejects.toThrow('write failed')
-    expect(vault.listNotes().map((n) => n.title)).toEqual(['1'])
+    expect(vault.listNotes().length).toBeLessThanOrEqual(1) // notes appear per chunk
     const report = await applyImport(await planImport(src, deps), src, { destination: { kind: 'new-dated' }, onExisting: null }, deps)
     expect(vault.listNotes().map((n) => n.title).sort()).toEqual(['1', '2', '3'])
     expect(vault.listFolders()).toHaveLength(1)

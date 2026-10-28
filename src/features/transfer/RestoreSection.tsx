@@ -37,7 +37,7 @@ export function RestoreSection() {
       if (!plan.notes.length) return setStep({ kind: 'error', message: '這個備份裡沒有筆記。' })
       // Never replace or merge without a copy of what is here now.
       let savedCurrent = false
-      if (vault.listNotes().length) {
+      if (vault.listNotes({ includeTrashed: true }).length) {
         const { blob, fileName } = await transfer.exportFile({ kind: 'vault' }, { includeUnusedAttachments: true })
         downloadBlob(blob, fileName)
         savedCurrent = true

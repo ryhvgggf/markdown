@@ -84,9 +84,11 @@ export async function* exportEntries(scope: ExportScope, opts: ExportOptions, de
 
   // Read every document (yielding to the UI now and then).
   const docOf = new Map<string, PMNode>()
-  for (let i = 0; i < notes.length; i++) {
-    docOf.set(notes[i].id, await docs.read(notes[i].id))
-    if (i % READ_YIELD === READ_YIELD - 1) await idle()
+  for (let i = 0; i < notes.length; i += READ_YIELD) {
+    const batch = notes.slice(i, i + READ_YIELD)
+    const read = await Promise.all(batch.map((n) => docs.read(n.id))) // storage reads pipeline
+    batch.forEach((n, k) => docOf.set(n.id, read[k]))
+    await idle()
   }
 
   // Paths.
@@ -133,20 +135,22 @@ export async function* exportEntries(scope: ExportScope, opts: ExportOptions, de
   const titles = Object.fromEntries(vault.listNotes({ includeTrashed: true }).map((n) => [n.id, n.title]))
   const shared: SharedContext = { titles, headings, attachments: attPath }
   const manifest: V2Manifest = {
-    format: 'notes-v2', version: 1, exportedAt: Date.now(), notes: [],
+    format: 'notes-v2', version: 1, exportedAt: Date.now(), notes: [] as V2Manifest['notes'],
     folders: folders.map((f, i) => ({ id: f.id, path: folderChain(f.id, byId, root).join('/'), order: i })),
     attachments: attachments.map((a) => ({ id: a.id, path: attPath[a.id], filename: a.filename, mimeType: a.mimeType, createdAt: a.createdAt })),
   }
+  const noteJson: string[] = []
   for (let i = 0; i < notes.length; i += SERIALIZE_BATCH) {
     const batch = notes.slice(i, i + SERIALIZE_BATCH)
     const texts = await client.serialize(batch.map((n) => ({ doc: docOf.get(n.id)!, anchored: [...(anchored.get(n.id) ?? [])] })), shared)
     for (let k = 0; k < batch.length; k++) {
       const n = batch[k]
       const d = docOf.get(n.id)!
-      manifest.notes.push({
+      // One note at a time: a single JSON.stringify of every document would block the page.
+      noteJson.push(JSON.stringify({
         id: n.id, path: pathOf.get(n.id)!, title: n.title, createdAt: n.createdAt, updatedAt: n.updatedAt,
         mdHash: hashText(texts[k]), blockIds: blockIdsOf(d), ...(opts.includeDocs && { doc: d }),
-      })
+      }))
       yield { path: pathOf.get(n.id)!, text: texts[k], mtime: n.updatedAt }
     }
   }
@@ -154,7 +158,8 @@ export async function* exportEntries(scope: ExportScope, opts: ExportOptions, de
     const blob = await storage.getBlob(a.id)
     if (blob) yield { path: attPath[a.id], blob, mtime: a.createdAt }
   }
-  yield { path: MANIFEST_PATH, text: JSON.stringify(manifest) }
+  const head = JSON.stringify(manifest)
+  yield { path: MANIFEST_PATH, text: head.replace('"notes":[]', () => `"notes":[${noteJson.join(',')}]`) }
 }
 
 /** A ZIP of the scope; a single note is its own `.md` file. */

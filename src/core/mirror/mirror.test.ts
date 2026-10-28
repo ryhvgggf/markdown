@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDb, type NotesDb } from '@/adapters/storage/db'
 import { memoryDir } from '@/adapters/fs/memory-dir'
 import { MemoryStorage } from '@/adapters/storage/memory-storage'
@@ -186,9 +186,62 @@ describe('mirror', () => {
     const second = new Mirror(deps({ locks }))
     mirrors.push(second)
     await second.start(dir2)
+    await vi.waitFor(() => expect(first.m.status).toBe('active'))
     expect(second.status).toBe('waiting')
     expect(dir2.files.size).toBe(0)
-    expect(first.m.status).toBe('active')
+  })
+
+  it('two outside edits in the same minute keep two copies', async () => {
+    const n = await note('A', doc(p('一')))
+    const { m, dir } = await started()
+    const fixed = clock
+    const mm = m as unknown as { now: () => number }
+    mm.now = () => fixed
+    dir.files.set('A.md', { data: '外面 1\n', mtime: ++clock })
+    await edit(m, n.id, doc(p('二')))
+    dir.files.set('A.md', { data: '外面 2\n', mtime: ++clock })
+    await edit(m, n.id, doc(p('三')))
+    const kept = [...dir.files.keys()].filter((k) => k.includes('外部修改')).sort()
+    expect(kept).toHaveLength(2)
+    expect(await Promise.all(kept.map((k) => text(dir, k)))).toEqual(expect.arrayContaining(['外面 1\n', '外面 2\n']))
+  })
+
+  it('never writes an attachment over a file the user already has in the folder', async () => {
+    const a = vault.addAttachment({ filename: 'photo.png', mimeType: 'image/png', size: 3 })
+    await storage.putBlob(a.id, new Blob(['app']))
+    await note('A', doc(media(a.id, 'image')))
+    const dir = memoryDir(() => ++clock)
+    dir.files.set('附件/photo.png', { data: '使用者自己的', mtime: 1 })
+    const m = new Mirror(deps())
+    mirrors.push(m)
+    await m.start(dir)
+    await m.whenIdle()
+    expect(await text(dir, '附件/photo.png')).toBe('使用者自己的')
+    expect(await text(dir, 'A.md')).toBe('![photo (2).png](附件/photo%20%282%29.png)\n')
+  })
+
+  it('a file deleted in the folder is written again on the next check', async () => {
+    await note('A', doc(p('x')))
+    const { m, dir } = await started()
+    dir.files.delete('A.md')
+    await m.reconcile()
+    expect(await text(dir, 'A.md')).toBe('x\n')
+  })
+
+  it('records are read when the lock is granted, not before', async () => {
+    const n = await note('A', doc(p('x')))
+    const first = await started()
+    let grant!: () => void
+    const locks: LockLike = { request: async (_n, cb) => (await new Promise<void>((r) => (grant = r)), cb()) }
+    const second = new Mirror(deps({ locks }))
+    mirrors.push(second)
+    void second.start(first.dir)
+    await edit(first.m, n.id, doc(p('y'))) // the first tab writes while the second waits
+    await first.m.stop()
+    grant()
+    await new Promise((r) => setTimeout(r, 0))
+    await second.whenIdle()
+    expect([...first.dir.files.keys()].filter((k) => k.includes('外部修改'))).toEqual([])
   })
 
   it('the manifest lists live notes with their ids, without documents', async () => {

@@ -101,7 +101,7 @@ export function createMirrorService(deps: {
       }
       if (!(await askPermission(h))) return
       const same = handle ? await handle.isSameEntry(h).catch(() => false) : false
-      mirror.stop()
+      await mirror.stop()
       if (!same) await saveState(db, emptyState()) // records of another folder mean nothing here
       await db.meta.put({ key: MIRROR_HANDLE_KEY, value: h })
       await begin(h)
@@ -111,7 +111,7 @@ export function createMirrorService(deps: {
       await begin(handle)
     },
     async stopSync() {
-      mirror.stop()
+      await mirror.stop()
       handle = null
       paused = false
       await db.meta.delete(MIRROR_HANDLE_KEY)

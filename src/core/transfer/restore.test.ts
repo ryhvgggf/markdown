@@ -61,7 +61,23 @@ describe('restore from backup', () => {
     expect(vault.listFolders().find((x) => x.id === vault.getNote(a.id)!.folderId)!.name).toBe('專案')
     expect(vault.getNote(b.id)!.deletedAt).toBeNull()
     expect(vault.getNote(c.id)!.deletedAt).not.toBeNull()
-    expect(vault.listNotes({ includeTrashed: true }).some((n) => n.title.includes('覆蓋前'))).toBe(false)
+    // The version replaced by the restore is kept in the trash.
+    const before = vault.listNotes({ includeTrashed: true }).find((n) => n.title === 'A（覆蓋前）')!
+    expect(before.deletedAt).not.toBeNull()
+    expect(text(before.id)).toBe('後來改的')
+  })
+
+  it('replace re-run after a crash does not trash what the first run restored', async () => {
+    const { vault } = deps
+    for (const t of ['1', '2', '3']) await deps.docs.write(vault.createNote({ title: t }).id, doc(p(t)))
+    const zip = await backup()
+    const io = deps.docs
+    let writes = 0
+    deps.docs = { ...io, docs: io.docs, write: async (id, d) => { if (++writes === 2) throw new Error('crash'); return io.write(id, d) } } as typeof io
+    await expect(restoreBackup(sourceFromEntries(zip), 'replace', null, deps)).rejects.toThrow('crash')
+    deps.docs = io
+    await restoreBackup(sourceFromEntries(zip), 'replace', null, deps)
+    expect(live()).toEqual(['1', '2', '3'])
   })
 
   it('merge: keeps both sides; existing notes follow the choice', async () => {

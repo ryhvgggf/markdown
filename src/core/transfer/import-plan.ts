@@ -2,9 +2,9 @@ import { MAX_ATTACHMENT_BYTES } from '@/core/attachments'
 import { newId } from '@/core/ids'
 import { hashText } from '@/core/markdown/paths'
 import type { ParseResult } from '@/core/markdown/types'
-import { dedupeTitle, normalizeTitle } from '@/core/vault/titles'
+import { normalizeTitle } from '@/core/vault/titles'
 import {
-  applyBlockIds, dirParts, fileEntries, kindOf, makeResolver, mimeOf, noteEntries, titleOf, type BatchNote,
+  applyBlockIds, dirParts, fileEntries, kindOf, makeResolver, mimeOf, noteEntries, titleOf, titleTaker, yieldTask, type BatchNote,
 } from './import-shared'
 import { resolveRefs } from './resolve'
 import type { ImportDeps, ImportPlan, ImportSource, PlannedNote } from './types'
@@ -41,15 +41,14 @@ export async function planImport(src: ImportSource, deps: ImportDeps): Promise<I
   }
 
   // Notes and titles (renames estimated as if existing notes were copied).
-  const taken = new Set(vault.listNotes().map((n) => n.title))
+  const titles = titleTaker(vault.listNotes().map((n) => n.title))
   let existingCount = 0
   const planned: PlannedNote[] = notes.map((e) => {
     const mn = manifestNotes.get(e.path)
     const original = titleOf(e.path, src, mn)
     const existing = !!mn && vault.getNote(mn.id) !== undefined
     if (existing) existingCount++
-    const title = dedupeTitle(original, taken)
-    taken.add(title)
+    const title = titles.take(original)
     return {
       path: e.path,
       noteId: mn?.id ?? newId(),
@@ -86,7 +85,9 @@ export async function planImport(src: ImportSource, deps: ImportDeps): Promise<I
   const resolver = makeResolver(batch, vault, attMap)
   const unresolved: ImportPlan['unresolved'] = []
   const aliased: ImportPlan['aliased'] = []
-  for (const n of planned) {
+  for (let i = 0; i < planned.length; i++) {
+    const n = planned[i]
+    if (i % 50 === 49) await yieldTask()
     if (exact.has(n.path)) continue
     const r = resolveRefs(parsed.get(n.path)!.doc, resolver, n.path)
     for (const raw of r.unresolved) unresolved.push({ notePath: n.path, raw })

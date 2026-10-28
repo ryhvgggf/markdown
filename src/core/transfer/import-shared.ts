@@ -122,3 +122,21 @@ export function makeResolver(batch: BatchNote[], vault: Vault, attachments: Map<
     },
   }
 }
+
+/** Titles in use (normalized); `take` returns `title` or `title (n)` and reserves it. O(1) per call. */
+export function titleTaker(existing: Iterable<string>): { take(title: string): string; has(title: string): boolean } {
+  const used = new Set([...existing].map(normalizeTitle))
+  return {
+    has: (t) => used.has(normalizeTitle(t)),
+    take(title) {
+      const base = title.trim()
+      let out = base
+      if (normalizeTitle(base) !== '') for (let n = 2; used.has(normalizeTitle(out)); n++) out = `${base} (${n})`
+      used.add(normalizeTitle(out))
+      return out
+    },
+  }
+}
+
+/** Lets the browser paint and handle input between chunks of work. */
+export const yieldTask = () => new Promise<void>((r) => setTimeout(r, 0))
