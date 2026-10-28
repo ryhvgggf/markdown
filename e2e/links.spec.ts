@@ -43,7 +43,8 @@ test('筆記連結、區塊連結與標籤', async ({ page, context }, info) => 
   await page.keyboard.press('Enter')
   await page.keyboard.type('回到 [[歡迎')
   await expect(page.getByRole('option', { name: /歡迎使用/ })).toBeVisible()
-  await page.keyboard.press('Enter')
+  await page.keyboard.press('Enter') // completes [[歡迎使用
+  await page.keyboard.press('Enter') // links
   const block = editor.locator('p', { hasText: '核准層級依金額決定' })
   const blockId = await block.getAttribute('data-block-id')
   expect(blockId).toBeTruthy()
