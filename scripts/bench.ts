@@ -13,7 +13,7 @@ import { chromium, type Page } from '@playwright/test'
 const OUT_DIR = 'dist-bench'
 const VITE = join(process.cwd(), 'node_modules', '.bin', 'vite')
 const NOTES = 1000
-const THRESHOLDS = { coldStart: 1500, search: 100, keystroke: 16, frame: 16.7 }
+const THRESHOLDS = { coldStart: 1500, search: 100, keystroke: 16, frame: 16.7, exportAll: 5000, longTask: 200 }
 
 const median = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b)
@@ -165,6 +165,8 @@ async function main() {
       return { keys: w.__keys as number[], e2e: w.__e2e as number[], slow: w.__slow as number[], frame: w.__frame as number[], painted: w.__painted as number[] }
     })
 
+    const xfer = await page.evaluate(() => (window as any).__bench.transfer()) // eslint-disable-line @typescript-eslint/no-explicit-any
+
     await context.close()
 
     const rows = [
@@ -172,6 +174,9 @@ async function main() {
       { name: `搜尋「採購」(中位數 of 20, ${search.hits} 筆結果)`, value: median(search.ms), limit: THRESHOLDS.search },
       { name: `按鍵處理 (平均 of ${typing.keys.length} 鍵, 筆記 ${textLen} 字)`, value: mean(typing.keys), limit: THRESHOLDS.keystroke },
       { name: `按鍵 → 下一幀 (keydown → rAF after input, p95 of ${typing.frame.length})`, value: p95(typing.frame), limit: THRESHOLDS.frame },
+      { name: `匯出 ${xfer.notes} 篇 ZIP`, value: xfer.exportMs, limit: THRESHOLDS.exportAll },
+      { name: '匯出期間主執行緒最長任務', value: xfer.exportLongest, limit: THRESHOLDS.longTask },
+      { name: '匯入期間主執行緒最長任務', value: xfer.importLongest, limit: THRESHOLDS.longTask },
     ]
     console.log('\n| 指標 | 結果 (ms) | 門檻 (ms) | 判定 |')
     console.log('|---|---|---|---|')
@@ -182,6 +187,7 @@ async function main() {
       console.log(`| ${r.name} | ${r.value.toFixed(1)} | < ${r.limit} | ${ok ? 'PASS' : 'FAIL'} |`)
     }
     console.log('\nDetails:')
+    console.log(`  import ${xfer.notes} notes (ZIP → preview → write): ${xfer.importMs.toFixed(0)} ms`)
     console.log(`  cold start runs (ms): ${cold.map((x) => x.toFixed(0)).join(', ')}`)
     console.log(`  search min/max (ms): ${Math.min(...search.ms).toFixed(1)} / ${Math.max(...search.ms).toFixed(1)}`)
     console.log(

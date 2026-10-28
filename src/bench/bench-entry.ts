@@ -13,6 +13,8 @@ export interface BenchApi {
   /** Opens the first seeded note (the largest) in the editor. */
   openLargest(): string
   noteCount(): number
+  /** Exports the vault as a ZIP, then imports it back (as copies); durations and the longest main-thread task. */
+  transfer(): Promise<{ notes: number; exportMs: number; exportLongest: number; importMs: number; importLongest: number }>
 }
 
 const TOPICS = ['採購', '預算', '設計', '研究', 'Roadmap', '會議', 'Backlog', '客戶', 'Sprint', '財務']
@@ -118,6 +120,25 @@ export function installBench(services: AppServices): void {
       return id
     },
     noteCount: () => vault.listNotes().length,
+    async transfer() {
+      let longest = 0
+      const po = new PerformanceObserver((l) => l.getEntries().forEach((e) => (longest = Math.max(longest, e.duration))))
+      po.observe({ type: 'longtask' })
+      const t0 = performance.now()
+      const { blob } = await services.transfer.exportFile({ kind: 'vault' }, { includeUnusedAttachments: false })
+      const exportMs = performance.now() - t0
+      await new Promise((r) => setTimeout(r, 100))
+      const exportLongest = longest
+      longest = 0
+      const t1 = performance.now()
+      const src = await services.transfer.sourceFromFiles([new File([blob], 'bench.zip')])
+      const plan = await services.transfer.plan(src)
+      await services.transfer.apply(plan, src, { destination: { kind: 'new-dated' }, onExisting: 'copy' })
+      const importMs = performance.now() - t1
+      await new Promise((r) => setTimeout(r, 100))
+      po.disconnect()
+      return { notes: plan.notes.length, exportMs, exportLongest, importMs, importLongest: longest }
+    },
   }
   ;(window as unknown as { __bench: BenchApi }).__bench = api
 }

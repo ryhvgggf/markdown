@@ -62,3 +62,10 @@ test('匯出 ZIP → 在另一個瀏覽器設定檔匯入 → 筆記與連結還
   await expect(again.getByText(/備份中有 \d+ 篇筆記已存在這個知識庫/)).toBeVisible()
   await expect(again.getByRole('button', { name: '匯入' })).toBeDisabled()
 })
+
+test('設定 → 資料：區段依序為儲存空間、匯出、匯入、同步到資料夾、從備份還原、維護', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByLabel('筆記標題')).toHaveValue('歡迎使用')
+  const dialog = await openData(page)
+  await expect(dialog.getByRole('heading', { level: 3 })).toHaveText(['儲存空間', '匯出', '匯入', '同步到資料夾', '從備份還原', '維護'])
+})
