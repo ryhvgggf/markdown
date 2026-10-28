@@ -59,7 +59,10 @@ export async function readZip(file: Blob): Promise<FileEntry[]> {
           if (TEXT.test(path)) {
             const all = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
             let at = 0
-            for (const p of parts) (all.set(p, at), (at += p.length))
+            for (const p of parts) {
+              all.set(p, at)
+              at += p.length
+            }
             resolve({ path, text: new TextDecoder().decode(all) })
           } else resolve({ path, blob: new Blob(parts as BlobPart[]) })
         }
