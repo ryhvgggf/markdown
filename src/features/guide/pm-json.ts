@@ -76,12 +76,4 @@ export const table = (header: Inline[], rows: Inline[][], id?: string): J => ({
 
 export const doc = (...blocks: J[]): J => ({ type: 'doc', content: blocks })
 
-/** Gives every block type that carries an id (see BLOCK_TYPES) a fresh one when it has none. */
-export function assignBlockIds(node: J, blockTypes: readonly string[], newId: () => string): J {
-  const attrs = blockTypes.includes(node.type) && !node.attrs?.id ? { ...node.attrs, id: newId() } : node.attrs
-  return {
-    ...node,
-    ...(attrs && { attrs }),
-    ...(node.content && { content: node.content.map((c) => assignBlockIds(c, blockTypes, newId)) }),
-  }
-}
+export { assignBlockIds } from '@/core/blocks'

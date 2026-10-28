@@ -33,4 +33,9 @@ export default tseslint.config(
     files: ['src/core/**/*.{ts,tsx}', 'src/adapters/**/*.{ts,tsx}'],
     rules: { 'no-restricted-imports': ['error', forbidden] },
   },
+  {
+    // Must run in a Worker: no DOM.
+    files: ['src/core/markdown/**/*.ts', 'src/core/transfer/**/*.ts', 'src/core/mirror/**/*.ts'],
+    rules: { 'no-restricted-globals': ['error', 'document', 'window', 'DOMParser', 'Image'] },
+  },
 )

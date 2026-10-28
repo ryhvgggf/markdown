@@ -1,23 +1,9 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { BLOCK_TYPES } from '@/core/blocks'
 import { newId } from '@/core/ids'
 
-/** Node types that carry a stable `id` attribute (read by the block extractor). */
-export const BLOCK_TYPES = [
-  'paragraph',
-  'heading',
-  'blockquote',
-  'bulletList',
-  'orderedList',
-  'listItem',
-  'taskList',
-  'taskItem',
-  'callout',
-  'codeBlock',
-  'table',
-  'horizontalRule',
-  'media',
-]
+export { BLOCK_TYPES }
 
 const key = new PluginKey('blockId')
 
@@ -28,7 +14,7 @@ export const BlockId = Extension.create({
   addGlobalAttributes() {
     return [
       {
-        types: BLOCK_TYPES,
+        types: [...BLOCK_TYPES],
         attributes: {
           id: {
             default: null,
