@@ -118,7 +118,7 @@ const SlashList = forwardRef<PopupListHandle, ListProps>(function SlashList({ it
                   </span>
                   <span className="min-w-0">
                     <span className="block text-base text-fg">{item.label}</span>
-                    <span className="block truncate text-xs text-fg-secondary">{item.hint}</span>
+                    {item.hint && <span className="block truncate text-xs text-fg-secondary">{item.hint}</span>}
                   </span>
                 </div>
               </Fragment>
