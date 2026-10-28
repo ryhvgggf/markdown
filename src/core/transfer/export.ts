@@ -22,6 +22,22 @@ export const ATTACHMENT_DIR = '附件'
 const READ_YIELD = 20
 const SERIALIZE_BATCH = 50
 
+/**
+ * Whether a note holds something its Markdown cannot (spec 6.4): only then does the manifest carry the
+ * whole document. Everything else comes back exactly from the .md plus the block ids.
+ */
+export function needsExactDoc(doc: PMNode): boolean {
+  let lossy = false
+  walk(doc, (n) => {
+    if (lossy) return
+    if (n.marks?.some((m) => m.type === 'textStyle' || (m.type === 'highlight' && m.attrs?.color && m.attrs.color !== '#FFF1A8'))) lossy = true
+    else if (n.type === 'media' && n.attrs?.width != null) lossy = true
+    else if (n.type === 'orderedList' && n.attrs?.listStyle && n.attrs.listStyle !== 'auto') lossy = true
+    else if ((n.type === 'tableCell' || n.type === 'tableHeader') && (Array.isArray(n.attrs?.colwidth) || (n.content ?? []).some((c) => c.type !== 'paragraph'))) lossy = true
+  })
+  return lossy
+}
+
 const idle = () => new Promise<void>((r) => onIdle(r))
 const plain = (n: PMNode): string => (n.text ?? '') + (n.content ?? []).map(plain).join('')
 
@@ -149,7 +165,7 @@ export async function* exportEntries(scope: ExportScope, opts: ExportOptions, de
       // One note at a time: a single JSON.stringify of every document would block the page.
       noteJson.push(JSON.stringify({
         id: n.id, path: pathOf.get(n.id)!, title: n.title, createdAt: n.createdAt, updatedAt: n.updatedAt,
-        mdHash: hashText(texts[k]), blockIds: blockIdsOf(d), ...(opts.includeDocs && { doc: d }),
+        mdHash: hashText(texts[k]), blockIds: blockIdsOf(d), ...(opts.includeDocs && needsExactDoc(d) && { doc: d }),
       }))
       yield { path: pathOf.get(n.id)!, text: texts[k], mtime: n.updatedAt }
     }

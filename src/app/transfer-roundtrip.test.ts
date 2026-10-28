@@ -3,6 +3,7 @@ import { createDb, type NotesDb } from '@/adapters/storage/db'
 import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { readZip, writeZip } from '@/adapters/zip/zip'
 import { NoteDocCache } from '@/core/note-doc/cache'
+import { assignBlockIds } from '@/core/blocks'
 import { a, b, callout, code, codeBlock, doc, h, hl, hr, i, li, media, noteLink, ol, p, quote, s, table, tag, task, tasks, u, ul } from '@/core/markdown/pm-build'
 import type { FileEntry, PMNode } from '@/core/markdown/types'
 import { exportEntries } from '@/core/transfer/export'
@@ -55,7 +56,7 @@ async function fixtureVault(): Promise<Side> {
   const one = v.vault.createNote({ title: '第一篇' })
   await v.docs.write(
     one.id,
-    doc(
+    assignBlockIds(doc(
       h(1, '大標題'),
       p('一般', b('粗'), i('斜'), s('刪'), u('底'), hl('螢光', '#FFF1A8'), code('c'), a('連結', 'https://e.com')),
       p('需要跳脫：1. # - > * _ ` [ ] < ~ ==x== #非標籤'),
@@ -71,7 +72,7 @@ async function fixtureVault(): Promise<Side> {
       media(pdf.id, 'file'),
       hr(),
       p('結尾'),
-    ),
+    )),
   )
   return v
 }
@@ -89,6 +90,15 @@ describe('export → import → export', () => {
       expect(await dst.docs.read(n.id)).toEqual(normalizeDoc(await src.docs.read(n.id)))
     }
     expect(second.filter((e) => e.blob).map((e) => e.path)).toEqual(first.filter((e) => e.blob).map((e) => e.path))
+  })
+
+  it('a note with colours (not in Markdown) comes back exactly through the manifest', async () => {
+    const src = await side()
+    const n = src.vault.createNote({ title: '彩色' })
+    await src.docs.write(n.id, assignBlockIds(doc(p({ type: 'text', text: '紅字', marks: [{ type: 'textStyle', attrs: { color: '#C62828' } }] }))))
+    const dst = await side()
+    await importInto(dst, await exportAll(src))
+    expect(await dst.docs.read(n.id)).toEqual(normalizeDoc(await src.docs.read(n.id)))
   })
 
   it('without the manifest (any Markdown editor): identical files', async () => {

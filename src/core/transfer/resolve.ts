@@ -67,7 +67,11 @@ export function resolveRefs(doc: PMNode, r: Resolver, fromPath = ''): Resolved {
     for (const k of kids) {
       if (k.type === 'media') {
         flush()
-        parts.push(k)
+        // An embed alone in its paragraph is that block: it keeps the paragraph's id (block-id restore).
+        if (first && p.attrs?.id) {
+          parts.push({ ...k, attrs: { ...k.attrs, id: p.attrs.id } })
+          first = false
+        } else parts.push(k)
       } else run.push(k)
     }
     flush()

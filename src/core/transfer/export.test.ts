@@ -57,7 +57,7 @@ describe('export', () => {
     const m = JSON.parse(files.at(-1)!.text!) as V2Manifest
     expect(m.notes.map((n) => n.title)).toEqual(['根目錄的筆記', '另一篇', '筆記'])
     expect(m.folders.map((x) => x.path)).toEqual(['資料夾A', '資料夾A/子資料夾'])
-    expect(m.notes[1].doc).toBeDefined()
+    expect(m.notes[1].doc).toBeUndefined() // nothing Markdown cannot hold: the .md and block ids are enough
     expect(files[1].text).toBe('![範例圖片.png](附件/範例圖片.png)\n\n![範例圖片 (2).png](附件/範例圖片%20%282%29.png)\n')
   })
 
