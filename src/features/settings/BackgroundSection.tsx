@@ -14,7 +14,7 @@ const pct = (v: number) => `${Math.round(v * 100)}%`
 export function BackgroundSection() {
   const { storage, prefs } = useServices()
   const p = usePrefs()
-  const loaded = useBlobUrl(storage, p.backgroundBlobId ?? '')
+  const loaded = useBlobUrl(storage, p.noteBackgroundBlobId ?? '')
   const input = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -29,8 +29,8 @@ export function BackgroundSection() {
       await storage.putBlob(id, file)
       // Read the previous id only now (synchronously with the swap): with two uploads in flight, each
       // replaces whatever is current, so the loser's blob is always deleted (M7).
-      const previous = prefs.get().backgroundBlobId
-      prefs.set({ backgroundBlobId: id })
+      const previous = prefs.get().noteBackgroundBlobId
+      prefs.set({ noteBackgroundBlobId: id })
       if (previous) await storage.deleteBlob(previous)
     } catch {
       setError('無法儲存圖片，請再試一次。')
@@ -39,28 +39,25 @@ export function BackgroundSection() {
 
   async function reset() {
     setError(null)
-    const previous = prefs.get().backgroundBlobId
+    const previous = prefs.get().noteBackgroundBlobId
     prefs.set({
-      backgroundBlobId: null,
-      backgroundBlur: DEFAULT_PREFS.backgroundBlur,
-      backgroundDim: DEFAULT_PREFS.backgroundDim,
+      noteBackgroundBlobId: null,
+      noteBackgroundOpacity: DEFAULT_PREFS.noteBackgroundOpacity,
     })
     if (previous) await storage.deleteBlob(previous).catch(() => undefined)
   }
 
   return (
     <section aria-label="背景">
-      <SectionLabel>背景圖片</SectionLabel>
+      <SectionLabel>筆記卡片背景</SectionLabel>
       <div className="flex items-center gap-4 py-2">
         <div
-          data-testid="background-preview"
+          data-testid="note-background-preview"
           className="h-16 w-28 shrink-0 rounded-control bg-cover bg-center shadow-sm"
-          style={{ background: p.backgroundBlobId && loaded.url ? `center / cover url("${loaded.url}")` : 'var(--page-background)' }}
+          style={{ background: p.noteBackgroundBlobId && loaded.url ? `center / cover url("${loaded.url}")` : 'var(--page-background)' }}
         />
         <div className="flex flex-col items-start gap-2">
-          <Button onClick={() => input.current?.click()}>
-            上傳圖片
-          </Button>
+          <Button onClick={() => input.current?.click()}>上傳圖片</Button>
           <input
             ref={input}
             type="file"
@@ -82,8 +79,15 @@ export function BackgroundSection() {
       )}
       <div className="mt-4">
         <SectionLabel>調整</SectionLabel>
-        <SliderRow label="模糊度" value={p.backgroundBlur} min={0} max={1} step={0.05} display={pct(p.backgroundBlur)} onChange={(v) => prefs.set({ backgroundBlur: v })} />
-        <SliderRow label="淡化程度" value={p.backgroundDim} min={0} max={1} step={0.05} display={pct(p.backgroundDim)} onChange={(v) => prefs.set({ backgroundDim: v })} />
+        <SliderRow
+          label="透明度"
+          value={p.noteBackgroundOpacity}
+          min={0}
+          max={1}
+          step={0.05}
+          display={pct(p.noteBackgroundOpacity)}
+          onChange={(v) => prefs.set({ noteBackgroundOpacity: v })}
+        />
       </div>
       <div className="mt-4">
         <Button variant="ghost" onClick={() => void reset()}>

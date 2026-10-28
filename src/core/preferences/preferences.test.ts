@@ -14,7 +14,7 @@ describe('Preferences', () => {
   it('returns defaults when nothing is stored', async () => {
     const p = await open()
     expect(p.get()).toEqual(DEFAULT_PREFS)
-    expect(DEFAULT_PREFS).toMatchObject({ accent: '#4F4BC9', sidebarWidth: 256, panelWidth: 300, backgroundBlur: 0.5, backgroundDim: 0.15 })
+    expect(DEFAULT_PREFS).toMatchObject({ accent: '#4F4BC9', sidebarWidth: 256, panelWidth: 300, noteBackgroundOpacity: 1 })
   })
 
   it('persists across reopen, only given keys', async () => {
@@ -26,12 +26,12 @@ describe('Preferences', () => {
     expect(p2.get()).toEqual({ ...DEFAULT_PREFS, accent: '#1F63D6', fontSize: 'large' })
   })
 
-  it('clamps widths and blur/dim', async () => {
+  it('clamps widths and note background opacity', async () => {
     const p = await open()
-    p.set({ sidebarWidth: 500, panelWidth: 100, backgroundBlur: 2, backgroundDim: -1 })
-    expect(p.get()).toMatchObject({ sidebarWidth: 360, panelWidth: 280, backgroundBlur: 1, backgroundDim: 0 })
-    p.set({ sidebarWidth: 100, panelWidth: 999 })
-    expect(p.get()).toMatchObject({ sidebarWidth: 220, panelWidth: 420 })
+    p.set({ sidebarWidth: 500, panelWidth: 100, noteBackgroundOpacity: 2 })
+    expect(p.get()).toMatchObject({ sidebarWidth: 360, panelWidth: 280, noteBackgroundOpacity: 1 })
+    p.set({ sidebarWidth: 100, panelWidth: 999, noteBackgroundOpacity: -1 })
+    expect(p.get()).toMatchObject({ sidebarWidth: 220, panelWidth: 420, noteBackgroundOpacity: 0 })
   })
 
   it('falls back to defaults for invalid stored values', async () => {

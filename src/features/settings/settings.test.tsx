@@ -6,13 +6,9 @@ import { ServicesProvider } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
 import { DEFAULT_PREFS } from '@/core/preferences/preferences'
 import { Background } from '@/features/shell/Background'
+import { NoteCardBackground } from '@/features/shell/NoteCardBackground'
 import { AppearanceEffects } from './AppearanceEffects'
 import { SettingsDialog } from './SettingsDialog'
-
-vi.mock('./background-busyness', async (orig) => ({
-  ...(await orig<typeof import('./background-busyness')>()),
-  measureBlobBusyness: vi.fn(async () => 0.8),
-}))
 
 let n = 0
 async function setup(over: Partial<AppServices> = {}, opts: { open?: boolean } = {}) {
@@ -22,6 +18,7 @@ async function setup(over: Partial<AppServices> = {}, opts: { open?: boolean } =
     <ServicesProvider services={services}>
       <AppearanceEffects />
       <Background />
+      <NoteCardBackground />
       <SettingsDialog />
     </ServicesProvider>,
   )
@@ -111,17 +108,24 @@ describe('SettingsDialog', () => {
   describe('background', () => {
     const png = (size = 10) => new File([new Uint8Array(size)], 'bg.png', { type: 'image/png' })
 
-    it('uploads an image: stores the blob, shows it, and replaces the previous one', async () => {
+    it('the page background stays fixed, with no image controls for it', async () => {
+      const { dialog } = await setup()
+      expect(screen.getByTestId('background')).toHaveStyle({ background: 'var(--page-background)' })
+      expect(within(dialog).queryByText('模糊度')).toBeNull()
+      expect(within(dialog).queryByText('淡化程度')).toBeNull()
+    })
+
+    it('uploads an image for the note card: stores the blob, shows it, and replaces the previous one', async () => {
       const { dialog, user, services } = await setup()
       const input = within(dialog).getByLabelText('背景圖片檔案') as HTMLInputElement
       expect(input).toHaveAttribute('accept', 'image/*')
       await user.upload(input, png())
-      await waitFor(() => expect(services.prefs.get().backgroundBlobId).not.toBeNull())
-      const first = services.prefs.get().backgroundBlobId!
+      await waitFor(() => expect(services.prefs.get().noteBackgroundBlobId).not.toBeNull())
+      const first = services.prefs.get().noteBackgroundBlobId!
       expect(await services.storage.getBlob(first)).toBeTruthy()
-      await waitFor(() => expect(screen.getByTestId('background').innerHTML).toContain('blob:fake-'))
+      await waitFor(() => expect(screen.getByTestId('note-card-background').style.backgroundImage).toContain('blob:fake-'))
       await user.upload(input, png(20))
-      await waitFor(() => expect(services.prefs.get().backgroundBlobId).not.toBe(first))
+      await waitFor(() => expect(services.prefs.get().noteBackgroundBlobId).not.toBe(first))
       await waitFor(async () => expect(await services.storage.getBlob(first)).toBeFalsy())
     })
 
@@ -130,7 +134,7 @@ describe('SettingsDialog', () => {
       expect(within(dialog).getByRole('button', { name: '上傳圖片' })).toBeInTheDocument()
       await user.upload(within(dialog).getByLabelText('背景圖片檔案'), new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' }))
       expect(await within(dialog).findByText('不支援 SVG 圖片，請改用 PNG、JPEG 或 GIF。')).toBeInTheDocument()
-      expect(services.prefs.get().backgroundBlobId).toBeNull()
+      expect(services.prefs.get().noteBackgroundBlobId).toBeNull()
     })
 
     it('concurrent uploads keep only the winning blob (M7)', async () => {
@@ -148,7 +152,7 @@ describe('SettingsDialog', () => {
       await user.upload(input, png(20))
       await waitFor(() => expect(ids).toHaveLength(2))
       await new Promise((r) => setTimeout(r, 120))
-      const current = services.prefs.get().backgroundBlobId
+      const current = services.prefs.get().noteBackgroundBlobId
       expect(ids).toContain(current)
       const loser = ids.find((x) => x !== current)!
       await waitFor(async () => expect(await services.storage.getBlob(loser)).toBeFalsy())
@@ -160,37 +164,34 @@ describe('SettingsDialog', () => {
       Object.defineProperty(big, 'size', { value: 20 * 1024 * 1024 + 1 })
       await user.upload(within(dialog).getByLabelText('背景圖片檔案'), big)
       expect(await within(dialog).findByText('圖片超過 20 MB，請選擇較小的檔案。')).toBeInTheDocument()
-      expect(services.prefs.get().backgroundBlobId).toBeNull()
+      expect(services.prefs.get().noteBackgroundBlobId).toBeNull()
     })
 
-    it('raises applied blur and dim for busy images but keeps stored sliders', async () => {
+    it('the opacity slider shows the image through at the set level, left entirely to the user', async () => {
       const { dialog, user, services } = await setup()
       await user.upload(within(dialog).getByLabelText('背景圖片檔案'), png())
-      await waitFor(() => expect(screen.getByTestId('background').innerHTML).toContain('blur(24px)'))
-      expect(screen.getByTestId('background').innerHTML).toContain('rgba(255, 255, 255, 0.3)')
-      expect(services.prefs.get().backgroundBlur).toBe(DEFAULT_PREFS.backgroundBlur)
+      await waitFor(() => expect(screen.getByTestId('note-card-background')).toHaveStyle({ opacity: '1' }))
+      services.prefs.set({ noteBackgroundOpacity: 0.4 })
+      await waitFor(() => expect(screen.getByTestId('note-card-background')).toHaveStyle({ opacity: '0.4' }))
     })
 
-    it('has blur and dim sliders 0–1 step 0.05', async () => {
+    it('has a 透明度 slider 0–1 step 0.05', async () => {
       const { dialog } = await setup()
-      for (const name of ['模糊度', '淡化程度']) {
-        const s = within(dialog).getByRole('slider', { name })
-        expect(s).toHaveAttribute('min', '0')
-        expect(s).toHaveAttribute('max', '1')
-        expect(s).toHaveAttribute('step', '0.05')
-      }
+      const s = within(dialog).getByRole('slider', { name: '透明度' })
+      expect(s).toHaveAttribute('min', '0')
+      expect(s).toHaveAttribute('max', '1')
+      expect(s).toHaveAttribute('step', '0.05')
     })
 
-    it('恢復預設 clears the image and resets sliders', async () => {
+    it('恢復預設 clears the image and resets opacity', async () => {
       const { dialog, user, services } = await setup()
       await user.upload(within(dialog).getByLabelText('背景圖片檔案'), png())
-      await waitFor(() => expect(services.prefs.get().backgroundBlobId).not.toBeNull())
-      const id = services.prefs.get().backgroundBlobId!
-      services.prefs.set({ backgroundBlur: 0.9, backgroundDim: 0.7 })
+      await waitFor(() => expect(services.prefs.get().noteBackgroundBlobId).not.toBeNull())
+      const id = services.prefs.get().noteBackgroundBlobId!
+      services.prefs.set({ noteBackgroundOpacity: 0.3 })
       await user.click(within(dialog).getByRole('button', { name: '恢復預設' }))
-      await waitFor(() => expect(services.prefs.get().backgroundBlobId).toBeNull())
-      expect(services.prefs.get().backgroundBlur).toBe(DEFAULT_PREFS.backgroundBlur)
-      expect(services.prefs.get().backgroundDim).toBe(DEFAULT_PREFS.backgroundDim)
+      await waitFor(() => expect(services.prefs.get().noteBackgroundBlobId).toBeNull())
+      expect(services.prefs.get().noteBackgroundOpacity).toBe(DEFAULT_PREFS.noteBackgroundOpacity)
       await waitFor(async () => expect(await services.storage.getBlob(id)).toBeFalsy())
     })
   })

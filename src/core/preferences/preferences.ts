@@ -7,9 +7,10 @@ import { ACCENTS } from './accents'
 export type Tri = 'system' | 'on' | 'off'
 export type Prefs = {
   accent: string
-  backgroundBlobId: string | null
-  backgroundBlur: number
-  backgroundDim: number
+  /** The note card's own background image (the page behind it stays the fixed default). */
+  noteBackgroundBlobId: string | null
+  /** 0 (invisible, card stays its plain colour) – 1 (image fully visible). User-adjusted only. */
+  noteBackgroundOpacity: number
   fontSize: 'small' | 'standard' | 'large'
   lineHeight: 'compact' | 'standard' | 'relaxed'
   editorWidth: 'narrow' | 'standard' | 'wide'
@@ -22,9 +23,8 @@ export type Prefs = {
 
 export const DEFAULT_PREFS: Prefs = {
   accent: '#4F4BC9',
-  backgroundBlobId: null,
-  backgroundBlur: 0.5,
-  backgroundDim: 0.15,
+  noteBackgroundBlobId: null,
+  noteBackgroundOpacity: 1,
   fontSize: 'standard',
   lineHeight: 'standard',
   editorWidth: 'standard',
@@ -44,8 +44,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
 const RANGES: Partial<Record<keyof Prefs, [number, number]>> = {
   sidebarWidth: [220, 360],
   panelWidth: [280, 420],
-  backgroundBlur: [0, 1],
-  backgroundDim: [0, 1],
+  noteBackgroundOpacity: [0, 1],
 }
 const ENUMS: Partial<Record<keyof Prefs, readonly string[]>> = {
   fontSize: ['small', 'standard', 'large'],
@@ -61,7 +60,7 @@ function valid(key: keyof Prefs, v: unknown): boolean {
   if (range) return typeof v === 'number' && Number.isFinite(v)
   const en = ENUMS[key]
   if (en) return typeof v === 'string' && en.includes(v)
-  if (key === 'backgroundBlobId') return v === null || typeof v === 'string'
+  if (key === 'noteBackgroundBlobId') return v === null || typeof v === 'string'
   if (key === 'accent') return canonicalAccent(v) !== null
   return typeof v === 'string' && v !== ''
 }

@@ -5,6 +5,7 @@ import { useServices } from '@/app/services-context'
 import { usePrefs } from '@/app/use-prefs'
 import { Rail } from '@/features/rail/Rail'
 import { Background, BakedGlass } from './Background'
+import { NoteCardBackground } from './NoteCardBackground'
 import { ResizeHandle } from './ResizeHandle'
 import { useLayoutMode } from './layout-mode'
 
@@ -51,6 +52,7 @@ export function Shell({ sidebar, main, overlay }: ShellProps) {
         {!narrow && sidebarCard}
         <div className="relative min-w-0 flex-1">
           <main className="note-card relative flex h-full flex-col overflow-clip rounded-card bg-surface shadow-card">
+            <NoteCardBackground />
             <div aria-hidden="true" className="h-11 shrink-0" />
             <div ref={scroller} data-note-scroll className="min-h-0 flex-1 overflow-auto">
               {main}
