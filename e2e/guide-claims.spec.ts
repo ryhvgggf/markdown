@@ -150,6 +150,7 @@ test('導覽寫的大綱短線與反向連結面板都如所述', async ({ page 
   await newNote(page, '來源')
   await page.keyboard.type('[[歡迎')
   await page.getByRole('option', { name: /歡迎使用/ }).first().click()
+  await page.keyboard.press('Enter') // the click completes [[標題; Enter makes the link
   await page.getByRole('treeitem', { name: '歡迎使用', exact: true }).click()
   await expect(pill).toContainText('1', { timeout: 8000 })
   await pill.click()

@@ -34,6 +34,7 @@ test('核心流程：建立、連結、區塊、重新整理、反向連結、�
   await newNote(page, '年度計畫')
   await page.keyboard.type('預算請見 [[採購')
   await page.getByRole('option', { name: /採購流程/ }).click()
+  await page.keyboard.press('Enter') // the click completes [[標題; Enter makes the link
   const noteLink = editor.getByRole('link', { name: '前往 採購流程' })
   await expect(noteLink).toBeVisible()
   const noteId = await editor.locator('[data-note-link]').first().getAttribute('data-note-id')

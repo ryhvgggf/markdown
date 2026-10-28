@@ -149,10 +149,26 @@ describe('[[ suggestion', () => {
     expect(options[0]).toHaveTextContent('工作')
     expect(options.map((o) => o.textContent)).not.toContainEqual(expect.stringContaining('會議紀錄'))
     expect(options.at(-1)).toHaveTextContent('建立新筆記「採」')
-    await key('Enter')
+    await key('Enter') // first Enter completes the title and keeps the menu open
+    expect(nodesOf('noteLink')).toEqual([])
+    expect(editor!.getText()).toBe('[[採購流程')
+    expect((await screen.findAllByRole('option'))[0]).toHaveTextContent('採購流程')
+    await key('Enter') // second Enter links
     expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: null } })])
     expect(nodesOf('text').map((t) => t.text).join('')).not.toContain('[[')
     expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('clicking a note also completes the title first', async () => {
+    vault.createNote({ title: '採購流程' })
+    await setup()
+    await insert('[[採')
+    fireEvent.click((await screen.findAllByRole('option'))[0])
+    expect(nodesOf('noteLink')).toEqual([])
+    expect(editor!.getText()).toBe('[[採購流程')
+    await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(1)) // the list now holds just the exact note
+    fireEvent.click(screen.getAllByRole('option')[0])
+    expect(nodesOf('noteLink')).toHaveLength(1)
   })
 
   it('hides trashed notes and omits the create row on an exact title match', async () => {

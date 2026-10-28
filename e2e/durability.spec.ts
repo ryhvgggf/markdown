@@ -42,6 +42,7 @@ test('立即重新整理：標題、內文、連結與索引都會恢復 (I1, I3
   await editor.click()
   await page.keyboard.type('zebrafish 觀察 [[斑馬魚')
   await page.getByRole('option', { name: /斑馬魚目標/ }).click()
+  await page.keyboard.press('Enter') // the click completes [[標題; Enter makes the link
   await expect(editor.locator('[data-note-link]')).toHaveCount(1)
   await page.keyboard.type(' quickreload')
   await page.reload()

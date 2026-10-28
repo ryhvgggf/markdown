@@ -65,10 +65,12 @@ export async function linkItems(ctx: EditorContext, query: string): Promise<Link
     }
   }
   const needle = query.trim().toLowerCase()
+  const typed = normalizeTitle(query)
   const notes: LinkItem[] = vault
     .listNotes()
     .filter((n) => displayTitle(n.title).toLowerCase().includes(needle))
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+    // The note whose title is exactly what was typed comes first (Enter on it makes the link).
+    .sort((a, b) => Number(typed !== '' && normalizeTitle(b.title) === typed) - Number(typed !== '' && normalizeTitle(a.title) === typed) || b.updatedAt - a.updatedAt)
     .slice(0, MAX_ITEMS)
     .map((n) => ({ kind: 'note', id: n.id, title: displayTitle(n.title), path: folderPath(vault, n.folderId) }))
   if (needle && !exactNote(vault, query)) notes.push({ kind: 'create', title: query.trim() })
@@ -83,8 +85,23 @@ function insertLink(editor: Editor, range: Range, target: LinkTarget) {
     .run()
 }
 
+/**
+ * Picking a note first completes `[[Title` and keeps the menu open, so `#` can follow to pick a block;
+ * Enter again (the title now matches exactly) makes the link. Notes without a usable title, or whose
+ * title another note shares, link at once (the text could not name them).
+ */
+function completeOrLink(ctx: EditorContext, editor: Editor, range: Range, item: Extract<LinkItem, { kind: 'note' }>) {
+  const note = ctx.vault.getNote(item.id)
+  const title = note?.title ?? ''
+  const key = normalizeTitle(title)
+  const typed = normalizeTitle(editor.state.doc.textBetween(range.from + 2, range.to, '\n', '\0'))
+  const unique = key !== '' && ctx.vault.listNotes().filter((n) => normalizeTitle(n.title) === key).length === 1
+  if (!unique || typed === key || title.includes('#') || title.includes(']]')) insertLink(editor, range, { noteId: item.id, blockId: null })
+  else editor.chain().focus().insertContentAt(range, `[[${title}`).run()
+}
+
 export function runLinkItem(ctx: EditorContext, editor: Editor, range: Range, item: LinkItem) {
-  if (item.kind === 'note') insertLink(editor, range, { noteId: item.id, blockId: null })
+  if (item.kind === 'note') completeOrLink(ctx, editor, range, item)
   else if (item.kind === 'block') insertLink(editor, range, { noteId: item.noteId, blockId: item.blockId })
   else {
     let id: string
