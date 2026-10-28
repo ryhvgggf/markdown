@@ -22,9 +22,10 @@ const isEmptyPara = (n: PMNode) => n.type === 'paragraph' && !(n.content ?? []).
 /** Top-level / container blocks, separated by one blank line. Returns lines. */
 function blocks(nodes: PMNode[], ctx: SerializeContext): string[] {
   const out: string[] = []
+  const alt = alternator()
   for (const n of nodes) {
     if (isEmptyPara(n)) continue
-    const lines = block(n, ctx)
+    const lines = block(n, ctx, alt(n))
     if (!lines.length) continue
     if (out.length) out.push('')
     out.push(...lines)
@@ -32,14 +33,34 @@ function blocks(nodes: PMNode[], ctx: SerializeContext): string[] {
   return out
 }
 
+const isList = (n: PMNode) => n.type === 'bulletList' || n.type === 'orderedList' || n.type === 'taskList'
+
+/**
+ * Two lists in a row would merge into one when read back: the second uses the other marker
+ * (`-` ↔ `*`, `.` ↔ `)`), which CommonMark treats as a new list.
+ */
+function alternator() {
+  let prev: { ordered: boolean; alt: boolean } | null = null
+  return (n: PMNode): boolean => {
+    if (!isList(n)) {
+      prev = null
+      return false
+    }
+    const ordered = n.type === 'orderedList'
+    const alt = !!prev && prev.ordered === ordered && !prev.alt
+    prev = { ordered, alt }
+    return alt
+  }
+}
+
 const anchorOf = (n: PMNode, ctx: SerializeContext): string | null => {
   const id = n.attrs?.id
   return typeof id === 'string' && ctx.anchoredBlocks.has(id) ? blockAnchor(id) : null
 }
 
-function block(n: PMNode, ctx: SerializeContext): string[] {
+function block(n: PMNode, ctx: SerializeContext, altMarker = false): string[] {
   const anchor = n.type === 'heading' ? null : anchorOf(n, ctx)
-  const lines = blockBody(n, ctx)
+  const lines = blockBody(n, ctx, altMarker)
   if (!anchor || !lines.length) return lines
   if (n.type === 'paragraph') {
     lines[lines.length - 1] += ` ^${anchor}`
@@ -48,7 +69,7 @@ function block(n: PMNode, ctx: SerializeContext): string[] {
   return [...lines, '', `^${anchor}`]
 }
 
-function blockBody(n: PMNode, ctx: SerializeContext): string[] {
+function blockBody(n: PMNode, ctx: SerializeContext, altMarker: boolean): string[] {
   const c = n.content ?? []
   switch (n.type) {
     case 'paragraph':
@@ -74,7 +95,7 @@ function blockBody(n: PMNode, ctx: SerializeContext): string[] {
     case 'bulletList':
     case 'taskList':
     case 'orderedList':
-      return list(n, ctx)
+      return list(n, ctx, altMarker)
     case 'table':
       return table(n, ctx)
     case 'horizontalRule':
@@ -98,12 +119,17 @@ function media(n: PMNode, ctx: SerializeContext): string {
   return n.attrs?.kind === 'file' ? `[${name}](${target})` : `![${name}](${target})`
 }
 
-function list(n: PMNode, ctx: SerializeContext): string[] {
+function list(n: PMNode, ctx: SerializeContext, altMarker: boolean): string[] {
   const out: string[] = []
   const start = Number(n.attrs?.start) || 1
+  const bullet = altMarker ? '* ' : '- '
   ;(n.content ?? []).forEach((item, i) => {
     const marker =
-      n.type === 'orderedList' ? `${start + i}. ` : item.type === 'taskItem' ? (item.attrs?.checked ? '- [x] ' : '- [ ] ') : '- '
+      n.type === 'orderedList'
+        ? `${start + i}${altMarker ? ')' : '.'} `
+        : item.type === 'taskItem'
+          ? bullet + (item.attrs?.checked ? '[x] ' : '[ ] ')
+          : bullet
     const indent = ' '.repeat(n.type === 'orderedList' ? marker.length : 2)
     const lines = itemLines(item, ctx)
     const anchor = anchorOf(item, ctx)
@@ -116,13 +142,11 @@ function list(n: PMNode, ctx: SerializeContext): string[] {
 /** A list item's blocks: a nested list follows its line directly, anything else after a blank line. */
 function itemLines(item: PMNode, ctx: SerializeContext): string[] {
   const out: string[] = []
+  const alt = alternator()
   ;(item.content ?? []).forEach((b, i) => {
-    const lines = i === 0 && isEmptyPara(b) ? [''] : block(b, ctx)
+    const lines = i === 0 && isEmptyPara(b) ? [''] : block(b, ctx, alt(b))
     if (!lines.length) return
-    if (i > 0) {
-      const isList = b.type === 'bulletList' || b.type === 'orderedList' || b.type === 'taskList'
-      if (!isList) out.push('')
-    }
+    if (i > 0 && !(isList(b) && !isList(item.content![i - 1]))) out.push('')
     out.push(...lines)
   })
   return out.length ? out : ['']
