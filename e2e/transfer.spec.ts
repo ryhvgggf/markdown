@@ -8,7 +8,7 @@ async function openData(page: Page) {
   await page.mouse.move(300, 450)
   await page.mouse.move(3, 450, { steps: 4 })
   await expect(page.getByRole('navigation', { name: '主要功能' })).toHaveAttribute('data-open', 'true')
-  await page.getByRole('button', { name: '資料' }).click()
+  await page.getByRole('button', { name: '資料', exact: true }).click()
   return page.getByRole('dialog', { name: '資料' })
 }
 
