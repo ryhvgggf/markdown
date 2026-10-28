@@ -132,8 +132,22 @@ export function installBench(services: AppServices): void {
       longest = 0
       const t1 = performance.now()
       const src = await services.transfer.sourceFromFiles([new File([blob], 'bench.zip')])
+      const tRead = performance.now()
       const plan = await services.transfer.plan(src)
+      const tPlan = performance.now()
+      const planLongest = longest
+      const docs = services.transfer.docs
+      const orig = docs.write
+      let writeMs = 0
+      docs.write = async (id, d) => {
+        const t = performance.now()
+        await orig.call(docs, id, d)
+        writeMs += performance.now() - t
+      }
       await services.transfer.apply(plan, src, { destination: { kind: 'new-dated' }, onExisting: 'copy' })
+      docs.write = orig
+      console.log(`[bench] docs.write total ${writeMs.toFixed(0)} ms`)
+      console.log(`[bench] import: read ${(tRead - t1).toFixed(0)} ms, plan ${(tPlan - tRead).toFixed(0)} ms (longest ${planLongest}), apply ${(performance.now() - tPlan).toFixed(0)} ms`)
       const importMs = performance.now() - t1
       await new Promise((r) => setTimeout(r, 100))
       po.disconnect()

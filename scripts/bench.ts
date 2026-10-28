@@ -78,6 +78,7 @@ async function main() {
     const context = await chromium.launchPersistentContext(userDataDir, { headless: true })
     const page = context.pages()[0] ?? (await context.newPage())
     page.on('pageerror', (e) => console.error('pageerror:', e.message))
+    page.on('console', (m) => m.text().startsWith('[bench]') && console.log(m.text()))
     await page.goto(url)
     await page.waitForFunction(() => '__bench' in window, undefined, { timeout: 30_000 })
 
