@@ -52,12 +52,13 @@ describe('addMedia', () => {
     const vault = await makeVault()
     await expect(addMedia(bigFile(MAX_ATTACHMENT_BYTES, 'video/mp4'), { vault, storage: new MemoryStorage() })).resolves.toMatchObject({ kind: 'video' })
   })
-  it('rejects unsupported types', async () => {
+  it('accepts any other type as a file attachment', async () => {
     const vault = await makeVault()
     const storage = new MemoryStorage()
-    const err = await addMedia(new File(['x'], 'a.pdf', { type: 'application/pdf' }), { vault, storage }).catch((e) => e)
-    expect(err).toMatchObject({ code: 'unsupported', message: '目前只支援圖片與影片。' })
-    expect(vault.doc.getMap('attachments').size).toBe(0)
+    await expect(addMedia(new File(['x'], 'a.pdf', { type: 'application/pdf' }), { vault, storage })).resolves.toMatchObject({ kind: 'file' })
+    const r = await addMedia(new File(['x'], 'raw.bin'), { vault, storage })
+    expect(r.kind).toBe('file')
+    expect(vault.getAttachment(r.attachmentId)?.mimeType).toBe('application/octet-stream')
   })
   it('rejects SVG images, which can run scripts when opened (M6)', async () => {
     const vault = await makeVault()
@@ -240,12 +241,29 @@ describe('editor integration', () => {
   })
   it('reports errors and still inserts the valid files', async () => {
     await setup()
-    const pdf = new File(['x'], 'a.pdf', { type: 'application/pdf' })
+    const svg = new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' })
     await act(async () => {
-      fireEvent.paste(editor!.view.dom, { clipboardData: { files: [pdf, png()], getData: () => '', types: ['Files'] } })
+      fireEvent.paste(editor!.view.dom, { clipboardData: { files: [svg, png()], getData: () => '', types: ['Files'] } })
     })
     await waitFor(() => expect(mediaNodes()).toHaveLength(1))
-    expect(errors).toEqual(['目前只支援圖片與影片。'])
+    expect(errors).toEqual(['不支援 SVG 圖片，請改用 PNG、JPEG 或 GIF。'])
+  })
+  it('a dropped PDF becomes a file block with name, size and a download link', async () => {
+    await setup()
+    const pdf = new File([new Uint8Array(2048)], '報告.pdf', { type: 'application/pdf' })
+    await act(async () => {
+      fireEvent.paste(editor!.view.dom, { clipboardData: { files: [pdf], getData: () => '', types: ['Files'] } })
+    })
+    await waitFor(() => expect(mediaNodes()).toEqual([expect.objectContaining({ kind: 'file' })]))
+    expect(await screen.findByText('報告.pdf')).toBeInTheDocument()
+    expect(screen.getByText('2.0 KB')).toBeInTheDocument()
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.download).toBe('報告.pdf')
+      expect(this.href).toMatch(/^blob:/)
+    })
+    fireEvent.click(await screen.findByRole('button', { name: '下載 報告.pdf' }))
+    expect(click).toHaveBeenCalledTimes(1)
+    click.mockRestore()
   })
   it('shows 找不到這個檔案 for a missing blob', async () => {
     await setup()
@@ -260,5 +278,9 @@ describe('editor integration', () => {
       editor!.commands.setContent('<div data-type="media" data-attachment-id="a1" data-kind="video" data-width="320"></div>')
     })
     expect(mediaNodes()).toEqual([expect.objectContaining({ attachmentId: 'a1', kind: 'video', width: 320 })])
+    await act(async () => {
+      editor!.commands.setContent('<div data-type="media" data-attachment-id="a2" data-kind="file"></div>')
+    })
+    expect(mediaNodes()).toEqual([expect.objectContaining({ attachmentId: 'a2', kind: 'file' })])
   })
 })

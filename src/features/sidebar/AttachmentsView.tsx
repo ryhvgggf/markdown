@@ -6,8 +6,11 @@ import { displayTitle } from '@/core/vault/titles'
 import type { AttachmentMeta, NoteMeta } from '@/core/vault/types'
 import { useBlobUrl } from '@/features/editor/media/use-blob-url'
 import { useLive } from '@/features/panel/use-live'
+import { formatBytes } from '@/core/attachments'
 import { Button } from '@/ui/components/Button'
-import { ImageIcon, VideoIcon } from '@/ui/icons'
+import { FileIcon, ImageIcon, VideoIcon } from '@/ui/icons'
+
+export { formatBytes }
 
 export type AttachmentFilter = 'all' | 'used' | 'unused'
 
@@ -19,12 +22,6 @@ const FILTERS: ReadonlyArray<{ value: AttachmentFilter; label: string }> = [
   { value: 'used', label: '使用中' },
   { value: 'unused', label: '未使用' },
 ]
-
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
-}
 
 type Usage = { live: NoteMeta[]; trashed: NoteMeta[] }
 
@@ -245,8 +242,10 @@ function Thumb({ attachment: a }: { attachment: AttachmentMeta }) {
         <img src={url} alt="" className="size-full object-cover" draggable={false} />
       ) : isImage ? (
         <ImageIcon size={16} />
-      ) : (
+      ) : a.mimeType.startsWith('video/') ? (
         <VideoIcon size={16} />
+      ) : (
+        <FileIcon size={16} />
       )}
     </div>
   )

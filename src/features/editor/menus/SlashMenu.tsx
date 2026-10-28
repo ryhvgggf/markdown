@@ -3,7 +3,7 @@ import { Extension, type Editor, type Range } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import Suggestion from '@tiptap/suggestion'
 import {
-  CheckSquare, CodeBlock, Heading1, Heading2, Heading3, ImageIcon, Lightbulb, ListBullet, ListOrdered, Minus, Quote, TableIcon, TextT,
+  CheckSquare, CodeBlock, FileIcon, Heading1, Heading2, Heading3, ImageIcon, Lightbulb, ListBullet, ListOrdered, Minus, Quote, TableIcon, TextT,
   type IconProps,
 } from '@/ui/icons'
 import { filterSlashItems, type SlashItem } from './slash-items'
@@ -11,7 +11,7 @@ import { suggestionPopup, type PopupListHandle } from './suggestion-popup'
 
 const ICONS: Record<string, ComponentType<IconProps>> = {
   text: TextT, h1: Heading1, h2: Heading2, h3: Heading3, bullet: ListBullet, ordered: ListOrdered, task: CheckSquare,
-  quote: Quote, callout: Lightbulb, code: CodeBlock, table: TableIcon, divider: Minus, media: ImageIcon,
+  quote: Quote, callout: Lightbulb, code: CodeBlock, table: TableIcon, divider: Minus, media: ImageIcon, file: FileIcon,
 }
 
 type ListProps = { items: SlashItem[]; command: (item: SlashItem) => void }

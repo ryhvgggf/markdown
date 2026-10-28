@@ -179,6 +179,21 @@ export const Paperclip = make(
   'Paperclip',
   <path d="m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" />,
 )
+export const FileIcon = make(
+  'FileIcon',
+  <>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+    <path d="M14 3v5h5" />
+  </>,
+)
+export const Download = make(
+  'Download',
+  <>
+    <path d="M12 4v11" />
+    <path d="m7 10 5 5 5-5" />
+    <path d="M5 20h14" />
+  </>,
+)
 export const VideoIcon = make(
   'VideoIcon',
   <>

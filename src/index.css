@@ -140,4 +140,5 @@
 .media-block { margin: 0.5em 0; }
 .media-frame { position: relative; line-height: 0; }
 .media-placeholder { display: flex; align-items: center; justify-content: center; min-height: 120px; border-radius: 12px; background: var(--fill, rgba(127,127,127,.12)); font-size: 14px; line-height: 1.4; }
+.media-file { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--fill, rgba(127,127,127,.12)); }
 .media-resize-handle { position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; border-radius: 4px; background: var(--accent); border: 2px solid var(--bg, #fff); cursor: nwse-resize; touch-action: none; }

@@ -4,18 +4,33 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
 import type { EditorContext } from '../extensions'
 import { useBlobUrl } from '../media/use-blob-url'
+import { formatBytes } from '@/core/attachments'
+import { Download, FileIcon } from '@/ui/icons'
 import { insertMediaFiles, pickFiles } from '../media/insert-files'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     media: {
-      /** Opens the file picker and inserts the chosen files at the cursor. */
+      /** Opens the file picker (images and videos) and inserts the chosen files at the cursor. */
       pickMedia: () => ReturnType
+      /** Opens the file picker (any type) and inserts the chosen files at the cursor. */
+      pickFile: () => ReturnType
     }
   }
 }
 
 export const MIN_MEDIA_WIDTH = 80
+
+/** Saves a blob: URL under `name` (an anchor outside the editor, so the editor's link handling never sees it). */
+export function downloadUrl(url: string, name: string): void {
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
 
 export function clampWidth(w: number, max: number): number {
   return Math.round(Math.max(MIN_MEDIA_WIDTH, Math.min(w, Math.max(max, MIN_MEDIA_WIDTH))))
@@ -46,11 +61,12 @@ function useAttachmentState(vault: EditorContext['vault'] | undefined, id: strin
 
 function MediaView({ node, selected, updateAttributes, editor, extension }: ReactNodeViewProps) {
   const ctx = (extension.options as MediaOptions).ctx
-  const { attachmentId, kind, width } = node.attrs as { attachmentId: string; kind: 'image' | 'video'; width: number | null }
+  const { attachmentId, kind, width } = node.attrs as { attachmentId: string; kind: 'image' | 'video' | 'file'; width: number | null }
   const state = useAttachmentState(ctx?.vault, attachmentId)
   // Permanently deleted (metadata gone): reload, so the view does not keep showing a revoked file.
   const { url, status } = useBlobUrl(ctx?.storage, state === 'gone' ? '' : attachmentId)
-  const filename = ctx?.vault.getAttachment(attachmentId)?.filename ?? ''
+  const meta = ctx?.vault.getAttachment(attachmentId)
+  const filename = meta?.filename ?? ''
   const wrapRef = useRef<HTMLDivElement>(null)
   const [dragWidth, setDragWidth] = useState<number | null>(null)
   const shown = dragWidth ?? width
@@ -98,6 +114,32 @@ function MediaView({ node, selected, updateAttributes, editor, extension }: Reac
     )
   } else if (state === 'gone') {
     body = <div className="media-placeholder text-fg-tertiary">找不到這個檔案</div>
+  } else if (kind === 'file') {
+    body = (
+      <div className="media-file" contentEditable={false}>
+        <FileIcon size={20} className="shrink-0 text-fg-secondary" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-base text-fg" title={filename}>
+            {filename || '未命名檔案'}
+          </span>
+          {meta && <span className="block text-xs text-fg-tertiary">{formatBytes(meta.size)}</span>}
+        </span>
+        {status === 'ready' && url ? (
+          <button
+            type="button"
+            aria-label={`下載 ${filename}`}
+            className="inline-flex shrink-0 items-center gap-1 rounded-control bg-fill px-2.5 py-1 text-xs text-fg hover:bg-black/10"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => downloadUrl(url, filename || 'file')}
+          >
+            <Download size={14} />
+            下載
+          </button>
+        ) : (
+          <span className="shrink-0 text-xs text-fg-tertiary">{status === 'loading' ? '載入中…' : '找不到這個檔案'}</span>
+        )}
+      </div>
+    )
   } else if (status === 'loading') {
     body = <div className="media-placeholder text-fg-tertiary">載入中…</div>
   } else if (status === 'missing' || !url) {
@@ -132,7 +174,7 @@ function MediaView({ node, selected, updateAttributes, editor, extension }: Reac
   )
 }
 
-const MEDIA_KINDS = ['image', 'video']
+const MEDIA_KINDS = ['image', 'video', 'file']
 
 export const Media = Node.create<MediaOptions>({
   name: 'media',
@@ -171,6 +213,12 @@ export const Media = Node.create<MediaOptions>({
     const ctx = this.options.ctx
     return {
       pickMedia:
+        () =>
+        ({ editor }) => {
+          pickFiles((files) => void insertMediaFiles(editor, files, ctx), 'image/*,video/*')
+          return true
+        },
+      pickFile:
         () =>
         ({ editor }) => {
           pickFiles((files) => void insertMediaFiles(editor, files, ctx))

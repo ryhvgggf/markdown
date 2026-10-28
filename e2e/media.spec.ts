@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// 1x1 red PNG
+// 1x1 red PNG. File names in download tests are ASCII: headless Chromium names non-ASCII blob downloads "download".
 const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
 
 async function pastePng(page: Page, name: string) {
@@ -62,4 +62,31 @@ test('加入圖片：顯示 img、可調整寬度，重新整理後仍在', asyn
     await expect(again).toBeVisible({ timeout: 2000 })
     expect(Math.abs((await again.boundingBox())!.width - resized)).toBeLessThan(2)
   }).toPass({ timeout: 15000 })
+})
+
+test('加入檔案：/檔案 選 PDF → 檔案區塊、可下載、出現在附件面板', async ({ page }) => {
+  await page.goto('/')
+  const editor = page.locator('.ProseMirror')
+  await editor.click()
+  await page.keyboard.press('Control+End')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('/')
+  await expect(page.getByRole('listbox')).toBeVisible()
+  await page.keyboard.type('檔案')
+  await expect(page.getByRole('option')).toHaveCount(1)
+  const chooser = page.waitForEvent('filechooser')
+  await page.keyboard.press('Enter')
+  await (await chooser).setFiles({ name: 'report.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 test') })
+
+  const link = editor.getByRole('button', { name: '下載 report.pdf' })
+  await expect(link).toBeVisible()
+  const download = page.waitForEvent('download')
+  await link.click()
+  expect((await download).suggestedFilename()).toBe('report.pdf')
+
+  await page.mouse.move(300, 450)
+  await page.mouse.move(3, 450, { steps: 4 })
+  await expect(page.getByRole('navigation', { name: '主要功能' })).toHaveAttribute('data-open', 'true')
+  await page.getByRole('button', { name: '附件' }).click()
+  await expect(page.getByText('report.pdf').last()).toBeVisible()
 })

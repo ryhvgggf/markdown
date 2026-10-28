@@ -26,6 +26,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: 'table', label: '表格', hint: '插入 3 × 3 表格', aliases: ['table'], run: (e) => void chain(e).insertTable().run() },
   { id: 'divider', label: '分隔線', hint: '以水平線分隔內容', aliases: ['hr', 'divider'], run: (e) => void chain(e).setHorizontalRule().run() },
   { id: 'media', label: '圖片或影片', hint: '上傳或拖入圖片、影片', aliases: ['image', 'video', 'media', 'tu', 'pic'], run: (e) => void e.commands.pickMedia() },
+  { id: 'file', label: '檔案', hint: '上傳任意檔案，提供下載', aliases: ['file', 'pdf', 'attach', 'dangan'], run: (e) => void e.commands.pickFile() },
 ]
 
 export function filterSlashItems(query: string): SlashItem[] {

@@ -45,8 +45,10 @@ const key = (k: string, init: KeyboardEventInit = {}) =>
 describe('SLASH_ITEMS / filterSlashItems', () => {
   it('lists blocks in the specified order', () => {
     expect(SLASH_ITEMS.map((i) => i.label)).toEqual([
-      '文字', '標題 1', '標題 2', '標題 3', '項目清單', '編號清單', '待辦清單', '引用', '提示框', '程式碼', '表格', '分隔線', '圖片或影片',
+      '文字', '標題 1', '標題 2', '標題 3', '項目清單', '編號清單', '待辦清單', '引用', '提示框', '程式碼', '表格', '分隔線', '圖片或影片', '檔案',
     ])
+    expect(SLASH_ITEMS.find((i) => i.label === '檔案')).toMatchObject({ hint: '上傳任意檔案，提供下載' })
+    expect(filterSlashItems('pdf').map((i) => i.label)).toEqual(['檔案'])
     expect(SLASH_ITEMS.find((i) => i.label === '圖片或影片')).toMatchObject({ hint: '上傳或拖入圖片、影片' })
     expect(SLASH_ITEMS.find((i) => i.label === '圖片或影片')?.disabled).toBeUndefined()
   })

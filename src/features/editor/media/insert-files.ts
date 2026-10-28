@@ -6,7 +6,7 @@ export function mediaErrorMessage(e: unknown): string {
   return e instanceof MediaError ? e.message : '無法加入這個檔案。'
 }
 
-/** Adds files in order, then inserts the successful ones as media blocks at `pos` (default: cursor). Errors go to ctx.onMediaError. */
+/** Adds files in order, then inserts the successful ones as media / file blocks at `pos` (default: cursor). Errors go to ctx.onMediaError. */
 export async function insertMediaFiles(editor: Editor, files: File[], ctx: EditorContext | null, pos?: number): Promise<void> {
   if (!ctx) return
   const at = pos ?? editor.state.selection.to
@@ -40,10 +40,11 @@ export async function insertMediaFiles(editor: Editor, files: File[], ctx: Edito
     .run()
 }
 
-export function pickFiles(onPicked: (files: File[]) => void): void {
+/** Opens the browser's file picker. `accept`: e.g. 'image/*,video/*'; omitted → any file. */
+export function pickFiles(onPicked: (files: File[]) => void, accept?: string): void {
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = 'image/*,video/*'
+  if (accept) input.accept = accept
   input.multiple = true
   input.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0'
   input.tabIndex = -1
