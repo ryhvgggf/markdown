@@ -123,12 +123,16 @@ export class Vault {
   }
 
   // ---- notes ----
-  createNote(i: { title?: string; folderId?: string | null; index?: number } = {}): NoteMeta {
+  /** `id`, `createdAt`, `updatedAt`: only for import (an id already in use → VaultError 'exists'). */
+  createNote(
+    i: { id?: string; title?: string; folderId?: string | null; index?: number; createdAt?: number; updatedAt?: number } = {},
+  ): NoteMeta {
     const title = (i.title ?? '').trim()
     const folderId = i.folderId ?? null
     if (folderId !== null) this.folder(folderId)
     if (!this.isTitleAvailable(title)) throw new VaultError('duplicate-title')
-    const id = newId()
+    if (i.id && this.notes.has(i.id)) throw new VaultError('exists')
+    const id = i.id ?? newId()
     const now = Date.now()
     const order = this.noteOrder(folderId, i.index ?? Number.MAX_SAFE_INTEGER)
     this.doc.transact(() => {
@@ -138,8 +142,8 @@ export class Vault {
       m.set('title', title)
       m.set('folderId', folderId)
       m.set('order', order)
-      m.set('createdAt', now)
-      m.set('updatedAt', now)
+      m.set('createdAt', i.createdAt ?? now)
+      m.set('updatedAt', i.updatedAt ?? i.createdAt ?? now)
       m.set('deletedAt', null)
     })
     return this.getNote(id)!
@@ -180,9 +184,10 @@ export class Vault {
   }
 
   // ---- folders ----
-  createFolder(i: { name: string; parentId: string | null; index?: number }): FolderMeta {
+  createFolder(i: { id?: string; name: string; parentId: string | null; index?: number }): FolderMeta {
     if (i.parentId !== null) this.folder(i.parentId)
-    const id = newId()
+    if (i.id && this.folders.has(i.id)) throw new VaultError('exists')
+    const id = i.id ?? newId()
     const order = this.folderOrder(i.parentId, i.index ?? Number.MAX_SAFE_INTEGER)
     this.doc.transact(() => {
       const m: YM = new Y.Map()
@@ -316,8 +321,9 @@ export class Vault {
     })
     return { noteIds, attachmentIds }
   }
-  addAttachment(a: Omit<AttachmentMeta, 'id' | 'createdAt' | 'deletedAt'>): AttachmentMeta {
-    const meta: AttachmentMeta = { ...a, id: newId(), createdAt: Date.now(), deletedAt: null }
+  addAttachment(a: Omit<AttachmentMeta, 'id' | 'createdAt' | 'deletedAt'> & { id?: string; createdAt?: number }): AttachmentMeta {
+    if (a.id && this.attachments.has(a.id)) throw new VaultError('exists')
+    const meta: AttachmentMeta = { ...a, id: a.id ?? newId(), createdAt: a.createdAt ?? Date.now(), deletedAt: null }
     this.doc.transact(() => {
       const m: YM = new Y.Map()
       this.attachments.set(meta.id, m)

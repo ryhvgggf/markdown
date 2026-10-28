@@ -257,3 +257,26 @@ describe('Vault', () => {
     expect(v.getNote(n.id)).toBeDefined()
   })
 })
+
+describe('Vault — import options', () => {
+  it('creates notes, folders and attachments with given ids and times', async () => {
+    const v = await open()
+    const f = v.createFolder({ id: 'fold-1', name: 'F', parentId: null })
+    expect(f.id).toBe('fold-1')
+    const n = v.createNote({ id: 'note-1', title: 'A', folderId: 'fold-1', createdAt: 1000, updatedAt: 2000 })
+    expect(n).toMatchObject({ id: 'note-1', createdAt: 1000, updatedAt: 2000, folderId: 'fold-1' })
+    const a = v.addAttachment({ id: 'att-1', createdAt: 3000, filename: 'x.png', mimeType: 'image/png', size: 1 })
+    expect(v.getAttachment('att-1')).toMatchObject({ id: 'att-1', createdAt: 3000 })
+    expect(a.id).toBe('att-1')
+  })
+
+  it('refuses an id that is already taken', async () => {
+    const v = await open()
+    v.createNote({ id: 'x', title: 'A' })
+    expect(() => v.createNote({ id: 'x', title: 'B' })).toThrow(expect.objectContaining({ code: 'exists' }))
+    v.createFolder({ id: 'f', name: 'F', parentId: null })
+    expect(() => v.createFolder({ id: 'f', name: 'G', parentId: null })).toThrow(expect.objectContaining({ code: 'exists' }))
+    v.addAttachment({ id: 'a', filename: 'a', mimeType: 'x', size: 1 })
+    expect(() => v.addAttachment({ id: 'a', filename: 'b', mimeType: 'x', size: 1 })).toThrow(expect.objectContaining({ code: 'exists' }))
+  })
+})

@@ -27,7 +27,7 @@ export type AttachmentMeta = {
   restoredAt?: number
 }
 
-export type VaultErrorCode = 'duplicate-title' | 'not-found' | 'cycle'
+export type VaultErrorCode = 'duplicate-title' | 'not-found' | 'cycle' | 'exists'
 export class VaultError extends Error {
   code: VaultErrorCode
   constructor(code: VaultErrorCode, message?: string) {
