@@ -5,6 +5,8 @@ export type SlashItem = {
   label: string
   hint: string
   aliases: string[]
+  /** Menu section; blocks by default. Format items switch a style on for the text typed next. */
+  group?: 'block' | 'format'
   /** Not selectable yet (wired by a later task). */
   disabled?: boolean
   run(editor: Editor): void
@@ -27,6 +29,12 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: 'divider', label: '分隔線', hint: '以水平線分隔內容', aliases: ['hr', 'divider'], run: (e) => void chain(e).setHorizontalRule().run() },
   { id: 'media', label: '圖片或影片', hint: '上傳或拖入圖片、影片', aliases: ['image', 'video', 'media', 'tu', 'pic'], run: (e) => void e.commands.pickMedia() },
   { id: 'file', label: '檔案', hint: '上傳任意檔案，提供下載', aliases: ['file', 'pdf', 'attach', 'dangan'], run: (e) => void e.commands.pickFile() },
+  { id: 'bold', group: 'format', label: '粗體', hint: '接下來輸入的文字加粗', aliases: ['bold', 'cuti'], run: (e) => void chain(e).toggleBold().run() },
+  { id: 'italic', group: 'format', label: '斜體', hint: '接下來輸入的文字傾斜', aliases: ['italic', 'xieti'], run: (e) => void chain(e).toggleItalic().run() },
+  { id: 'underline', group: 'format', label: '底線', hint: '接下來輸入的文字加底線', aliases: ['underline', 'dixian'], run: (e) => void chain(e).toggleUnderline().run() },
+  { id: 'strike', group: 'format', label: '刪除線', hint: '接下來輸入的文字加刪除線', aliases: ['strike', 'del', 'shanchu'], run: (e) => void chain(e).toggleStrike().run() },
+  { id: 'highlight', group: 'format', label: '螢光', hint: '接下來輸入的文字加螢光標示', aliases: ['highlight', 'mark', 'hl', 'yingguang'], run: (e) => void chain(e).toggleHighlight({ color: '#FFF1A8' }).run() },
+  { id: 'inline-code', group: 'format', label: '行內程式碼', hint: '接下來輸入的文字用等寬字', aliases: ['code', 'inline', 'mono'], run: (e) => void chain(e).toggleCode().run() },
 ]
 
 export function filterSlashItems(query: string): SlashItem[] {

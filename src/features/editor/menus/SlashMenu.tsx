@@ -1,9 +1,9 @@
-import { forwardRef, useEffect, useImperativeHandle, useState, type ComponentType } from 'react'
+import { Fragment, forwardRef, useEffect, useImperativeHandle, useState, type ComponentType } from 'react'
 import { Extension, type Editor, type Range } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import Suggestion from '@tiptap/suggestion'
 import {
-  CheckSquare, CodeBlock, FileIcon, Heading1, Heading2, Heading3, ImageIcon, Lightbulb, ListBullet, ListOrdered, Minus, Quote, TableIcon, TextT,
+  Bold, CheckSquare, CodeBlock, FileIcon, Heading1, Heading2, Heading3, Highlighter, ImageIcon, Italic, Lightbulb, ListBullet, ListOrdered, Minus, Quote, Strikethrough, TableIcon, TextT, Underline,
   type IconProps,
 } from '@/ui/icons'
 import { filterSlashItems, type SlashItem } from './slash-items'
@@ -12,6 +12,7 @@ import { suggestionPopup, type PopupListHandle } from './suggestion-popup'
 const ICONS: Record<string, ComponentType<IconProps>> = {
   text: TextT, h1: Heading1, h2: Heading2, h3: Heading3, bullet: ListBullet, ordered: ListOrdered, task: CheckSquare,
   quote: Quote, callout: Lightbulb, code: CodeBlock, table: TableIcon, divider: Minus, media: ImageIcon, file: FileIcon,
+  bold: Bold, italic: Italic, underline: Underline, strike: Strikethrough, highlight: Highlighter, 'inline-code': CodeBlock,
 }
 
 type ListProps = { items: SlashItem[]; command: (item: SlashItem) => void }
@@ -49,16 +50,18 @@ const SlashList = forwardRef<PopupListHandle, ListProps>(function SlashList({ it
 
   return (
     <div data-slash-menu className="glass-float popup-pop max-h-80 w-[300px] overflow-y-auto p-1.5">
-      <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-fg-secondary">基本區塊</div>
       {items.length === 0 ? (
         <div className="px-2 py-3 text-sm text-fg-secondary">沒有符合的區塊</div>
       ) : (
         <div role="listbox" aria-label="基本區塊">
           {items.map((item, i) => {
             const Icon = ICONS[item.id]
+            const group = item.group ?? 'block'
+            const first = i === 0 || (items[i - 1].group ?? 'block') !== group
             return (
+              <Fragment key={item.id}>
+                {first && <div role="presentation" className="px-2 pb-1 pt-1.5 text-xs font-medium text-fg-secondary">{group === 'format' ? '文字格式' : '基本區塊'}</div>}
               <div
-                key={item.id}
                 role="option"
                 aria-selected={i === selected}
                 aria-disabled={item.disabled || undefined}
@@ -77,6 +80,7 @@ const SlashList = forwardRef<PopupListHandle, ListProps>(function SlashList({ it
                   <span className="block truncate text-xs text-fg-secondary">{item.hint}</span>
                 </span>
               </div>
+              </Fragment>
             )
           })}
         </div>
@@ -98,8 +102,17 @@ export const SlashCommand = Extension.create({
         editor: this.editor,
         pluginKey: new PluginKey('slashCommand'),
         char: '/',
-        startOfLine: true,
-        allow: ({ state, range }) => !state.doc.resolve(range.from).parent.type.spec.code,
+        allowedPrefixes: null, // anywhere in a line, also right after Chinese text
+        allow: ({ state, range }) => {
+          const $from = state.doc.resolve(range.from)
+          if ($from.parent.type.spec.code) return false
+          const before = state.doc.textBetween($from.start(), range.from, '\n', '\0')
+          if (!before) return true
+          // Mid-line: not inside a URL / path / "and/or", and only while something matches (so "是/否" stays quiet).
+          if (/[A-Za-z0-9:/.\-_]$/.test(before)) return false
+          const query = state.doc.textBetween(range.from + 1, range.to, '\n', '\0')
+          return !query || filterSlashItems(query).length > 0
+        },
         items: ({ query }) => filterSlashItems(query),
         command: ({ editor, range, props }) => runItem(editor, range, props),
         render: suggestionPopup<SlashItem, ListProps>(SlashList, (props) => ({ items: props.items, command: props.command })),

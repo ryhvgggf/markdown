@@ -136,7 +136,7 @@ function editing(r: GuideRefs): J {
 
 function blocks(r: GuideRefs): J {
   return doc(
-    p('在空白行的開頭輸入 ', code('/'), ' 會打開區塊選單。接著打字可以篩選（中文、英文都行，例如 ', code('/表格'), '、', code('/table'), '），', code('↑'), ' ', code('↓'), ' 選擇、', code('Enter'), ' 插入、', code('Esc'), ' 關閉。 ', tag(GUIDE_TAG)),
+    p('在任何地方輸入 ', code('/'), ' 會打開選單：插入區塊，或開啟「文字格式」（粗體、斜體、底線、刪除線、螢光、行內程式碼），之後輸入的文字就會套用該格式；忘記快捷鍵時很好用，例如 ', code('/螢光'), '。接著打字可以篩選（中文、英文都行，例如 ', code('/表格'), '、', code('/table'), '），', code('↑'), ' ', code('↓'), ' 選擇、', code('Enter'), ' 插入、', code('Esc'), ' 關閉。 ', tag(GUIDE_TAG)),
     table(
       ['項目', '插入什麼', '也可以搜尋'],
       SLASH_ITEMS.map((it) => [it.label, it.hint, it.aliases.join('、')]),
@@ -181,7 +181,7 @@ function blocks(r: GuideRefs): J {
     table(
       ['功能', '怎麼叫出來', '說明'],
       [
-        ['/ 選單', code('/'), '插入區塊'],
+        ['/ 選單', code('/'), '插入區塊、開啟文字格式'],
         ['筆記連結', code('[['), '連到其他筆記'],
         ['標籤', [code('#名稱'), ' + 空白'], '分類與搜尋'],
       ],

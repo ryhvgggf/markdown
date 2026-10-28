@@ -46,6 +46,7 @@ describe('SLASH_ITEMS / filterSlashItems', () => {
   it('lists blocks in the specified order', () => {
     expect(SLASH_ITEMS.map((i) => i.label)).toEqual([
       '文字', '標題 1', '標題 2', '標題 3', '項目清單', '編號清單', '待辦清單', '引用', '提示框', '程式碼', '表格', '分隔線', '圖片或影片', '檔案',
+      '粗體', '斜體', '底線', '刪除線', '螢光', '行內程式碼',
     ])
     expect(SLASH_ITEMS.find((i) => i.label === '檔案')).toMatchObject({ hint: '上傳任意檔案，提供下載' })
     expect(filterSlashItems('pdf').map((i) => i.label)).toEqual(['檔案'])
@@ -58,6 +59,27 @@ describe('SLASH_ITEMS / filterSlashItems', () => {
     expect(filterSlashItems('h1').map((i) => i.label)).toContain('標題 1')
     expect(filterSlashItems('')).toHaveLength(SLASH_ITEMS.length)
     expect(filterSlashItems('zzz')).toEqual([])
+  })
+})
+
+describe('slash menu: formatting and mid-line', () => {
+  it('opens after text (also right after Chinese) and 螢光 highlights what is typed next', async () => {
+    await setup('<p>這是重點</p>')
+    await type('/螢光')
+    expect(await screen.findByRole('option', { name: /螢光/ })).toBeInTheDocument()
+    await key('Enter')
+    expect(editor!.getText()).toBe('這是重點')
+    await type('很重要')
+    expect(editor!.getHTML()).toContain('<mark')
+    expect(editor!.getHTML()).toMatch(/<mark[^>]*>很重要<\/mark>/)
+  })
+  it('stays quiet inside URLs, "and/or", and when nothing matches', async () => {
+    await setup('<p>see https:</p>')
+    await type('/')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    await setup('<p>是</p>')
+    await type('/否')
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
 })
 
