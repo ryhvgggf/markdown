@@ -27,6 +27,7 @@ import { focusTitleEnd } from './focus-bridge'
 import { isComposingEvent } from './ime'
 import { isTyping, isTypingKey, markTyping } from './typing'
 import { SlashCommand } from './menus/SlashMenu'
+import { ExitMarks } from './marks/exit-marks'
 import { SuggestionKeys } from './menus/suggestion-popup'
 import { BlockLinkPaste } from './links/block-link-clipboard'
 import { BlockHighlight } from './links/block-highlight'
@@ -157,6 +158,7 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     ...formattingExtensions(),
     MarkdownPaste.configure({ ctx }),
     SlashCommand,
+    ExitMarks,
     SuggestionKeys,
     NoteLink.configure({ ctx }),
     Tag.configure({ ctx }),
