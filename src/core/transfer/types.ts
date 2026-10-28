@@ -54,6 +54,10 @@ export type ImportChoices = {
   destination: { kind: 'new-dated' } | { kind: 'folder'; folderId: string | null }
   /** Required when the plan has existing notes. */
   onExisting: 'overwrite' | 'copy' | null
+  /** Restore-replace: no 「（覆蓋前）」 copies (a full backup was downloaded first). */
+  noBackupCopies?: boolean
+  /** Restore-replace: overwritten notes also move to their place in the backup. */
+  relocate?: boolean
 }
 
 export type ImportReport = {

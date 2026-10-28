@@ -146,7 +146,7 @@ export async function applyImport(
       // Created by an earlier, interrupted run of this import.
     } else if (current) {
       // Overwrite: the current version goes to the trash first, as its own note.
-      if (!job.backups[n.path]) {
+      if (!job.backups[n.path] && !choices.noBackupCopies) {
         const before = await docs.read(id)
         const taken = new Set(vault.listNotes().map((x) => x.title))
         const backup = vault.createNote({ title: dedupeTitle(`${current.title}（覆蓋前）`, taken), folderId: current.folderId })
@@ -157,6 +157,10 @@ export async function applyImport(
       }
       await docs.replace(id, doc)
       if (current.deletedAt !== null) vault.restoreNote(id)
+      if (choices.relocate) {
+        const folderId = n.folderPath.length ? job.folderIds[n.folderPath.join('/')] : job.rootFolderId
+        if (vault.getNote(id)!.folderId !== folderId) vault.moveNote(id, { folderId, index: Number.MAX_SAFE_INTEGER })
+      }
       if (current.title !== original) {
         const taken = new Set(vault.listNotes().filter((x) => x.id !== id).map((x) => x.title))
         vault.renameNote(id, dedupeTitle(original, taken))

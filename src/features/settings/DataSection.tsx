@@ -5,6 +5,7 @@ import { BANNER_COPY } from '@/features/shell/StorageBanner'
 import { useLive } from '@/features/panel/use-live'
 import { ExportSection } from '@/features/transfer/ExportSection'
 import { MirrorSection } from '@/features/transfer/MirrorSection'
+import { RestoreSection } from '@/features/transfer/RestoreSection'
 import { IMPORT_JOB_KEY } from '@/core/transfer/types'
 import { Button } from '@/ui/components/Button'
 import { SectionLabel } from './controls'
@@ -80,6 +81,10 @@ export function DataSection() {
       <div className="mt-4">
         <SectionLabel>同步到資料夾</SectionLabel>
         <MirrorSection />
+      </div>
+      <div className="mt-4">
+        <SectionLabel>從備份還原</SectionLabel>
+        <RestoreSection />
       </div>
       <div className="mt-4">
         <SectionLabel>維護</SectionLabel>

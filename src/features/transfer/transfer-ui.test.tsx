@@ -11,8 +11,14 @@ import { NoteDocCache } from '@/core/note-doc/cache'
 import { Vault } from '@/core/vault/vault'
 import { ExportSection } from './ExportSection'
 import { ImportDialog } from './ImportDialog'
+import { RestoreSection } from './RestoreSection'
 
-vi.mock('./download', async (orig) => ({ ...(await orig<typeof import('./download')>()), downloadBlob: vi.fn() }))
+let nextPick: File[] = []
+vi.mock('./download', async (orig) => ({
+  ...(await orig<typeof import('./download')>()),
+  downloadBlob: vi.fn(),
+  pickInput: (_o: unknown, cb: (f: File[]) => void) => cb(nextPick),
+}))
 const { downloadBlob } = await import('./download')
 
 const channelFactory = () =>
@@ -86,5 +92,29 @@ describe('export section', () => {
     fireEvent.click(screen.getByRole('button', { name: '匯出 ZIP' }))
     await waitFor(() => expect(downloadBlob).toHaveBeenCalled())
     expect(vi.mocked(downloadBlob).mock.calls[0][1]).toMatch(/^我的知識庫-\d{4}-\d{2}-\d{2}\.zip$/)
+  })
+})
+
+describe('restore section', () => {
+  it('downloads the current vault first, then asks; 取代 needs a second confirmation', async () => {
+    const n = vault.createNote({ title: '一' })
+    await transfer.docs.write(n.id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '舊' }] }] })
+    const { blob } = await transfer.exportFile({ kind: 'vault' }, { includeUnusedAttachments: false })
+    vault.createNote({ title: '備份之後才有' })
+    vi.mocked(downloadBlob).mockClear()
+    nextPick = [new File([blob], 'backup.zip')]
+    mount(<RestoreSection />)
+    fireEvent.click(screen.getByRole('button', { name: '選擇備份 ZIP' }))
+    expect(await screen.findByText('已先下載目前知識庫的備份。')).toBeInTheDocument()
+    expect(downloadBlob).toHaveBeenCalledTimes(1)
+    const go = screen.getByRole('button', { name: '還原' })
+    expect(go).toBeDisabled()
+    fireEvent.click(screen.getByRole('radio', { name: /取代/ }))
+    fireEvent.click(go)
+    expect(screen.getByText(/目前不在備份中的筆記會移到垃圾桶/)).toBeInTheDocument()
+    expect(vault.getNote(n.id)!.deletedAt).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '確定取代' }))
+    await screen.findByText(/已匯入 1 篇筆記/)
+    expect(vault.listNotes().map((x) => x.title)).toEqual(['一'])
   })
 })

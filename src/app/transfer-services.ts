@@ -7,7 +7,9 @@ import type { NoteDocCache } from '@/core/note-doc/cache'
 import { exportFile, type ExportOptions, type ExportScope } from '@/core/transfer/export'
 import { applyImport } from '@/core/transfer/import-apply'
 import { planImport } from '@/core/transfer/import-plan'
+import { restoreBackup, sourceFromDir, type RestoreMode } from '@/core/transfer/restore'
 import { sourceFromEntries } from '@/core/transfer/source'
+import { handleDir } from '@/adapters/fs/handle-dir'
 import { isV1Zip, v1ZipToSource } from '@/core/transfer/v1-zip'
 import { createTransferClient, type TransferClient } from '@/core/transfer/transfer-client'
 import type { DocIO, ImportChoices, ImportDeps, ImportPlan, ImportReport, ImportSource } from '@/core/transfer/types'
@@ -22,6 +24,9 @@ export type TransferServices = {
   sourceFromFiles(files: File[]): Promise<ImportSource>
   plan(src: ImportSource): Promise<ImportPlan>
   apply(plan: ImportPlan, src: ImportSource, choices: ImportChoices, onProgress?: (done: number, total: number) => void): Promise<ImportReport>
+  /** A folder picked by the user (e.g. the mirror folder), read-only. Null when cancelled or unsupported. */
+  sourceFromPickedFolder(): Promise<ImportSource | null>
+  restore(src: ImportSource, mode: RestoreMode, onExisting: 'overwrite' | 'copy' | null, onProgress?: (done: number, total: number) => void): Promise<ImportReport>
 }
 
 /** Path of a picked file: its place in a picked folder, else its name. */
@@ -61,6 +66,21 @@ export function createTransferServices(deps: {
       return isV1Zip(entries) ? v1ZipToSource(entries) : sourceFromEntries(entries)
     },
     plan: (src) => planImport(src, importDeps),
+    async sourceFromPickedFolder() {
+      const picker = (window as unknown as { showDirectoryPicker?(o?: object): Promise<FileSystemDirectoryHandle> }).showDirectoryPicker
+      if (!picker) return null
+      try {
+        return await sourceFromDir(handleDir(await picker.call(window, { id: 'notes-v2-mirror' })))
+      } catch (e) {
+        if ((e as { name?: string })?.name === 'AbortError') return null
+        throw e
+      }
+    },
+    async restore(src, mode, onExisting, onProgress) {
+      const report = await restoreBackup(src, mode, onExisting, importDeps, onProgress)
+      void indexer.catchUp().catch(() => {})
+      return report
+    },
     async apply(plan, src, choices, onProgress) {
       const report = await applyImport(plan, src, choices, importDeps, onProgress)
       void indexer.catchUp().catch(() => {}) // imported notes are marked dirty; also caught up on the next start
