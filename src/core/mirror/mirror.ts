@@ -92,7 +92,9 @@ export class Mirror {
     }
     if (!this.deps.locks) return begin()
     void this.deps.locks.request(MIRROR_LOCK, async () => {
+      if (this.gen !== gen) return // stopped (or restarted) while waiting: give the lock straight back
       await begin()
+      if (this.gen !== gen) return
       await new Promise<void>((r) => (this.releaseLock = r))
     })
   }

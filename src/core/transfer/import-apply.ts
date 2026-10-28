@@ -198,6 +198,11 @@ export async function applyImport(
             vault.trashNote(backupId)
           })
           job.backups[n.path] = backupId
+          // The copy must be stored (and recorded) before the overwrite is: a crash in between must
+          // never leave the old version with no note pointing at it.
+          await vault.flushWrites()
+          if (vault.hasFailedWrites()) throw new Error('無法儲存到這個瀏覽器（空間可能不足）')
+          await db.meta.put({ key: IMPORT_JOB_KEY, value: { ...job, done: [...done] } })
         }
         await docs.replace(id, doc)
         if (current.deletedAt !== null) vault.restoreNote(id)
@@ -220,7 +225,14 @@ export async function applyImport(
         const updatedAt = mn?.updatedAt ?? meta?.updatedAt ?? parsed.updated ?? undefined
         // Content first: a crash before the note exists leaves stored content that the re-run reuses.
         // A backup's id may have content left by an earlier crashed run: never add a second copy on top.
-        if ((!resumed && !manifestNotes.has(n.path)) || (await storage.loadDoc(id)).length === 0) await docs.write(id, doc)
+        if (resumed) {
+          // Content stored by this same run before the crash is this same document: reuse it.
+          if ((await storage.loadDoc(id)).length === 0) await docs.write(id, doc)
+        } else {
+          // A fresh run: content under a backup's id can only be left from some other crashed run.
+          if (manifestNotes.has(n.path) && (await storage.loadDoc(id)).length) await storage.deleteDoc(id)
+          await docs.write(id, doc)
+        }
         const folderId = n.folderPath.length ? job.folderIds[n.folderPath.join('/')] : job.rootFolderId
         creates.push(() => {
           try {

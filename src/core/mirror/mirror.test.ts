@@ -244,6 +244,28 @@ describe('mirror', () => {
     expect([...first.dir.files.keys()].filter((k) => k.includes('外部修改'))).toEqual([])
   })
 
+  it('stopping while waiting for the lock does not keep the lock when it is granted', async () => {
+    let holder: Promise<void> = Promise.resolve()
+    const locks: LockLike = {
+      request: (_n, cb) => {
+        const run = holder.then(() => cb())
+        holder = run.catch(() => {})
+        return run
+      },
+    }
+    let releaseOther!: () => void
+    void locks.request('x', () => new Promise<void>((r) => (releaseOther = r))) // another tab holds it
+    await note('A', doc(p('x')))
+    const m = new Mirror(deps({ locks }))
+    mirrors.push(m)
+    const dir = memoryDir()
+    void m.start(dir)
+    await m.stop()
+    releaseOther()
+    void m.start(dir)
+    await vi.waitFor(() => expect(m.status).toBe('active'))
+  })
+
   it('the manifest lists live notes with their ids, without documents', async () => {
     const n = await note('A', doc(p('x')))
     const { m, dir } = await started()
