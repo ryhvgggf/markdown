@@ -67,6 +67,7 @@ export function RestoreSection() {
 
   return (
     <div className="flex flex-col gap-2 py-2 text-sm">
+      <p className="text-fg-secondary">選擇先前匯出的 ZIP 或同步的資料夾，把筆記還原回來。</p>
       {step.kind === 'idle' && pickers}
       {step.kind === 'reading' && <p role="status" className="text-fg-secondary">正在讀取…</p>}
       {step.kind === 'error' && (

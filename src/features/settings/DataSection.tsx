@@ -69,6 +69,7 @@ export function DataSection() {
       <div className="mt-4">
         <SectionLabel>匯入</SectionLabel>
         <div className="flex flex-col gap-2 py-2">
+          <p className="text-sm text-fg-secondary">選擇先前匯出的檔案（也可以是 .md 檔或資料夾），匯入目前的筆記。</p>
           {pendingImport != null && (
             <p role="status" className="text-sm text-fg">
               上次匯入未完成（已處理 {pendingImport} 個檔案）· 重新選擇相同的檔案即可繼續
@@ -90,6 +91,7 @@ export function DataSection() {
       <div className="mt-4">
         <SectionLabel>維護</SectionLabel>
         <p className="pt-2 text-sm font-medium text-fg">搜尋索引</p>
+        <p className="text-sm text-fg-secondary">搜尋結果不正確時，重新整理搜尋資料。</p>
         <div className="flex items-center gap-3 py-2">
           <Button disabled={status.kind === 'running'} onClick={() => void rebuild()}>
             {status.kind === 'running' ? '正在重建…' : '重建索引'}
@@ -108,6 +110,7 @@ export function DataSection() {
       </div>
       <div>
         <p className="pt-2 text-sm font-medium text-fg">功能導覽</p>
+        <p className="text-sm text-fg-secondary">重新加入功能導覽筆記。</p>
         <div className="flex items-center gap-3 py-2">
           <Button disabled={guide === 'running'} onClick={() => void addGuideNotes()}>
             加入功能導覽筆記

@@ -26,6 +26,7 @@ export function ExportSection() {
   }
   return (
     <div className="flex flex-col gap-2 py-2">
+      <p className="text-sm text-fg-secondary">將筆記匯出並打包成 ZIP 壓縮檔，方便備份或轉移。</p>
       <label className="flex items-center gap-2 text-sm text-fg">
         <input type="checkbox" checked={unused} onChange={(e) => setUnused(e.target.checked)} />
         包含未使用的附件

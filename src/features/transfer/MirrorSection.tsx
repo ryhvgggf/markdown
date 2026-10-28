@@ -35,6 +35,7 @@ export function MirrorSection() {
   }
   return (
     <div className="flex flex-col gap-2 py-2 text-sm">
+      <p className="text-fg-secondary">選一個電腦上的資料夾，筆記會自動存成 .md 檔放在裡面。只會單向寫入，在資料夾裡改檔案不會回到 App。</p>
       {mirror.status === 'off' ? (
         <div>
           <Button onClick={() => void mirror.choose()}>選擇資料夾</Button>
