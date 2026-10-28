@@ -35,7 +35,9 @@ test('標題正下方的 / 選單：↑↓ 只移動選單，Enter 插入所選�
   await expect(title).not.toBeFocused()
   await expect(options.last()).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('ArrowUp')
-  await expect(options.nth(-2)).toHaveAttribute('aria-selected', 'true') // 分隔線
+  await page.keyboard.press('ArrowUp')
+  await expect(options.nth(-3)).toHaveAttribute('aria-selected', 'true')
+  await expect(options.nth(-3)).toContainText('分隔線')
   await page.keyboard.press('Enter')
   await expect(editor.locator('hr')).toHaveCount(1)
   await expect(title).toHaveValue('歡迎使用')

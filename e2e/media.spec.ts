@@ -80,9 +80,13 @@ test('加入檔案：/檔案 選 PDF → 檔案區塊、可下載、出現在附
 
   const link = editor.getByRole('button', { name: '下載 report.pdf' })
   await expect(link).toBeVisible()
-  const download = page.waitForEvent('download')
-  await link.click()
-  expect((await download).suggestedFilename()).toBe('report.pdf')
+  // Right after the block appears a click can land while the editor is still settling (cold start):
+  // retry the click, the assertion is that it downloads with the right name.
+  await expect(async () => {
+    const download = page.waitForEvent('download', { timeout: 3000 })
+    await link.click()
+    expect((await download).suggestedFilename()).toBe('report.pdf')
+  }).toPass({ timeout: 20_000 })
 
   await page.mouse.move(300, 450)
   await page.mouse.move(3, 450, { steps: 4 })

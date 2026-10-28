@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 import { item, newNote } from './helpers'
 
+// Without a UTF-8 locale headless Chromium names CJK downloads "download" (this file checks the ZIP name).
+test.use({ launchOptions: { env: { ...process.env, LANG: process.env.LANG || 'C.UTF-8' } } })
+
 async function openData(page: Page) {
   await page.mouse.move(300, 450)
   await page.mouse.move(3, 450, { steps: 4 })

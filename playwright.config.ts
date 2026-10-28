@@ -7,8 +7,6 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL: 'http://localhost:4173',
-    // Without a UTF-8 locale headless Chromium names CJK downloads "download".
-    launchOptions: { env: { ...process.env, LANG: process.env.LANG || 'C.UTF-8' } },
     // Specs start from an empty vault (one blank 歡迎使用 note): skip the built-in guide (honoured only
     // under automation, see src/main.tsx). guide.spec.ts opts back in.
     storageState: { cookies: [], origins: [{ origin: 'http://localhost:4173', localStorage: [{ name: 'notes-v2:e2e-no-guide', value: '1' }] }] },
