@@ -93,4 +93,12 @@ describe('Rail 附件', () => {
     fireEvent.click(screen.getByRole('button', { name: '檔案' }))
     expect(useUi.getState().sidebarView).toBe('tree')
   })
+
+  it('資料 opens its own window, apart from settings', () => {
+    useUi.setState({ dataOpen: false, settingsOpen: false })
+    setup()
+    fireEvent.click(screen.getByRole('button', { name: '資料' }))
+    expect(useUi.getState().dataOpen).toBe(true)
+    expect(useUi.getState().settingsOpen).toBe(false)
+  })
 })

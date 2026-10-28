@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useServices } from '@/app/services-context'
-import { useUi } from '@/app/ui-store'
+import { useUi, closeDataWindows } from '@/app/ui-store'
 import { localDate } from '@/core/markdown/paths'
 import type { ImportPlan, ImportReport, ImportSource } from '@/core/transfer/types'
 import { Button } from '@/ui/components/Button'
@@ -19,7 +19,7 @@ type Step =
 /** After an import, show the notes: close this dialog and the settings it may have been opened from. */
 const finish = () => {
   useUi.getState().closeImport()
-  useUi.getState().setSettings(false)
+  closeDataWindows()
 }
 
 const message = (e: unknown) => (e instanceof Error && e.message ? e.message : '無法讀取這些檔案。')

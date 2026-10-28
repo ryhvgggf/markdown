@@ -7,6 +7,7 @@ import { QuickSwitcher } from '@/features/search/QuickSwitcher'
 import { ImportDialog } from '@/features/transfer/ImportDialog'
 import { Sidebar } from '@/features/sidebar/Sidebar'
 import { AppearanceEffects } from '@/features/settings/AppearanceEffects'
+import { DataDialog } from '@/features/settings/DataDialog'
 import { SettingsDialog } from '@/features/settings/SettingsDialog'
 import { Shell } from '@/features/shell/Shell'
 import { StorageBanner } from '@/features/shell/StorageBanner'
@@ -76,6 +77,7 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
       />
       <QuickSwitcher />
       <SettingsDialog />
+      <DataDialog />
       <ImportDialog />
     </ServicesProvider>
   )

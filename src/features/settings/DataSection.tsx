@@ -56,18 +56,19 @@ export function DataSection() {
 
   return (
     <section aria-label="資料">
-      <SectionLabel>儲存空間</SectionLabel>
-      <p className="py-2 text-base text-fg-secondary">
-        {storageMode === 'memory' ? BANNER_COPY.memory : PERSISTENCE_COPY[persistence]}
-      </p>
-      <div className="mt-4">
+      {(storageMode === 'memory' || persistence !== 'granted') && (
+        <div className="mb-4">
+          <SectionLabel>儲存空間</SectionLabel>
+          <p className="py-2 text-base text-fg-secondary">{storageMode === 'memory' ? BANNER_COPY.memory : PERSISTENCE_COPY[persistence]}</p>
+        </div>
+      )}
+      <div>
         <SectionLabel>匯出</SectionLabel>
         <ExportSection />
       </div>
       <div className="mt-4">
         <SectionLabel>匯入</SectionLabel>
         <div className="flex flex-col gap-2 py-2">
-          <p className="text-sm text-fg-secondary">Markdown 檔、資料夾或 ZIP（含本 App 與 v1 的備份）。</p>
           {pendingImport != null && (
             <p role="status" className="text-sm text-fg">
               上次匯入未完成（已處理 {pendingImport} 個檔案）· 重新選擇相同的檔案即可繼續

@@ -16,6 +16,8 @@ export interface UiState {
   /** What the sidebar card shows: the folder tree, the trash, or the attachments list. */
   sidebarView: SidebarView
   settingsOpen: boolean
+  /** The 資料 window (export, import, folder sync, restore, maintenance). */
+  dataOpen: boolean
   /** The import dialog: null closed; [] open at the file picker; files: open with those files. */
   importFiles: File[] | null
   highlightBlockId: string | null
@@ -29,6 +31,7 @@ export interface UiState {
   setSidebarOverlay(v: boolean): void
   setSidebarView(v: SidebarView): void
   setSettings(v: boolean): void
+  setData(v: boolean): void
   openImport(files?: File[]): void
   closeImport(): void
   clearHighlight(): void
@@ -45,6 +48,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     sidebarOverlayOpen: false,
     sidebarView: 'tree',
     settingsOpen: false,
+    dataOpen: false,
     importFiles: null,
     highlightBlockId: null,
     openNote: (id, blockId) => {
@@ -60,11 +64,15 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     setSidebarOverlay: (sidebarOverlayOpen) => set({ sidebarOverlayOpen }),
     setSidebarView: (sidebarView) => set({ sidebarView }),
     setSettings: (settingsOpen) => set({ settingsOpen }),
+    setData: (dataOpen) => set({ dataOpen }),
     openImport: (files = []) => set({ importFiles: files }),
     closeImport: () => set({ importFiles: null }),
     clearHighlight: () => set({ highlightBlockId: null }),
   }))
 }
+
+/** Closes the settings and 資料 windows (e.g. before showing a note). */
+export const closeDataWindows = () => useUi.setState({ settingsOpen: false, dataOpen: false })
 
 let persistHook: ((id: string) => void) | undefined
 /** Wired by App after bootstrap so openNote persists meta.lastNoteId. */

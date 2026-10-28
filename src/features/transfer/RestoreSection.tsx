@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { canPickDirectory } from '@/adapters/fs/permission'
 import { useServices } from '@/app/services-context'
-import { useUi } from '@/app/ui-store'
+import { closeDataWindows } from '@/app/ui-store'
 import type { ImportPlan, ImportReport, ImportSource } from '@/core/transfer/types'
 import { Button } from '@/ui/components/Button'
 import { downloadBlob, pickInput } from './download'
@@ -67,7 +67,6 @@ export function RestoreSection() {
 
   return (
     <div className="flex flex-col gap-2 py-2 text-sm">
-      <p className="text-fg-secondary">資料遺失時，用本 App 匯出的 ZIP 或同步資料夾把知識庫還原回來。</p>
       {step.kind === 'idle' && pickers}
       {step.kind === 'reading' && <p role="status" className="text-fg-secondary">正在讀取…</p>}
       {step.kind === 'error' && (
@@ -84,7 +83,7 @@ export function RestoreSection() {
       )}
       {step.kind === 'done' && (
         <>
-          <ImportReportView report={step.report} onOpenNote={() => useUi.getState().setSettings(false)} />
+          <ImportReportView report={step.report} onOpenNote={() => closeDataWindows()} />
           <div>
             <Button onClick={() => setStep({ kind: 'idle' })}>完成</Button>
           </div>

@@ -26,7 +26,6 @@ export function ExportSection() {
   }
   return (
     <div className="flex flex-col gap-2 py-2">
-      <p className="text-sm text-fg-secondary">整個知識庫存成 Markdown ZIP，Obsidian、VS Code、Typora 都能打開。{EXPORT_LOSS_NOTE}</p>
       <label className="flex items-center gap-2 text-sm text-fg">
         <input type="checkbox" checked={unused} onChange={(e) => setUnused(e.target.checked)} />
         包含未使用的附件

@@ -8,6 +8,7 @@ import { DEFAULT_PREFS } from '@/core/preferences/preferences'
 import { Background } from '@/features/shell/Background'
 import { NoteCardBackground } from '@/features/shell/NoteCardBackground'
 import { AppearanceEffects } from './AppearanceEffects'
+import { DataDialog } from './DataDialog'
 import { SettingsDialog } from './SettingsDialog'
 
 let n = 0
@@ -20,6 +21,7 @@ async function setup(over: Partial<AppServices> = {}, opts: { open?: boolean } =
       <Background />
       <NoteCardBackground />
       <SettingsDialog />
+      <DataDialog />
     </ServicesProvider>,
   )
   const user = userEvent.setup()
@@ -30,6 +32,14 @@ async function setup(over: Partial<AppServices> = {}, opts: { open?: boolean } =
   return { services, dialog, user, tab }
 }
 
+/** The 資料 window (opened from the rail's 資料 button). */
+async function setupData(over: Partial<AppServices> = {}) {
+  const r = await setup(over, { open: false })
+  act(() => useUi.getState().setData(true))
+  const dialog = await screen.findByRole('dialog', { name: '資料' })
+  return { ...r, dialog }
+}
+
 const root = document.documentElement
 
 beforeEach(() => {
@@ -38,16 +48,20 @@ beforeEach(() => {
   URL.revokeObjectURL = vi.fn()
 })
 afterEach(() => {
-  act(() => useUi.getState().setSettings(false))
+  act(() => {
+    useUi.getState().setSettings(false)
+    useUi.getState().setData(false)
+  })
   root.removeAttribute('style')
 })
 
 describe('SettingsDialog', () => {
-  it('lists the six sections and closes on Esc', async () => {
+  it('lists the five sections (資料 has its own window) and closes on Esc', async () => {
     const { dialog, user } = await setup()
-    for (const name of ['背景', '色彩', '文字', '版面', '動態', '資料']) {
+    for (const name of ['背景', '色彩', '文字', '版面', '動態']) {
       expect(within(dialog).getByRole('tab', { name })).toBeInTheDocument()
     }
+    expect(within(dialog).queryByRole('tab', { name: '資料' })).toBeNull()
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).toBeNull()
   })
@@ -198,8 +212,7 @@ describe('SettingsDialog', () => {
 
   describe('data', () => {
     it('加入功能導覽筆記 adds the guide folder (again, with suffixed titles) and opens its first note', async () => {
-      const { dialog, user, tab, services } = await setup()
-      await tab('資料')
+      const { dialog, user, services } = await setupData()
       await user.click(within(dialog).getByRole('button', { name: '加入功能導覽筆記' }))
       expect(await within(dialog).findByText('已加入「功能導覽」資料夾。')).toBeInTheDocument()
       const first = services.vault.listFolders().find((f) => f.name === '功能導覽')!
@@ -211,10 +224,9 @@ describe('SettingsDialog', () => {
     })
 
     it('rebuilds the index with progress copy and disables while running', async () => {
-      const { dialog, user, tab, services } = await setup()
+      const { dialog, user, services } = await setupData()
       let finish!: () => void
       services.indexer.rebuildAll = vi.fn(() => new Promise<{ failed: string[] }>((r) => (finish = () => r({ failed: [] }))))
-      await tab('資料')
       await user.click(within(dialog).getByRole('button', { name: '重建索引' }))
       const running = within(dialog).getByRole('button', { name: '正在重建…' })
       expect(running).toBeDisabled()
@@ -223,35 +235,36 @@ describe('SettingsDialog', () => {
     })
 
     it('shows rebuild errors inline in plain Chinese, without the technical message', async () => {
-      const { dialog, user, tab, services } = await setup()
+      const { dialog, user, services } = await setupData()
       services.indexer.rebuildAll = vi.fn().mockRejectedValue(new Error('boom'))
-      await tab('資料')
       await user.click(within(dialog).getByRole('button', { name: '重建索引' }))
       expect(await within(dialog).findByText('重建失敗，請稍後再試。')).toBeInTheDocument()
       expect(within(dialog).queryByText(/boom/)).toBeNull()
     })
 
     it('skips unreadable notes and says how many were skipped (M9)', async () => {
-      const { dialog, user, tab, services } = await setup()
+      const { dialog, user, services } = await setupData()
       services.indexer.rebuildAll = vi.fn(async () => ({ failed: ['a', 'b'] }))
-      await tab('資料')
       await user.click(within(dialog).getByRole('button', { name: '重建索引' }))
       expect(await within(dialog).findByText('已完成，有 2 篇筆記無法讀取，已略過。')).toBeInTheDocument()
     })
 
+    it('says nothing about storage once the browser keeps the data', async () => {
+      const { dialog } = await setupData({ persistence: 'granted', storageMode: 'persistent' })
+      expect(within(dialog).queryByText('儲存空間')).toBeNull()
+      expect(within(dialog).queryByText('瀏覽器已同意長期保存這些資料。')).toBeNull()
+    })
+
     it.each([
-      ['granted', '瀏覽器已同意長期保存這些資料。'],
       ['denied', '瀏覽器可能在空間不足時清除資料。之後開啟同步或自動備份可以保護你的筆記。'],
       ['unsupported', '這個瀏覽器不支援長期保存設定。'],
     ] as const)('persistence %s copy', async (persistence, copy) => {
-      const { dialog, tab } = await setup({ persistence, storageMode: 'persistent' })
-      await tab('資料')
+      const { dialog } = await setupData({ persistence, storageMode: 'persistent' })
       expect(within(dialog).getByText(copy)).toBeInTheDocument()
     })
 
     it('shows the memory warning instead in memory mode', async () => {
-      const { dialog, tab } = await setup({ persistence: 'granted', storageMode: 'memory' })
-      await tab('資料')
+      const { dialog } = await setupData({ persistence: 'granted', storageMode: 'memory' })
       expect(within(dialog).getByText('目前的瀏覽器模式無法保存資料，關閉視窗後內容會消失。')).toBeInTheDocument()
       expect(within(dialog).queryByText('瀏覽器已同意長期保存這些資料。')).toBeNull()
     })

@@ -8,10 +8,8 @@ async function openData(page: Page) {
   await page.mouse.move(300, 450)
   await page.mouse.move(3, 450, { steps: 4 })
   await expect(page.getByRole('navigation', { name: '主要功能' })).toHaveAttribute('data-open', 'true')
-  await page.getByRole('button', { name: '設定' }).click()
-  const dialog = page.getByRole('dialog', { name: '設定' })
-  await dialog.getByRole('tab', { name: '資料' }).click()
-  return dialog
+  await page.getByRole('button', { name: '資料' }).click()
+  return page.getByRole('dialog', { name: '資料' })
 }
 
 async function importZip(page: Page, path: string) {
@@ -66,9 +64,11 @@ test('匯出 ZIP → 在另一個瀏覽器設定檔匯入 → 筆記與連結還
   await expect(again.getByRole('button', { name: '匯入' })).toBeDisabled()
 })
 
-test('設定 → 資料：區段依序為儲存空間、匯出、匯入、同步到資料夾、從備份還原、維護', async ({ page }) => {
+test('側欄「資料」：區段依序為匯出、匯入、同步到資料夾、從備份還原、維護（只有標題，沒有說明）', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByLabel('筆記標題')).toHaveValue('歡迎使用')
   const dialog = await openData(page)
-  await expect(dialog.getByRole('heading', { level: 3 })).toHaveText(['儲存空間', '匯出', '匯入', '同步到資料夾', '從備份還原', '維護'])
+  const headings = (await dialog.getByRole('heading', { level: 3 }).allTextContents()).filter((t) => t !== '儲存空間') // shown only when the browser may clear data
+  expect(headings).toEqual(['匯出', '匯入', '同步到資料夾', '從備份還原', '維護'])
+  await expect(dialog.getByText('Obsidian')).toHaveCount(0)
 })

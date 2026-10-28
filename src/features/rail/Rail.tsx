@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useUi } from '@/app/ui-store'
 import { IconButton } from '@/ui/components/IconButton'
-import { Folder, Paperclip, Search, Settings, Tag } from '@/ui/icons'
+import { Download, Folder, Paperclip, Search, Settings, Tag } from '@/ui/icons'
 import { useLayoutMode } from '@/features/shell/layout-mode'
 import { useRail } from './use-rail'
 
@@ -90,6 +90,9 @@ export function Rail() {
         </IconButton>
         <IconButton label="附件" tooltip tooltipSide="right" className={RAIL_BTN} onClick={attachments}>
           <Paperclip />
+        </IconButton>
+        <IconButton label="資料" tooltip tooltipSide="right" className={RAIL_BTN} onClick={() => ui.getState().setData(true)}>
+          <Download />
         </IconButton>
         <div role="separator" className="my-1 h-px w-5 bg-black/10" />
         <IconButton label="設定" tooltip tooltipSide="right" className={RAIL_BTN} onClick={() => ui.getState().setSettings(true)}>

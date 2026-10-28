@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useServices } from '@/app/services-context'
-import { useUi } from '@/app/ui-store'
+import { useUi, closeDataWindows } from '@/app/ui-store'
 import { displayTitle } from '@/core/vault/titles'
 import { Button } from '@/ui/components/Button'
 import { useMirror } from './use-mirror'
@@ -31,11 +31,10 @@ export function MirrorSection() {
   const failed = Object.entries(state.failed)
   const open = (id: string) => {
     useUi.getState().openNote(id)
-    useUi.getState().setSettings(false)
+    closeDataWindows()
   }
   return (
     <div className="flex flex-col gap-2 py-2 text-sm">
-      <p className="text-fg-secondary">選一個電腦上的資料夾，App 會自動把每篇筆記寫成 .md（單向：在資料夾裡修改不會回到 App）。瀏覽器資料被清除時可從這裡還原。</p>
       {mirror.status === 'off' ? (
         <div>
           <Button onClick={() => void mirror.choose()}>選擇資料夾</Button>

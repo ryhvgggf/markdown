@@ -5,10 +5,8 @@ async function openData(page: Page) {
   await page.mouse.move(300, 450)
   await page.mouse.move(3, 450, { steps: 4 })
   await expect(page.getByRole('navigation', { name: '主要功能' })).toHaveAttribute('data-open', 'true')
-  await page.getByRole('button', { name: '設定' }).click()
-  const dialog = page.getByRole('dialog', { name: '設定' })
-  await dialog.getByRole('tab', { name: '資料' }).click()
-  return dialog
+  await page.getByRole('button', { name: '資料' }).click()
+  return page.getByRole('dialog', { name: '資料' })
 }
 
 /** Text of a file in the origin-private file system (the stand-in for the picked folder), or null. */

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useUi } from '@/app/ui-store'
 import { Dialog } from '@/ui/components/Dialog'
 import { BackgroundSection } from './BackgroundSection'
-import { DataSection } from './DataSection'
 import { ColorSection, LayoutSection, MotionSection, TextSection } from './SimpleSections'
 
 const SECTIONS: ReadonlyArray<{ id: string; label: string; body: () => ReactNode }> = [
@@ -11,7 +10,6 @@ const SECTIONS: ReadonlyArray<{ id: string; label: string; body: () => ReactNode
   { id: 'text', label: '文字', body: () => <TextSection /> },
   { id: 'layout', label: '版面', body: () => <LayoutSection /> },
   { id: 'motion', label: '動態', body: () => <MotionSection /> },
-  { id: 'data', label: '資料', body: () => <DataSection /> },
 ]
 
 export function SettingsDialog() {
