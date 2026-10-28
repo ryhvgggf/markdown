@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 讓 v1 使用者自動搬家、知識庫可匯出成一般 Markdown ZIP 並原樣匯回、Chrome / Edge 可自動鏡像 `.md` 到資料夾，並新增可放任意檔案的檔案區塊。
+**Goal:** 重點：知識庫可匯出成一般 Markdown ZIP 並原樣匯回、Chrome / Edge 可自動鏡像 `.md` 到資料夾、可從備份還原，並新增可放任意檔案的檔案區塊。次要：v1 匯出的 ZIP 能匯入（只求能搬，Task 10 刻意做小）。
 
-**Architecture:** 新增純 TypeScript 的 `core/markdown`（ProseMirror JSON ↔ Markdown）與 `core/transfer`（匯出、匯入、v1 遷移、從備份還原），所有來源先轉成同一種「檔案清單」再走同一條匯入管線。寫入 Yjs 文件需要編輯器 schema，因此 `core/transfer` 透過注入的 `DocIO` 讀寫筆記內容，實作放在 `app/` 層。鏡像 `core/mirror` 掛在索引完成事件後、閒置時間寫檔，以 Web Locks 保證單一寫入分頁。
+**Architecture:** 新增純 TypeScript 的 `core/markdown`（ProseMirror JSON ↔ Markdown）與 `core/transfer`（匯出、匯入、從備份還原、v1 ZIP 轉換），所有來源先轉成同一種「檔案清單」再走同一條匯入管線。寫入 Yjs 文件需要編輯器 schema，因此 `core/transfer` 透過注入的 `DocIO` 讀寫筆記內容，實作放在 `app/` 層。鏡像 `core/mirror` 掛在索引完成事件後、閒置時間寫檔，以 Web Locks 保證單一寫入分頁。
 
 **Tech Stack:** 沿用第 1 階段（Vite、React 19、TypeScript strict、Tiptap 3、Yjs、Dexie、markdown-it、Vitest、Playwright），新增 **fflate**（ZIP）。File System Access API / OPFS 為瀏覽器內建。
 
@@ -15,7 +15,6 @@
 - 第 1 階段計畫的 Global Constraints 全部沿用（`core/`、`adapters/` 不 import React / `features/` / `ui/`；檔案約 300 行即拆；介面文字繁體中文；組字中不攔鍵；E2E 在 Chromium 與 WebKit 皆須通過；合併 `main`、刪除資料須先取得使用者同意）
 - 新套件只有 `fflate`，鎖定安裝時的確切版本
 - `src/core/markdown/**`、`src/core/transfer/**`、`src/core/mirror/**` 不得使用 `document`、`window`、`DOMParser`、`Image`（ESLint `no-restricted-globals` 強制），必須能在 Worker 執行
-- **v1 資料唯讀**：任何程式都不寫入、不刪除 `WebObsidianDB` 與 `localStorage["obsidian_custom_folders"]`；偵測不到 v1 資料庫時也不得因開啟而建立它
 - 單一附件上限 **104,857,600 bytes**（100 MB）；SVG 不收為圖片
 - 重名後綴 `" (2)"`、`" (3)"`…（沿用 `dedupeTitle`）
 - 檔名：移除 `/ \ : * ? " < > |` 與控制字元，去結尾 `.` 與空白，Windows 保留名（`CON` `PRN` `AUX` `NUL` `COM1`–`COM9` `LPT1`–`LPT9`，不分大小寫）後加 `_`，上限 **120 UTF-8 位元組**（不得切斷多位元組字元），空標題 → `未命名`
@@ -24,15 +23,15 @@
 - 清單縮排：項目 / 待辦 2 格、編號 3 格
 - 效能：匯出 1,000 篇（不含附件）< 5 s 且畫面不凍結；鏡像在停止輸入後 ≤ 3 s 寫入；打字期間（`isTyping()` 為真）不做任何檔案存取
 - 往返：第 6 節所有格式 匯出 → 匯入 → 再匯出，兩次 `.md` 逐字相同；帶 manifest 時 ProseMirror JSON 相同
-- 第 2 階段不提供刪除 v1 資料的功能
+- v1 只支援匯入 v1 匯出的 ZIP；不讀 v1 的 IndexedDB、不自動遷移、啟動時不做任何 v1 相關的事
 
 ## Review Focus
 
-1. **同網址沒有 v1 資料庫**（新使用者、或 v1 從沒用過）→ 不得建立空的 `WebObsidianDB`，也不顯示任何遷移提示。測試加在 Task 10
+1. **連結指向垃圾桶中的筆記**（匯出時那篇不會被匯出）→ 輸出 `[[該筆記標題]]`，不輸出空白或 id；匯回時找不到就保留原文。測試加在 Task 8
 2. **Windows 存的 `.md`（CRLF、UTF-8 BOM）** → 匯入結果與 LF、無 BOM 版本相同，標題第一個字不會多出看不見的字元。測試加在 Task 4
 3. **中文或 emoji 長標題超過 120 位元組** → 檔名在字元邊界截斷，不出現亂碼或 `\uFFFD`。測試加在 Task 2
 4. **使用者自己壓的 ZIP 含 `__MACOSX/`、`.DS_Store`、`../x.md`、絕對路徑** → 前兩者略過；後兩者路徑正規化到 ZIP 根目錄內，絕不建出 `..` 資料夾。測試加在 Task 6
-5. **v1 附件超過 100 MB 或 blob 讀不出來** → 該附件略過並記入報告，遷移繼續完成，引用處留「（找不到附件：x）」。測試加在 Task 10
+5. **兩篇標題清理後在同一資料夾撞名**（`a/b` 與 `ab`）→ 匯出成 `ab.md` 與 `ab (2).md`，兩邊的 `[[…]]` 連結匯回後各自指向正確的筆記（連結用的是標題，不是檔名）。測試加在 Task 8
 
 ---
 
@@ -49,7 +48,7 @@ src/
       serialize-inline.ts          行內文字、標記、跳脫
       parse.ts                     Markdown → PMNode（markdown-it token 直轉）
       md-plugins.ts                ==螢光==、[[…]]、![[…]]、#標籤、- [ ]、> [!x]、<u>、<br>
-      v1-dialect.ts                :::quote、a. / i. 編號清單
+      v1-dialect.ts                :::quote
       frontmatter.ts               YAML frontmatter 的 tags / created / updated
     transfer/
       types.ts                     DocIO、ImportSource、ImportPlan、ImportChoices、ImportReport、V2Manifest
@@ -57,7 +56,7 @@ src/
       export.ts                    知識庫 → FileEntry 串流 + manifest
       import-plan.ts               來源 → 預覽（不寫入）
       import-apply.ts              預覽 + 使用者選擇 → 寫入（可續傳）
-      migrate-v1.ts                v1 → ImportSource；啟動條件判斷
+      v1-zip.ts                    v1 ZIP → ImportSource
       restore.ts                   從備份還原（取代 / 合併）
       transfer-client.ts           Worker 包裝（無 Worker 時同步執行）
     mirror/
@@ -69,12 +68,9 @@ src/
     fs/handle-dir.ts               FileSystemDirectoryHandle 實作（本機資料夾與 OPFS 共用）
     fs/memory-dir.ts               記憶體實作（單元測試）
     fs/permission.ts               queryPermission / requestPermission 包裝
-    v1/v1-db.ts                    唯讀讀取 WebObsidianDB
-    v1/v1-zip.ts                   讀 v1 ZIP（manifest.json version 3）
-    v1/svg-to-png.ts               SVG → PNG（主執行緒）
   app/
     doc-io.ts                      DocIO 實作（schema 來自編輯器 extensions）
-    transfer-services.ts           組裝匯出 / 匯入 / 遷移 / 鏡像，加進 AppServices
+    transfer-services.ts           組裝匯出 / 匯入 / 鏡像，加進 AppServices
   workers/
     transfer.worker.ts             serialize / parse 批次
   features/
@@ -84,10 +80,9 @@ src/
     editor/paste/markdown-paste.ts 改用 parse.ts
     transfer/ExportDialog.tsx
     transfer/ImportDialog.tsx      選檔 → 預覽 → 選擇 → 進度 → 報告
-    transfer/ImportReportView.tsx  匯入與遷移共用的報告
+    transfer/ImportReportView.tsx  匯入報告
     transfer/MirrorSection.tsx
     transfer/MirrorPausedChip.tsx  側欄底部「資料夾同步已暫停 · 繼續」
-    transfer/V1Section.tsx         遷移報告 / 匯入 v1 備份 ZIP / 發現舊版資料
     transfer/RestoreDialog.tsx
     settings/DataSection.tsx       依規格第 10 節排列
     sidebar/RowMenu.tsx            「匯出為 Markdown」
@@ -180,7 +175,7 @@ src/
 - Produces:
   ```ts
   export type SerializeContext = {
-    noteTitle(noteId: string): string | null            // null：目標不存在或在垃圾桶 → 輸出連結的純文字 `[[已刪除的筆記]]`
+    noteTitle(noteId: string): string | null            // 垃圾桶中的筆記也回傳標題；只有完全不存在才 null → 輸出純文字「（已刪除的筆記）」
     headingText(noteId: string, blockId: string): string | null  // 目標區塊是標題時回傳其文字
     attachmentPath(attachmentId: string): string | null  // '附件/檔名'；null → 輸出「（找不到附件）」
     anchoredBlocks: Set<string>                          // 本篇中被任何區塊連結指到、需要在行尾加 ^錨點 的區塊 id
@@ -215,7 +210,7 @@ src/
   ```
   - 輸出的區塊**已有 id**（`assignBlockIds`）；行尾 ` ^錨點` 被移除，該區塊 id 設為錨點字串
   - `[[…]]` → 行內 `wikiRef`；`![[…]]`、`![](相對路徑)`、`[文字](相對路徑且非 .md)` → 行內 `embedRef`；`http(s):`、`mailto:` 連結仍是 link 標記
-  - 規格第 5 節對照表全部實作；`dialect: 'v1'` 才啟用 `:::quote` 與 `a.` / `i.` 編號
+  - 規格第 5 節對照表全部實作；`dialect: 'v1'` 才啟用 `:::quote`
   - 先去 BOM、`\r\n` → `\n`
   - 數學 `$$…$$` → `codeBlock` 語言 `math`；`$…$` → 行內碼；註腳定義收集成文末「註腳」段落；不認得的 HTML、`~下標~`、`^上標^` 保留原文並把語法名稱加進 `lossy`
 
@@ -338,14 +333,14 @@ src/
     kind: 'markdown' | 'v2' | 'v1'
     entries: FileEntry[]                       // 已過 normalizeZipPath
     manifest?: V2Manifest                      // 來自 .notes-v2.json
-    noteMeta?: Map<string, { createdAt: number; updatedAt: number; tags: string[] }>   // 以 path 為鍵（v1 用）
+    noteMeta?: Map<string, { createdAt: number; updatedAt: number }>   // 以 path 為鍵（v1 ZIP 用）
     emptyFolders?: string[]                    // 'a/b'
   }
   export type ImportPlan = {
     jobId: string                              // hashText(所有 path + 內容 hash)，續傳用
     notes: { path: string; noteId: string; title: string; folderPath: string[]; renamedFrom?: string; existing?: boolean }[]
     folders: string[][]
-    attachments: { path: string; attachmentId: string; size: number; skipped?: 'too-large' | 'svg-failed' }[]
+    attachments: { path: string; attachmentId: string; size: number; skipped?: 'too-large' }[]
     unresolved: { notePath: string; raw: string }[]
     aliased: { notePath: string; raw: string }[]
     existingCount: number                      // 帶 manifest 且 noteId 已在知識庫者
@@ -386,7 +381,7 @@ src/
   - 連結找筆記：先同批、後現有；`embedRef` 單獨成段 → 換成 media 區塊；與文字同段 → 該段在此切開，media 區塊插在中間；找不到 → 「（找不到附件：x）」純文字
   - `wikiRef` 找不到 → 原文字 `raw`；有別名 → 記入 `aliased`，連結仍指向筆記（別名捨棄）
   - 帶 manifest：note 的 `mdHash` 與 `.md` 相同且有 `doc` → 直接用 `doc`；`mdHash` 相同但無 `doc` → 依序套用 `blockIds`；否則照一般解析。資料夾、附件、筆記沿用 manifest 的 id；id 與知識庫衝突依 `onExisting`：`overwrite` → 先 `docs.read` 現有內容建一篇 `「標題（覆蓋前）」` 筆記並移到垃圾桶，再 `docs.replace`、還原（若在垃圾桶）、移到備份中的位置；`copy` → 換新 id、標題 `uniqueName`
-  - 附件：一次讀一個 blob；> 100 MB 或 SVG 轉換失敗 → `skipped`
+  - 附件：一次讀一個 blob；> 100 MB → `skipped`；SVG 與非圖片影片 → 檔案區塊
   - frontmatter `tags` → 文末段落加標籤；`created` / `updated` → 筆記時間
   - 續傳：`meta.importJob = { jobId, done: string[] /*source path*/, noteIds: Record<path, id>, attachmentIds: Record<path, id> }`，每篇寫完更新；`applyImport` 開始時若 `jobId` 相同就略過 `done`；結束時刪除 `importJob`
   - 全部寫完後 `indexer.catchUp()`（呼叫端負責）
@@ -429,8 +424,8 @@ src/
   `SerializableContext` = `SerializeContext` 的純資料版（`titles: Record<id,string>`、`headings: Record<'noteId#blockId', string>`、`attachments: Record<id,path>`、`anchored: string[]`）；Worker 內再包成函式
 - 規則：垃圾桶內的筆記與附件不匯出；`anchoredBlocks` 由 `db.links` 中 `blockId` 非空且非標題者計算；附件檔名 `uniqueName`；主執行緒每讀 20 篇 `await` 一次 `idle()`
 
-- [ ] **Step 1:** `export.test.ts`：路徑結構符合規格 6.3；垃圾桶不出現；未使用附件預設不出、`includeUnusedAttachments` 才出；同名附件 `(2)`；manifest 欄位齊全
-- [ ] **Step 2:** `full-roundtrip.test.ts`：以 fixture 建知識庫 → `exportEntries` → 匯入到**新的空知識庫** → 再匯出，兩次每個 `.md` 逐字相同；帶 manifest 時每篇 `docs.read` JSON 相同；拿掉 manifest 再匯入 → `.md` 仍逐字相同
+- [ ] **Step 1:** `export.test.ts`：路徑結構符合規格 6.3；垃圾桶不出現；未使用附件預設不出、`includeUnusedAttachments` 才出；同名附件 `(2)`；manifest 欄位齊全；連到垃圾桶筆記的連結輸出 `[[該標題]]`（Review Focus 1）；`a/b` 與 `ab` 兩篇匯出為 `ab.md`、`ab (2).md`（Review Focus 5）
+- [ ] **Step 2:** `full-roundtrip.test.ts`：以 fixture 建知識庫 → `exportEntries` → 匯入到**新的空知識庫** → 再匯出，兩次每個 `.md` 逐字相同；帶 manifest 時每篇 `docs.read` JSON 相同；拿掉 manifest 再匯入 → `.md` 仍逐字相同；`a/b`、`ab` 兩篇互相連結，匯回後連結各自指向對的筆記（Review Focus 5）
 - [ ] **Step 3:** 跑測試，預期 FAIL
 - [ ] **Step 4:** 實作
 - [ ] **Step 5:** 跑測試，預期 PASS
@@ -454,7 +449,7 @@ src/
     client: TransferClient
     docs: DocIO
     exportZip(scope: ExportScope, opts: ExportOptions): Promise<{ blob: Blob; fileName: string }>
-    sourceFromFiles(files: File[]): Promise<ImportSource>   // .zip（有 .notes-v2.json → 'v2'；有 manifest.json 且 format markdown-vault-zip → 交給 Task 10）／多個 .md ／ webkitdirectory 資料夾
+    sourceFromFiles(files: File[]): Promise<ImportSource>   // .zip（有 .notes-v2.json → 'v2'；有 manifest.json 且 format markdown-vault-zip → Task 10 的 `v1ZipToSource`）／多個 .md ／ webkitdirectory 資料夾
     plan(src: ImportSource): ReturnType<typeof planImport>
     apply(plan, src, choices, onProgress): Promise<ImportReport>
   }
@@ -476,48 +471,27 @@ src/
 
 ---
 
-### Task 10: v1 遷移
+### Task 10: v1 ZIP 匯入（次要，刻意做小）
 
-**Files:**
-- Create: `src/adapters/v1/v1-db.ts`, `v1-zip.ts`, `svg-to-png.ts`, `src/core/transfer/migrate-v1.ts`, `src/features/transfer/V1Section.tsx`
-- Modify: `src/app/App.tsx`（第一次畫面後啟動）, `src/features/settings/DataSection.tsx`
-- Test: `src/adapters/v1/v1-db.test.ts`, `v1-zip.test.ts`, `src/core/transfer/migrate-v1.test.ts`, fixture `src/core/transfer/__fixtures__/v1-sample.ts`, `e2e/migrate-v1.spec.ts`
+**Files:** Create `src/core/transfer/v1-zip.ts`；Modify `src/app/transfer-services.ts`（`sourceFromFiles` 判斷）；Test `src/core/transfer/v1-zip.test.ts`
 
-v1 原始碼對照：`git fetch origin v1-archive`，再 `git show FETCH_HEAD:lib/obsidian/db.ts`（`DB_NAME = "WebObsidianDB"`，store `notes` `media` `metadata`）、`lib/obsidian/storage.ts`（ZIP：`format: "markdown-vault-zip"`、`version: 3`、`notes/{id}.md`、`media/{id}/{檔名}`）、`lib/obsidian/media.ts`（`![[id|名稱]]` 與舊版 `![[檔名]]`）。
+v1 格式對照：`git fetch origin v1-archive && git show FETCH_HEAD:lib/obsidian/storage.ts`（`format: "markdown-vault-zip"`、`version: 3`、`notes/{id}.md`、`media/{id}/{檔名}`、manifest 的 `notes[].title/folder/createdAt/updatedAt`、`customFolders`）與 `lib/obsidian/media.ts`（`![[id|名稱]]`、舊版 `![[檔名]]`）。
 
 **Interfaces:**
+- Consumes: Task 6 `readZip`、Task 7 `ImportSource`
 - Produces:
   ```ts
-  // v1-db.ts
-  export async function v1DatabaseExists(): Promise<boolean>   // indexedDB.databases() 有就用；沒有則 open(name) 並在 onupgradeneeded（oldVersion 0）時 abort，絕不留下空資料庫
-  export async function readV1(): Promise<V1Data | null>      // 唯讀交易
-  export type V1Data = { notes: V1Note[]; media: V1MediaRef[]; customFolders: string[]; blob(id: string): Promise<Blob | undefined> }
-  // v1-zip.ts
-  export async function readV1Zip(file: Blob): Promise<V1Data>  // manifest 驗證失敗丟出帶中文訊息的錯誤
-  // svg-to-png.ts
-  export async function svgToPng(svg: Blob): Promise<Blob | null>
-  // migrate-v1.ts
-  export function v1ToSource(v1: V1Data): ImportSource          // kind 'v1'；路徑 folder/標題.md；`![[id|名稱]]` 改寫成 `![[附件/檔名]]`；附件 blob 延遲讀取
-  export async function shouldAutoMigrate(deps: { vault: Vault; db: NotesDb }): Promise<'auto' | 'ask' | 'none'>
-  export async function runV1Migration(v1: V1Data, deps: ImportDeps & { estimate(): Promise<StorageEstimate> }): Promise<ImportReport | { error: 'insufficient-space'; needed: number }>
+  export function isV1Zip(entries: FileEntry[]): boolean          // 有 manifest.json 且 format === 'markdown-vault-zip'
+  export function v1ZipToSource(entries: FileEntry[]): ImportSource   // kind 'v1'；版本不是 3 → 丟 Error('不支援此 v1 備份版本')
   ```
-- `shouldAutoMigrate`：v1 不存在 → `'none'`；`meta.v1Migration.status === 'done'` → `'none'`；知識庫有**功能導覽資料夾（`GUIDE_FOLDER` 名稱的根資料夾及其子孫）以外**的活筆記 → `'ask'`；否則 `'auto'`
-- 空間檢查：`(附件 size 總和) × 1.1 > quota − usage` → 不開始，回傳 `insufficient-space`
-- 目的地：v1 遷移直接放根目錄（重現 v1 的資料夾結構），不建「匯入」資料夾；`ImportChoices = { destination: { kind: 'folder', folderId: null }, onExisting: null }`
-- 進度與報告：`meta.v1Migration = { status: 'running' | 'done', at?, report? }`；續傳沿用 Task 7 的 `importJob`；v1 的同名筆記依 `createdAt` 較早者保留原名、較晚者加 ` (2)`（規格 4.5）
-- 啟動：`App` 在 `maintenance.runStartup()` 之後以 `requestIdleCallback` 呼叫；`'auto'` → 背景執行，側欄底部顯示「正在搬移舊版筆記… 32 / 128」，完成後顯示「舊版筆記已搬入 · 查看報告」；`'ask'` → 只在資料分頁顯示「發現舊版資料，要匯入嗎？」
-- `transfer.sourceFromFiles` 偵測到 v1 ZIP（`manifest.json` 的 `format === 'markdown-vault-zip'`）→ 改走 `readV1Zip` + `runV1Migration`（也就是「匯入 v1 備份 ZIP」）
-- 資料分頁「舊版資料」：遷移報告（`ImportReportView`）、「匯入 v1 備份 ZIP」按鈕（任何時候可用）
+- 轉換：每篇 → `folder/標題.md`（`text` 為 v1 內容）；`media/{id}/{檔名}` → `附件/檔名`（撞名 `uniqueName`）；內文 `![[id|名稱]]` 與 `![[檔名]]` 改寫成 `![[附件/檔名]]`；`customFolders` → `emptyFolders`；時間由 ISO 字串轉 `noteMeta`。其餘（同名、壞連結、別名、檔案區塊、100 MB）全部交給 Task 7 既有規則
+- UI 不另做：匯入對話框選到 v1 ZIP 時照常預覽、選目的地、匯入、看報告
 
-- [ ] **Step 1:** fixture：取 v1-archive 真實語法（callout、`:::quote`、`a.`/`i.` 清單、`![[id|名稱]]`、舊版 `![[檔名]]`、同名筆記、空標題、壞連結、`[[A|別名]]`、SVG、PDF、101 MB 附件以 `size` 假造）
-- [ ] **Step 2:** `v1-db.test.ts`（fake-indexeddb）：沒有 v1 時 `v1DatabaseExists()` 為 false **且之後 `indexedDB.databases()` 仍不含 `WebObsidianDB`**（Review Focus 1）；有資料時 `readV1` 讀出全部且讀完後資料逐筆不變
-- [ ] **Step 3:** `migrate-v1.test.ts`：遷移後篇數、資料夾（含空的自訂資料夾）、時間沿用、連結 / 區塊連結 / 標籤、PDF 成檔案區塊、SVG 成 PNG（`svgToPng` 以 mock 回傳）、轉換失敗的 SVG 成檔案區塊並記入報告、101 MB 附件略過且引用處為「（找不到附件：x）」（Review Focus 5）、別名連結出現在 `aliased`；第 5 篇中斷後重跑結果相同；`shouldAutoMigrate` 三種結果；空間不足不開始
-- [ ] **Step 4:** `v1-zip.test.ts`：以 fflate 依 v1 格式產生 ZIP → `readV1Zip` 與 `readV1` 結果等價；`version: 2` → 丟出「不支援此 ZIP 版本」
-- [ ] **Step 5:** 跑測試，預期 FAIL
-- [ ] **Step 6:** 實作
-- [ ] **Step 7:** e2e `migrate-v1.spec.ts`：在頁面內建出 v1 `WebObsidianDB`（3 篇、1 張圖、1 個連結）並清空 `notes-v2` → 重新整理 → 筆記出現、連結可點、圖片顯示、報告可開；再重新整理不重複遷移
-- [ ] **Step 8:** `npm test && npx playwright test e2e/migrate-v1.spec.ts`，全過
-- [ ] **Step 9:** Commit `feat(transfer): read-only v1 migration from IndexedDB and v1 ZIP`
+- [ ] **Step 1:** 測試：以 fflate 依 v1 格式產生小 ZIP（2 篇在子資料夾、1 個空的自訂資料夾、1 張圖用 `![[id|名稱]]`、1 個 PDF、一篇含 `:::quote`、一個 `[[另一篇]]`）→ `v1ZipToSource` → `planImport` + `applyImport` → 篇數、資料夾含空資料夾、時間沿用、圖片 media、PDF 檔案區塊、引用、連結都正確；`version: 2` 丟錯
+- [ ] **Step 2:** 跑測試，預期 FAIL
+- [ ] **Step 3:** 實作
+- [ ] **Step 4:** 跑測試，預期 PASS
+- [ ] **Step 5:** Commit `feat(transfer): import v1 backup ZIP through the shared pipeline`
 
 ---
 
@@ -602,10 +576,10 @@ v1 原始碼對照：`git fetch origin v1-archive`，再 `git show FETCH_HEAD:li
 
 **Files:** Modify `src/features/settings/DataSection.tsx`（最終排列）, `src/features/guide/guide-content.ts`, `src/bench/bench-entry.ts`, `scripts/bench.ts`；Test `e2e/guide-claims.spec.ts`, `e2e/settings.spec.ts`
 
-- [ ] **Step 1:** 資料分頁依規格第 10 節順序：儲存空間、匯出、匯入、同步到資料夾、從備份還原、舊版資料、維護；`settings.spec.ts` 檢查順序與標題
+- [ ] **Step 1:** 資料分頁依規格第 10 節順序：儲存空間、匯出、匯入、同步到資料夾、從備份還原、維護；`settings.spec.ts` 檢查順序與標題
 - [ ] **Step 2:** 功能導覽：「之後會有」移除第 2 階段那行；新增「匯入匯出」說明（匯出 ZIP、匯入、同步到資料夾、從備份還原、檔案區塊）；`guide-claims.spec.ts` 逐句驗證
-- [ ] **Step 3:** bench 加「匯出 1,000 篇」與「遷移 1,000 篇」；門檻：匯出 < 5,000 ms，兩者執行期間主執行緒最長任務 < 200 ms
+- [ ] **Step 3:** bench 加「匯出 1,000 篇」與「匯入 1,000 篇」；門檻：匯出 < 5,000 ms，兩者執行期間主執行緒最長任務 < 200 ms
 - [ ] **Step 4:** `npm run typecheck && npm run lint && npm test && npx playwright test && npm run bench`，全過；bench 數值寫進 commit 訊息
-- [ ] **Step 5:** 部署 Vercel 預覽；在預覽網址實際以 v1 備份 ZIP 試一次遷移（規格 13 第 2 步），報告結果給使用者
+- [ ] **Step 5:** 部署 Vercel 預覽；請使用者在 v1 匯出 ZIP、到預覽網址匯入試一次（規格 13 第 2 步）
 - [ ] **Step 6:** Commit `chore: phase 2 acceptance — settings layout, guide, benchmarks`
 - [ ] **Step 7:** **停在這裡**：合併 `v2` 進 `main` 前取得使用者同意（規格第 13 節）
