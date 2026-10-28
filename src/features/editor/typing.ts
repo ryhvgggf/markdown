@@ -15,9 +15,15 @@ export function isTypingKey(e: KeyboardEvent): boolean {
   return true
 }
 
+let lastKeyAt = 0
+
 export function markTyping(): void {
+  lastKeyAt = Date.now()
   if (!useTyping.getState().typing) useTyping.setState({ typing: true })
 }
+
+/** A key went down within `ms` (typing mode itself lasts until the pointer moves; this is "still typing"). */
+export const typedWithin = (ms: number) => Date.now() - lastKeyAt < ms
 
 export function endTyping(): void {
   if (useTyping.getState().typing) useTyping.setState({ typing: false })

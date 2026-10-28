@@ -4,6 +4,7 @@ import { useUi } from '@/app/ui-store'
 import { BANNER_COPY } from '@/features/shell/StorageBanner'
 import { useLive } from '@/features/panel/use-live'
 import { ExportSection } from '@/features/transfer/ExportSection'
+import { MirrorSection } from '@/features/transfer/MirrorSection'
 import { IMPORT_JOB_KEY } from '@/core/transfer/types'
 import { Button } from '@/ui/components/Button'
 import { SectionLabel } from './controls'
@@ -75,6 +76,10 @@ export function DataSection() {
             <Button onClick={() => useUi.getState().openImport()}>匯入…</Button>
           </div>
         </div>
+      </div>
+      <div className="mt-4">
+        <SectionLabel>同步到資料夾</SectionLabel>
+        <MirrorSection />
       </div>
       <div className="mt-4">
         <SectionLabel>維護</SectionLabel>

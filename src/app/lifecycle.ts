@@ -22,7 +22,10 @@ export function startPageLifecycle(s: AppServices, win: Win = window, doc: Docum
   // Not urgent: start a little after the first render so it does not compete with opening the note.
   let idle: number | null = null
   const delay = setTimeout(() => {
-    const run = () => void s.maintenance.runStartup()
+    const run = () => {
+      void s.maintenance.runStartup()
+      void s.mirror?.init().catch((e) => console.warn('[mirror]', e))
+    }
     if (win.requestIdleCallback) idle = win.requestIdleCallback(run, { timeout: 5000 })
     else run()
   }, MAINTENANCE_DELAY_MS)

@@ -52,8 +52,7 @@ export function handleDir(root: FileSystemDirectoryHandle): Dir {
       const parts = split(path)
       const chain: FileSystemDirectoryHandle[] = [root]
       for (const p of parts.slice(0, -1)) {
-        const next = await folder([p], false).catch(() => null)
-        const d = next ? await chain.at(-1)!.getDirectoryHandle(p).catch(() => null) : null
+        const d = await chain.at(-1)!.getDirectoryHandle(p).catch(() => null)
         if (!d) return
         chain.push(d)
       }

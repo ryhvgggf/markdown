@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { filesFromDrop } from '@/features/transfer/download'
+import { MirrorPausedChip } from '@/features/transfer/MirrorSection'
 import { useServices } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
 import { IconButton } from '@/ui/components/IconButton'
@@ -112,6 +113,7 @@ export function Sidebar() {
           <>
             <span aria-hidden="true" className="size-1.5 rounded-full bg-green-500" />
             已儲存在此裝置
+            <MirrorPausedChip />
           </>
         )}
       </p>

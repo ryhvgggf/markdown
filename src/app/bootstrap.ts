@@ -1,3 +1,4 @@
+import { createMirrorService, type MirrorService } from './mirror-service'
 import { createTransferServices, type TransferServices } from './transfer-services'
 import * as Y from 'yjs'
 import { createDb, type NotesDb } from '@/adapters/storage/db'
@@ -33,6 +34,8 @@ export type AppServices = {
   maintenance: Maintenance
   /** Markdown export / import (and, later, the folder mirror). */
   transfer: TransferServices
+  /** One-way `.md` copy into a folder the user picked (Chrome / Edge). */
+  mirror: MirrorService
   /** Note to open on startup (live note from meta.lastNoteId, else most recent, else null). */
   initialNoteId: string | null
   /** Persists meta.lastNoteId. */
@@ -179,6 +182,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   // (App starts `maintenance.runStartup()` after the first render) and can never block opening the app.
   indexer.start()
   const transfer = createTransferServices({ vault, storage, db, notes, indexer })
+  const mirror = createMirrorService({ vault, db, storage, docs: transfer.docs, client: transfer.client, indexer })
   // A permanent delete interrupted last time: its vault entries go before the UI shows (O(pending), guarded
   // against restored/open notes); doc and index deletion continues in the background.
   try {
@@ -204,7 +208,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
 
   return {
     storage, db, vault, notes, indexer, search, prefs, persistence,
-    storageMode: mode, storageErrors: { subscribe: errors.subscribe }, maintenance, transfer, initialNoteId, setLastNoteId,
+    storageMode: mode, storageErrors: { subscribe: errors.subscribe }, maintenance, transfer, mirror, initialNoteId, setLastNoteId,
     stashUnsaved() {
       if (mode !== 'persistent') return
       vault.stashUnsaved(stashUpdate)

@@ -43,6 +43,7 @@ export class Indexer {
   /** Mirror of noteText's title/updatedAt/trashed, so vault changes do not re-read the whole table (M4). */
   private rows: Map<string, RowState> | null = null
   private readonly onError?: (e: StorageError) => void
+  private readonly indexedListeners = new Set<(noteId: string) => void>()
 
   constructor(
     private readonly db: NotesDb,
@@ -66,6 +67,12 @@ export class Indexer {
     }
   }
 
+  /** Called after a note's index rows are written (the folder mirror writes the file then). */
+  onIndexed(cb: (noteId: string) => void): () => void {
+    this.indexedListeners.add(cb)
+    return () => this.indexedListeners.delete(cb)
+  }
+
   async indexNote(noteId: string): Promise<void> {
     const meta = this.vault.getNote(noteId)
     if (!meta) return this.removeNote(noteId)
@@ -76,6 +83,7 @@ export class Indexer {
     } finally {
       if (!cached) doc.destroy()
     }
+    for (const cb of this.indexedListeners) cb(noteId)
   }
 
   async removeNote(noteId: string): Promise<void> {
