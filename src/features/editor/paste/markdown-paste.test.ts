@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 import { Editor } from '@tiptap/core'
 import { createExtensions, type EditorContext } from '../extensions'
-import { looksLikeMarkdown, markdownToHtml } from './markdown-paste'
+import { looksLikeMarkdown, markdownToContent } from './markdown-paste'
 
 const ctx = { noteId: 'n1' } as unknown as EditorContext
 const editors: Editor[] = []
@@ -33,19 +33,23 @@ describe('looksLikeMarkdown', () => {
   )
 })
 
-describe('markdownToHtml', () => {
-  it('drops raw html and scripts', () => {
-    const html = markdownToHtml('<script>alert(1)</script>文字')
-    expect(html).not.toContain('<script')
-    expect(html).toContain('文字')
+describe('markdownToContent', () => {
+  it('keeps raw html as text, never as markup', () => {
+    const c = markdownToContent('<script>alert(1)</script>文字', null)
+    expect(JSON.stringify(c)).not.toContain('"type":"script"')
   })
   it('turns task markers into task lists', () => {
-    const html = markdownToHtml('- [ ] a\n- [x] b')
-    expect(html).toContain('data-type="taskList"')
-    expect(html).toContain('data-checked="true"')
+    expect(markdownToContent('- [ ] a\n- [x] b', null).map((n) => n.type)).toEqual(['taskList'])
   })
-  it('strips javascript: links', () => {
-    expect(markdownToHtml('[x](javascript:alert(1))')).not.toContain('<a')
+  it('does not link javascript: urls', () => {
+    expect(JSON.stringify(markdownToContent('[x](javascript:alert(1))', null))).not.toContain('"link"')
+  })
+  it('[[標題]] links to an existing note; unknown titles stay as text; ==x== is a highlight', () => {
+    const vault = { listNotes: () => [{ id: 'n9', title: '採購流程' }] } as unknown as EditorContext['vault']
+    const [para] = markdownToContent('[[採購流程]] [[沒有]] ==重點==', { vault })
+    expect(para.content![0]).toEqual({ type: 'noteLink', attrs: { noteId: 'n9', blockId: null } })
+    expect(para.content!.some((n) => n.text === '[[沒有]]')).toBe(true)
+    expect(para.content!.find((n) => n.text === '重點')!.marks![0].type).toBe('highlight')
   })
 })
 

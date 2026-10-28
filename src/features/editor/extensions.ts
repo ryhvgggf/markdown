@@ -155,7 +155,7 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     Gapcursor,
     Placeholder.configure({ placeholder: ({ editor }) => (editor.isEmpty ? EMPTY_PLACEHOLDER : '') }),
     ...formattingExtensions(),
-    MarkdownPaste,
+    MarkdownPaste.configure({ ctx }),
     SlashCommand,
     SuggestionKeys,
     NoteLink.configure({ ctx }),

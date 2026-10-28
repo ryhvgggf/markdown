@@ -1,10 +1,10 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import DOMPurify from 'dompurify'
-import MarkdownIt from 'markdown-it'
-
-const md = new MarkdownIt({ html: false, linkify: true })
-
+import { parseMarkdown } from '@/core/markdown/parse'
+import type { PMNode } from '@/core/markdown/types'
+import { resolveRefs } from '@/core/transfer/resolve'
+import { normalizeTitle } from '@/core/vault/titles'
+import type { EditorContext } from '../extensions'
 const SIGNALS: RegExp[] = [
   /^ {0,3}#{1,6}[ \t]+\S/m,
   /^ {0,3}[-*+][ \t]+\S/m,
@@ -16,6 +16,8 @@ const SIGNALS: RegExp[] = [
   /\*\*[^*\n]+\*\*/,
   /(^|[^\w`])`[^`\n]+`/,
   /~~[^~\n]+~~/,
+  /\[\[(?!note:)[^\]\n]+\]\]/,
+  /==[^=\n]+==/,
 ]
 
 /** Heuristic: does this plain text contain Markdown block / inline syntax worth converting? */
@@ -24,38 +26,29 @@ export function looksLikeMarkdown(text: string): boolean {
   return SIGNALS.some((re) => re.test(text))
 }
 
-/** markdown-it has no task lists: turn `[ ] ` / `[x] ` list items into Tiptap taskList markup. */
-function convertTaskLists(html: string): string {
-  const tpl = document.createElement('template')
-  tpl.innerHTML = html
-  tpl.content.querySelectorAll('ul').forEach((ul) => {
-    const items = Array.from(ul.children).filter((c): c is HTMLLIElement => c.tagName === 'LI')
-    const marked = items.map((li) => {
-      const holder = li.firstElementChild?.tagName === 'P' ? li.firstElementChild : li
-      const first = holder.firstChild
-      const m = first?.nodeType === Node.TEXT_NODE ? /^\[([ xX])\]\s+/.exec(first.textContent ?? '') : null
-      return m ? { li, first: first as Text, m } : null
-    })
-    if (!items.length || marked.some((x) => !x)) return
-    ul.setAttribute('data-type', 'taskList')
-    marked.forEach((x) => {
-      x!.first.textContent = (x!.first.textContent ?? '').slice(x!.m[0].length)
-      x!.li.setAttribute('data-type', 'taskItem')
-      x!.li.setAttribute('data-checked', x!.m[1] === ' ' ? 'false' : 'true')
-    })
+/**
+ * Pasted Markdown → blocks, with the same parser as import. `[[標題]]` becomes a link when that note
+ * exists (otherwise it stays as text); files cannot come from the clipboard, so embeds stay as text.
+ */
+export function markdownToContent(src: string, ctx: Pick<EditorContext, 'vault'> | null): PMNode[] {
+  const titles = new Map((ctx?.vault?.listNotes() ?? []).map((n) => [normalizeTitle(n.title), n.id]))
+  const { doc } = resolveRefs(parseMarkdown(src).doc, {
+    note: (t) => titles.get(normalizeTitle(t)) ?? null,
+    heading: () => null,
+    block: () => null,
+    attachment: () => null,
   })
-  return tpl.innerHTML
+  return doc.content ?? []
 }
 
-export function markdownToHtml(src: string): string {
-  const clean = DOMPurify.sanitize(md.render(src), { USE_PROFILES: { html: true } })
-  return convertTaskLists(clean)
-}
-
-export const MarkdownPaste = Extension.create({
+export const MarkdownPaste = Extension.create<{ ctx: EditorContext | null }>({
   name: 'markdownPaste',
+  addOptions() {
+    return { ctx: null }
+  },
   addProseMirrorPlugins() {
     const editor = this.editor
+    const ctx = this.options.ctx
     return [
       new Plugin({
         key: new PluginKey('markdownPaste'),
@@ -67,10 +60,10 @@ export const MarkdownPaste = Extension.create({
             if (data.files?.length) return false
             const text = data.getData('text/plain')
             if (!looksLikeMarkdown(text)) return false
-            const html = markdownToHtml(text)
-            if (!html) return false
+            const content = markdownToContent(text, ctx)
+            if (!content.length) return false
             event.preventDefault()
-            return editor.commands.insertContent(html)
+            return editor.commands.insertContent(content)
           },
         },
       }),
