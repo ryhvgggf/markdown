@@ -8,6 +8,7 @@ import { exportFile, type ExportOptions, type ExportScope } from '@/core/transfe
 import { applyImport } from '@/core/transfer/import-apply'
 import { planImport } from '@/core/transfer/import-plan'
 import { sourceFromEntries } from '@/core/transfer/source'
+import { isV1Zip, v1ZipToSource } from '@/core/transfer/v1-zip'
 import { createTransferClient, type TransferClient } from '@/core/transfer/transfer-client'
 import type { DocIO, ImportChoices, ImportDeps, ImportPlan, ImportReport, ImportSource } from '@/core/transfer/types'
 import type { Vault } from '@/core/vault/vault'
@@ -56,7 +57,8 @@ export function createTransferServices(deps: {
     exportFile: (scope, opts) =>
       exportFile(scope, { ...opts, includeDocs: true }, { vault, storage, docs, client, writeZip }),
     async sourceFromFiles(files) {
-      return sourceFromEntries(await filesToEntries(files))
+      const entries = await filesToEntries(files)
+      return isV1Zip(entries) ? v1ZipToSource(entries) : sourceFromEntries(entries)
     },
     plan: (src) => planImport(src, importDeps),
     async apply(plan, src, choices, onProgress) {
