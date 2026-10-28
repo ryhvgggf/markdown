@@ -90,7 +90,7 @@ export function useActions(tree: TreeNode[], expand: (ids: string[]) => void) {
       restore(ref: TrashRef): void {
         if (ref.kind === 'note') vault.restoreNote(ref.id)
         else if (ref.kind === 'folder') vault.restoreFolder(ref.id)
-        else vault.restoreAttachment(ref.id)
+        else if (vault.getAttachment(ref.id)) vault.restoreAttachment(ref.id) // another tab may have purged it
       },
       /** Permanent delete; crash-safe and never rejects (failures reach the storage banner). */
       purge(ref: TrashRef): Promise<boolean> {

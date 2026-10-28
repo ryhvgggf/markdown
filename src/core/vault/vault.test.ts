@@ -195,6 +195,10 @@ describe('Vault', () => {
       expect(v.unreferencedAttachmentIds(now, new Set())).toEqual([])
       expect(v.purgeExpired(now, new Set()).attachmentIds).toEqual([])
       expect(v.getAttachment(trashed.id)).toBeDefined()
+      v.restoreAttachment(trashed.id) // restored: counts as in use from now, not from its upload
+      expect(v.getAttachment(trashed.id)?.restoredAt).toEqual(expect.any(Number))
+      expect(v.unreferencedAttachmentIds(now, new Set())).toEqual([])
+      expect(v.unreferencedAttachmentIds(now + 31 * DAY, new Set())).toEqual([trashed.id])
     })
   })
 

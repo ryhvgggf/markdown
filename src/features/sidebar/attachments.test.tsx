@@ -92,8 +92,9 @@ describe('Attachments view', () => {
     expect(screen.queryByRole('radiogroup', { name: '篩選附件' })).toBeNull()
   })
 
-  it('moves an unused attachment to the trash at once, whatever its age', async () => {
+  it('moves an unused attachment to the trash at once (no age requirement)', async () => {
     const a = add('fresh.png')
+    ;(vault.doc.getMap('attachments').get(a.id) as import('yjs').Map<unknown>).set('createdAt', Date.now() - 60_000) // a minute old
     mount()
     await screen.findByText('未使用')
     fireEvent.click(screen.getByRole('button', { name: '把 fresh.png 移到垃圾桶' }))
@@ -114,6 +115,28 @@ describe('Attachments view', () => {
     fireEvent.click(screen.getByRole('button', { name: '把 used.png 移到垃圾桶' }))
     fireEvent.click(screen.getByRole('button', { name: '移到垃圾桶' }))
     expect(vault.getAttachment(a.id)?.deletedAt).toEqual(expect.any(Number))
+  })
+
+  it('asks first when use is not known yet: index rebuilding, or a file added moments ago', async () => {
+    const a = add('just-pasted.png') // its note may not be indexed yet
+    mount()
+    await screen.findByText('未使用')
+    fireEvent.click(screen.getByRole('button', { name: '把 just-pasted.png 移到垃圾桶' }))
+    expect(screen.getByText(/還不確定有沒有筆記在用這個附件/)).toBeInTheDocument()
+    expect(vault.getAttachment(a.id)?.deletedAt).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '移到垃圾桶' }))
+    expect(vault.getAttachment(a.id)?.deletedAt).toEqual(expect.any(Number))
+  })
+
+  it('永久刪除 of an attachment says how many notes still use it', async () => {
+    const a = add('pic.png')
+    const n = vault.createNote({ title: 'A' })
+    await db.attachmentRefs.put({ noteId: n.id, attachmentId: a.id })
+    vault.trashAttachment(a.id)
+    useUi.setState({ sidebarView: 'trash' })
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: '永久刪除' }))
+    expect(await screen.findByText('仍有 1 篇筆記使用，刪除後那裡會顯示「找不到這個檔案」。')).toBeInTheDocument()
   })
 
   it('trashed attachments appear in the trash, count toward it, and restore or purge from there', async () => {

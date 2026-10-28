@@ -90,7 +90,7 @@ function MediaView({ node, selected, updateAttributes, editor, extension }: Reac
           type="button"
           className="rounded-control bg-fill px-2.5 py-1 text-xs text-fg hover:bg-black/10"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => ctx?.vault.restoreAttachment(attachmentId)}
+          onClick={() => ctx?.vault.getAttachment(attachmentId) && ctx.vault.restoreAttachment(attachmentId)} // gone if purged meanwhile
         >
           還原
         </button>

@@ -11,6 +11,9 @@ import { ImageIcon, VideoIcon } from '@/ui/icons'
 
 export type AttachmentFilter = 'all' | 'used' | 'unused'
 
+/** A file added this recently may be used by a note that is not indexed yet (debounce + idle time). */
+const RECENT_MS = 10_000
+
 const FILTERS: ReadonlyArray<{ value: AttachmentFilter; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'used', label: '使用中' },
@@ -43,6 +46,7 @@ export function AttachmentsView({
   const { db } = useServices()
   const [filter, setFilter] = useState<AttachmentFilter>('all')
   const [confirming, setConfirming] = useState<string | null>(null)
+  const [openedAt] = useState(Date.now)
   const refs = useLive(() => db.attachmentRefs.toArray(), [db])
   const indexReady = useLive(async () => (await db.meta.get(INDEX_VERSION_KEY))?.value === INDEX_VERSION, [db])
 
@@ -107,6 +111,7 @@ export function AttachmentsView({
               key={a.id}
               attachment={a}
               usage={known ? (usage.get(a.id) ?? { live: [], trashed: [] }) : null}
+              openedAt={openedAt}
               confirming={confirming === a.id}
               onAskTrash={() => setConfirming(a.id)}
               onCancel={() => setConfirming(null)}
@@ -125,12 +130,15 @@ export function AttachmentsView({
 function AttachmentRow({
   attachment: a,
   usage,
+  openedAt,
   confirming,
   onAskTrash,
   onCancel,
   onTrash,
 }: {
   attachment: AttachmentMeta
+  /** When the list was opened; files added after that (or just before) count as recent. */
+  openedAt: number
   /** null: not known yet (index still building). */
   usage: Usage | null
   confirming: boolean
@@ -139,6 +147,10 @@ function AttachmentRow({
   onTrash(): void
 }) {
   const used = (usage?.live.length ?? 0) > 0
+  // Ask first when notes use it — or when that is not known yet: the index is still being built, or the
+  // file was added moments ago and its note may not be indexed yet.
+  const recent = openedAt - a.createdAt < RECENT_MS
+  const ask = used || !usage || recent
   const open = (id: string) => {
     useUi.getState().openNote(id)
     useUi.getState().setSidebarOverlay(false)
@@ -174,7 +186,11 @@ function AttachmentRow({
         )}
         {confirming ? (
           <div className="mt-1 flex flex-col gap-1 text-xs">
-            <span className="text-fg">仍有 {usage?.live.length ?? 0} 篇筆記使用這個附件，移到垃圾桶後那裡會顯示「已移到垃圾桶」。</span>
+            <span className="text-fg">
+              {used
+                ? `仍有 ${usage!.live.length} 篇筆記使用這個附件，移到垃圾桶後那裡會顯示「已移到垃圾桶」。`
+                : '還不確定有沒有筆記在用這個附件。確定移到垃圾桶？（之後可以在垃圾桶還原）'}
+            </span>
             <div className="flex gap-1.5">
               <Button variant="primary" className="!h-6 !px-2 text-xs" onClick={onTrash}>
                 移到垃圾桶
@@ -190,7 +206,7 @@ function AttachmentRow({
               variant="ghost"
               className="!h-6 !px-1.5 text-xs text-fg-secondary"
               aria-label={`把 ${a.filename || '附件'} 移到垃圾桶`}
-              onClick={() => (used ? onAskTrash() : onTrash())}
+              onClick={() => (ask ? onAskTrash() : onTrash())}
             >
               移到垃圾桶
             </Button>

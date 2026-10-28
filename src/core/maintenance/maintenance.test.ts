@@ -7,7 +7,14 @@ import { StorageError } from '@/adapters/storage/types'
 import { Indexer } from '../indexer/indexer'
 import { NoteDocCache } from '../note-doc/cache'
 import { TRASH_TTL_MS, Vault } from '../vault/vault'
-import { ATTACHMENT_DELETE_AFTER_KEY, INDEX_VERSION, LAST_ATTACHMENT_GC_KEY, Maintenance, PENDING_PURGE_KEY } from './maintenance'
+import {
+  ATTACHMENT_DELETE_AFTER_KEY,
+  INDEX_VERSION,
+  LAST_ATTACHMENT_GC_KEY,
+  Maintenance,
+  PENDING_BLOB_DELETE_KEY,
+  PENDING_PURGE_KEY,
+} from './maintenance'
 
 const fakeChannel = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
@@ -160,13 +167,62 @@ describe('attachment trash', () => {
     expect(await storage.getBlob(att)).toBeDefined()
   })
 
-  it('purgeAttachment reports a storage failure and keeps the metadata (retry possible)', async () => {
+  it('purgeAttachment: a failed blob delete is reported and finished on the next start', async () => {
     const att = await attachment(0)
     vault.trashAttachment(att)
     vi.spyOn(storage, 'deleteBlob').mockRejectedValueOnce(new StorageError('unknown', 'boom'))
     await expect(m.purgeAttachment(att)).resolves.toBe(false)
     expect(onError).toHaveBeenCalled()
-    expect(vault.getAttachment(att)?.deletedAt).toEqual(expect.any(Number))
+    expect(vault.getAttachment(att)).toBeUndefined() // metadata first: nothing left to "restore"
+    expect((await db.meta.get(PENDING_BLOB_DELETE_KEY))?.value).toEqual([att])
+    expect(await storage.getBlob(att)).toBeDefined()
+    await m.runStartup()
+    expect(await storage.getBlob(att)).toBeUndefined()
+    expect(await db.meta.get(PENDING_BLOB_DELETE_KEY)).toBeUndefined()
+  })
+
+  it('purgeAttachment gives up when the attachment is restored while the purge is being recorded', async () => {
+    const att = await attachment(0)
+    vault.trashAttachment(att)
+    const put = db.meta.put.bind(db.meta)
+    vi.spyOn(db.meta, 'put').mockImplementationOnce(((row: Parameters<typeof put>[0]) => {
+      vault.restoreAttachment(att) // another tab, or the note's 還原 button
+      return put(row)
+    }) as typeof put)
+    await expect(m.purgeAttachment(att)).resolves.toBe(false)
+    expect(vault.getAttachment(att)?.deletedAt).toBeNull()
+    expect(await storage.getBlob(att)).toBeDefined()
+    expect(await db.meta.get(PENDING_BLOB_DELETE_KEY)).toBeUndefined()
+  })
+
+  it('startup finishes a purge interrupted before the metadata went, but keeps one restored meanwhile', async () => {
+    const gone = await attachment(0)
+    const back = await attachment(0)
+    vault.trashAttachment(gone)
+    await db.meta.put({ key: PENDING_BLOB_DELETE_KEY, value: [gone, back] })
+    await m.runStartup()
+    expect(vault.getAttachment(gone)).toBeUndefined()
+    expect(await storage.getBlob(gone)).toBeUndefined()
+    expect(vault.getAttachment(back)).toBeDefined()
+    expect(await storage.getBlob(back)).toBeDefined()
+    expect(await db.meta.get(PENDING_BLOB_DELETE_KEY)).toBeUndefined()
+  })
+
+  it('a restored attachment gets a fresh 30 days: neither the daily GC nor an old grace mark deletes it', async () => {
+    const old = await attachment(40) // unused and old: the GC would take it
+    const marked = await attachment(0)
+    await db.meta.put({ key: ATTACHMENT_DELETE_AFTER_KEY, value: { [marked]: Date.now() - 1 } }) // mark set a day ago
+    for (const id of [old, marked]) {
+      vault.trashAttachment(id)
+      vault.restoreAttachment(id)
+    }
+    await db.meta.put({ key: LAST_ATTACHMENT_GC_KEY, value: 0 })
+    await m.runStartup()
+    expect(vault.getAttachment(old)).toBeDefined()
+    expect(await storage.getBlob(old)).toBeDefined()
+    expect(vault.getAttachment(marked)).toBeDefined()
+    expect(await storage.getBlob(marked)).toBeDefined()
+    expect((await db.meta.get(ATTACHMENT_DELETE_AFTER_KEY))?.value ?? {}).toEqual({})
   })
 
   it('startup empties attachments trashed more than 30 days ago, referenced or not', async () => {

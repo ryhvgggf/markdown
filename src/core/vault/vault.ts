@@ -45,9 +45,12 @@ function toAttachment(id: string, m: YM): AttachmentMeta {
     size: (m.get('size') as number) ?? 0,
     createdAt: (m.get('createdAt') as number) ?? 0,
     deletedAt: (m.get('deletedAt') as number | null) ?? null, // records from before the attachment trash have none
+    ...(typeof m.get('restoredAt') === 'number' ? { restoredAt: m.get('restoredAt') as number } : {}),
   }
 }
 const isTrashed = (m: YM) => typeof m.get('deletedAt') === 'number'
+/** When an attachment last (re)entered use, for the unreferenced GC: upload, or a later restore. */
+const inUseSince = (m: YM, now: number) => Math.max((m.get('createdAt') as number) ?? now, (m.get('restoredAt') as number) ?? 0)
 function isExpired(m: YM, now: number): boolean {
   const d = m.get('deletedAt') as number | null | undefined
   return typeof d === 'number' && now - d > TRASH_TTL_MS
@@ -259,7 +262,7 @@ export class Vault {
   // ---- maintenance ----
   /** True when some live attachment is old enough to be purged if unreferenced (cheap pre-check for startup). */
   hasStaleAttachments(now: number): boolean {
-    for (const m of this.attachments.values()) if (!isTrashed(m) && now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS) return true
+    for (const m of this.attachments.values()) if (!isTrashed(m) && now - inUseSince(m, now) > TRASH_TTL_MS) return true
     return false
   }
   /** Ids of notes trashed more than 30 days ago (what `purgeExpired(now)` would remove). */
@@ -278,7 +281,7 @@ export class Vault {
   unreferencedAttachmentIds(now: number, referencedAttachmentIds: Set<string>): string[] {
     return [...this.attachments.entries()]
       .filter(
-        ([k, m]) => !isTrashed(m) && !referencedAttachmentIds.has(k) && now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS,
+        ([k, m]) => !isTrashed(m) && !referencedAttachmentIds.has(k) && now - inUseSince(m, now) > TRASH_TTL_MS,
       )
       .map(([k]) => k)
   }
@@ -335,9 +338,16 @@ export class Vault {
     const m = this.attachment(id)
     this.doc.transact(() => m.set('deletedAt', Date.now()))
   }
+  /**
+   * Takes an attachment out of the trash. Stamps `restoredAt`: the unreferenced GC counts age from it,
+   * so a restored file gets a fresh 30 days instead of vanishing at the next daily run.
+   */
   restoreAttachment(id: string): void {
     const m = this.attachment(id)
-    this.doc.transact(() => m.set('deletedAt', null))
+    this.doc.transact(() => {
+      m.set('deletedAt', null)
+      m.set('restoredAt', Date.now())
+    })
   }
   /** Drops attachment metadata only (the blob is the caller's concern). */
   removeAttachment(id: string): void {

@@ -19,6 +19,8 @@ export const ATTACHMENT_GC_INTERVAL_MS = 24 * 60 * 60 * 1000
 export const ATTACHMENT_DELETE_AFTER_KEY = 'attachmentDeleteAfter'
 /** Grace period: another note's undo history may still bring a deleted note's image back. */
 export const ATTACHMENT_GRACE_MS = 24 * 60 * 60 * 1000
+/** meta: trashed attachments whose metadata is (being) removed but whose blob may not be deleted yet. */
+export const PENDING_BLOB_DELETE_KEY = 'pendingBlobDelete'
 
 export interface MaintenanceDeps {
   db: NotesDb
@@ -78,8 +80,10 @@ export class Maintenance {
       await this.finishPurge(purge)
     })
 
-    // 1b. attachments the user trashed more than 30 days ago: deleted even if a note still shows them
-    await this.step(async () => void (await this.deleteAttachments(vault.expiredAttachmentIds(now))))
+    // 1b. attachment permanent deletes interrupted last time, then attachments the user trashed more
+    //     than 30 days ago (deleted even if a note still shows them)
+    await this.step(() => this.finishPendingBlobDeletes())
+    for (const id of vault.expiredAttachmentIds(now)) await this.purgeAttachment(id)
 
     // 2. derived index: one rebuild after a version bump (or an empty index), then the dirty-note catch-up
     await this.step(async () => {
@@ -114,7 +118,8 @@ export class Maintenance {
       const settled = new Set<string>() // due marks that are resolved (deleted, referenced or gone)
       for (const id of due) {
         const a = vault.getAttachment(id)
-        if (refs.has(id) || !a) settled.add(id)
+        // Settled: used again, gone, or restored from the trash after it was marked (the user wants it).
+        if (refs.has(id) || !a || (a.restoredAt ?? 0) >= marks[id] - ATTACHMENT_GRACE_MS) settled.add(id)
         else if (a.deletedAt === null) ids.add(id) // one in the trash waits for the trash's own expiry
       }
       for (const id of await this.deleteAttachments([...ids])) if (due.includes(id)) settled.add(id)
@@ -158,21 +163,63 @@ export class Maintenance {
   }
 
   /**
-   * Permanent delete of an attachment from the trash: blob first, then metadata (see deleteAttachments).
+   * Permanent delete of an attachment from the trash. Metadata first (recorded as pending, so a crash
+   * is finished on the next start), then the blob: once this starts, a restore from another tab or the
+   * note's 還原 button finds nothing instead of "restoring" an attachment whose file is already gone.
    * Notes that still use it then show a missing file. Refuses attachments that are not in the trash.
    * Never rejects: failures are reported through `onError`; returns whether it was removed.
    */
   async purgeAttachment(id: string): Promise<boolean> {
-    const a = this.d.vault.getAttachment(id)
-    if (!a || a.deletedAt === null) return false
+    const { vault, storage } = this.d
+    const trashed = () => vault.getAttachment(id)?.deletedAt != null
+    if (!trashed()) return false
     try {
-      await this.d.storage.deleteBlob(id)
-      this.d.vault.removeAttachment(id)
+      await this.updatePendingBlobs((ids) => [...new Set([...ids, id])])
+      if (!trashed()) {
+        await this.updatePendingBlobs((ids) => ids.filter((x) => x !== id)) // restored meanwhile
+        return false
+      }
+      vault.removeAttachment(id)
+      await storage.deleteBlob(id)
+      await this.updatePendingBlobs((ids) => ids.filter((x) => x !== id))
       return true
     } catch (e) {
       this.report(e)
       return false
     }
+  }
+
+  /** Startup: blob deletes left pending by an interrupted purgeAttachment (still-trashed ones finish; restored ones stay). */
+  private async finishPendingBlobDeletes(): Promise<void> {
+    const { vault, storage } = this.d
+    const pending = await this.pendingBlobs()
+    if (!pending.length) return
+    const done: string[] = []
+    for (const id of pending) {
+      const a = vault.getAttachment(id)
+      if (a && a.deletedAt === null) {
+        done.push(id) // restored before its metadata went: keep it
+        continue
+      }
+      if (a) vault.removeAttachment(id)
+      await storage.deleteBlob(id)
+      done.push(id)
+    }
+    await this.updatePendingBlobs((ids) => ids.filter((x) => !done.includes(x)))
+  }
+
+  private async pendingBlobs(): Promise<string[]> {
+    const v = (await this.d.db.meta.get(PENDING_BLOB_DELETE_KEY))?.value
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  }
+
+  private async updatePendingBlobs(fn: (ids: string[]) => string[]): Promise<void> {
+    const { db } = this.d
+    await db.transaction('rw', db.meta, async () => {
+      const after = fn(await this.pendingBlobs())
+      if (after.length) await db.meta.put({ key: PENDING_BLOB_DELETE_KEY, value: after })
+      else await db.meta.delete(PENDING_BLOB_DELETE_KEY)
+    })
   }
 
   /**

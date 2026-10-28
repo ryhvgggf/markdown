@@ -23,6 +23,8 @@ export type AttachmentMeta = {
   createdAt: number
   /** Non-null: in the trash (moved there by the user); emptied 30 days later like notes. */
   deletedAt: number | null
+  /** Last time it was restored from the trash (absent if never). */
+  restoredAt?: number
 }
 
 export type VaultErrorCode = 'duplicate-title' | 'not-found' | 'cycle'
