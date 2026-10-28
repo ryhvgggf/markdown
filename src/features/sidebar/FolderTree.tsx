@@ -63,6 +63,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
         rename: () => setRenamingId(id),
         newNote: () => actions.createNote(id),
         newSubfolder: () => setRenamingId(actions.createFolder(id)),
+        exportMd: () => node && void actions.exportMarkdown(nodeRef(node)),
         trash: () => node && actions.trash(node),
       }
     },
@@ -88,7 +89,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
     () => ({
       menu: (id) => {
         const m = () => latest.current!.menu(id)
-        return { rename: () => m().rename(), newNote: () => m().newNote?.(), newSubfolder: () => m().newSubfolder?.(), trash: () => m().trash() }
+        return { rename: () => m().rename(), newNote: () => m().newNote?.(), newSubfolder: () => m().newSubfolder?.(), exportMd: () => m().exportMd?.(), trash: () => m().trash() }
       },
       activate: (id) => latest.current!.activate(id),
       expand: (id, open) => latest.current!.expand(id, open),

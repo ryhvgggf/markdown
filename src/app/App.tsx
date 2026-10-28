@@ -4,6 +4,7 @@ import { TitleBlock } from '@/features/editor/TitleBlock'
 import { BacklinksLayer } from '@/features/panel/BacklinksPanel'
 import { OutlineTicks } from '@/features/panel/OutlineTicks'
 import { QuickSwitcher } from '@/features/search/QuickSwitcher'
+import { ImportDialog } from '@/features/transfer/ImportDialog'
 import { Sidebar } from '@/features/sidebar/Sidebar'
 import { AppearanceEffects } from '@/features/settings/AppearanceEffects'
 import { SettingsDialog } from '@/features/settings/SettingsDialog'
@@ -75,6 +76,7 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
       />
       <QuickSwitcher />
       <SettingsDialog />
+      <ImportDialog />
     </ServicesProvider>
   )
 }

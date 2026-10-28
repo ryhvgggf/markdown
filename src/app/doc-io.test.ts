@@ -29,6 +29,10 @@ describe('DocIO', () => {
     expect(stripIds(await io.read('n1'))).toEqual(stripIds(normalizeDoc(A)))
   })
 
+  it('a note with no stored content reads as one empty paragraph', async () => {
+    expect(await createDocIO({ storage, db, notes }).read('never-written')).toEqual({ type: 'doc', content: [{ type: 'paragraph' }] })
+  })
+
   it('refuses a document the editor cannot open', async () => {
     const io = createDocIO({ storage, db, notes })
     await expect(io.write('n1', { type: 'doc', content: [{ type: 'nope' }] })).rejects.toThrow()

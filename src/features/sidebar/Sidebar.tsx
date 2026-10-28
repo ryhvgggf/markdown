@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { filesFromDrop } from '@/features/transfer/download'
 import { useServices } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
 import { IconButton } from '@/ui/components/IconButton'
@@ -31,8 +32,28 @@ export function Sidebar() {
     expand(ids)
   }, [loaded, openNoteId, vault, expand])
 
+  const [fileOver, setFileOver] = useState(false)
+  const hasFiles = (e: { dataTransfer: DataTransfer | null }) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div
+      className={`flex h-full min-h-0 flex-col rounded-card ${fileOver ? 'ring-2 ring-accent/60' : ''}`}
+      onDragOver={(e) => {
+        if (!hasFiles(e)) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+        setFileOver(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false)
+      }}
+      onDrop={(e) => {
+        if (!hasFiles(e)) return
+        e.preventDefault()
+        setFileOver(false)
+        void filesFromDrop(e.dataTransfer).then((files) => files.length && useUi.getState().openImport(files))
+      }}
+    >
       {view === 'tree' ? (
         <>
           <div className="flex items-center gap-1 px-4 pt-3 pb-2">

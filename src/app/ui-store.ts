@@ -16,6 +16,8 @@ export interface UiState {
   /** What the sidebar card shows: the folder tree, the trash, or the attachments list. */
   sidebarView: SidebarView
   settingsOpen: boolean
+  /** The import dialog: null closed; [] open at the file picker; files: open with those files. */
+  importFiles: File[] | null
   highlightBlockId: string | null
   openNote(id: string, blockId?: string): void
   toggleBacklinks(): void
@@ -27,6 +29,8 @@ export interface UiState {
   setSidebarOverlay(v: boolean): void
   setSidebarView(v: SidebarView): void
   setSettings(v: boolean): void
+  openImport(files?: File[]): void
+  closeImport(): void
   clearHighlight(): void
 }
 
@@ -41,6 +45,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     sidebarOverlayOpen: false,
     sidebarView: 'tree',
     settingsOpen: false,
+    importFiles: null,
     highlightBlockId: null,
     openNote: (id, blockId) => {
       set((s) => ({ openNoteId: id, highlightBlockId: blockId ?? null, backlinksOpen: s.backlinksOpen && s.backlinksPinned }))
@@ -55,6 +60,8 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     setSidebarOverlay: (sidebarOverlayOpen) => set({ sidebarOverlayOpen }),
     setSidebarView: (sidebarView) => set({ sidebarView }),
     setSettings: (settingsOpen) => set({ settingsOpen }),
+    openImport: (files = []) => set({ importFiles: files }),
+    closeImport: () => set({ importFiles: null }),
     clearHighlight: () => set({ highlightBlockId: null }),
   }))
 }

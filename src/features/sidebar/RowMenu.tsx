@@ -8,6 +8,7 @@ export interface RowMenuActions {
   rename(): void
   newNote?(): void
   newSubfolder?(): void
+  exportMd?(): void
   trash(): void
 }
 
@@ -71,6 +72,7 @@ export function RowMenu({
           <Menu.Item onSelect={pick(actions.newSubfolder, true)}>新增子資料夾</Menu.Item>
         </>
       )}
+      {actions.exportMd && <Menu.Item onSelect={pick(actions.exportMd)}>匯出為 Markdown</Menu.Item>}
       <Menu.Separator />
       <Menu.Item onSelect={pick(actions.trash)}>移到垃圾桶</Menu.Item>
     </Menu>

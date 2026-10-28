@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { useServices } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
 import { BANNER_COPY } from '@/features/shell/StorageBanner'
+import { useLive } from '@/features/panel/use-live'
+import { ExportSection } from '@/features/transfer/ExportSection'
+import { IMPORT_JOB_KEY } from '@/core/transfer/types'
 import { Button } from '@/ui/components/Button'
 import { SectionLabel } from './controls'
 
@@ -19,6 +22,10 @@ export function DataSection() {
   const { indexer, persistence, storageMode, vault, storage, db } = useServices()
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [guide, setGuide] = useState<GuideStatus>('idle')
+  const pendingImport = useLive(async () => {
+    const job = (await db.meta.get(IMPORT_JOB_KEY))?.value as { done?: string[] } | undefined
+    return job ? (job.done?.length ?? 0) : null
+  }, [db])
 
   async function addGuideNotes() {
     setGuide('running')
@@ -52,7 +59,26 @@ export function DataSection() {
         {storageMode === 'memory' ? BANNER_COPY.memory : PERSISTENCE_COPY[persistence]}
       </p>
       <div className="mt-4">
-        <SectionLabel>搜尋索引</SectionLabel>
+        <SectionLabel>匯出</SectionLabel>
+        <ExportSection />
+      </div>
+      <div className="mt-4">
+        <SectionLabel>匯入</SectionLabel>
+        <div className="flex flex-col gap-2 py-2">
+          <p className="text-sm text-fg-secondary">Markdown 檔、資料夾或 ZIP（含本 App 與 v1 的備份）。</p>
+          {pendingImport != null && (
+            <p role="status" className="text-sm text-fg">
+              上次匯入未完成（已處理 {pendingImport} 個檔案）· 重新選擇相同的檔案即可繼續
+            </p>
+          )}
+          <div>
+            <Button onClick={() => useUi.getState().openImport()}>匯入…</Button>
+          </div>
+        </div>
+      </div>
+      <div className="mt-4">
+        <SectionLabel>維護</SectionLabel>
+        <p className="pt-2 text-sm font-medium text-fg">搜尋索引</p>
         <div className="flex items-center gap-3 py-2">
           <Button disabled={status.kind === 'running'} onClick={() => void rebuild()}>
             {status.kind === 'running' ? '正在重建…' : '重建索引'}
@@ -69,8 +95,8 @@ export function DataSection() {
           )}
         </div>
       </div>
-      <div className="mt-4">
-        <SectionLabel>功能導覽</SectionLabel>
+      <div>
+        <p className="pt-2 text-sm font-medium text-fg">功能導覽</p>
         <div className="flex items-center gap-3 py-2">
           <Button disabled={guide === 'running'} onClick={() => void addGuideNotes()}>
             加入功能導覽筆記

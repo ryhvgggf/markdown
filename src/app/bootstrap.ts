@@ -1,3 +1,4 @@
+import { createTransferServices, type TransferServices } from './transfer-services'
 import * as Y from 'yjs'
 import { createDb, type NotesDb } from '@/adapters/storage/db'
 import { DexieStorage } from '@/adapters/storage/dexie-storage'
@@ -30,6 +31,8 @@ export type AppServices = {
   storageErrors: StorageErrorEmitter
   /** Best-effort background work: startup clean-up/catch-up (run after the first render) and purges. */
   maintenance: Maintenance
+  /** Markdown export / import (and, later, the folder mirror). */
+  transfer: TransferServices
   /** Note to open on startup (live note from meta.lastNoteId, else most recent, else null). */
   initialNoteId: string | null
   /** Persists meta.lastNoteId. */
@@ -175,6 +178,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   // Purges, index rebuild/catch-up and attachment GC are NOT run here: they are off the critical path
   // (App starts `maintenance.runStartup()` after the first render) and can never block opening the app.
   indexer.start()
+  const transfer = createTransferServices({ vault, storage, db, notes, indexer })
   // A permanent delete interrupted last time: its vault entries go before the UI shows (O(pending), guarded
   // against restored/open notes); doc and index deletion continues in the background.
   try {
@@ -200,7 +204,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
 
   return {
     storage, db, vault, notes, indexer, search, prefs, persistence,
-    storageMode: mode, storageErrors: { subscribe: errors.subscribe }, maintenance, initialNoteId, setLastNoteId,
+    storageMode: mode, storageErrors: { subscribe: errors.subscribe }, maintenance, transfer, initialNoteId, setLastNoteId,
     stashUnsaved() {
       if (mode !== 'persistent') return
       vault.stashUnsaved(stashUpdate)

@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useServices } from '@/app/services-context'
+import { downloadBlob } from '@/features/transfer/download'
 import { useUi } from '@/app/ui-store'
 import { focusTitleEnd } from '@/features/editor/focus-bridge'
 import type { TreeNode } from '@/core/vault/tree'
@@ -24,7 +25,7 @@ function noteOrder(nodes: TreeNode[]): string[] {
 export type RenameResult = 'ok' | 'duplicate'
 
 export function useActions(tree: TreeNode[], expand: (ids: string[]) => void) {
-  const { vault, maintenance } = useServices()
+  const { vault, maintenance, transfer } = useServices()
 
   const ancestors = useCallback(
     (folderId: string | null): string[] => {
@@ -96,10 +97,20 @@ export function useActions(tree: TreeNode[], expand: (ids: string[]) => void) {
       purge(ref: TrashRef): Promise<boolean> {
         return ref.kind === 'attachment' ? maintenance.purgeAttachment(ref.id) : maintenance.purge({ kind: ref.kind, id: ref.id })
       },
+      /** A note → its `.md`; a folder → a ZIP (downloaded). Failures are logged; nothing changes in the vault. */
+      async exportMarkdown(ref: Ref): Promise<void> {
+        try {
+          const scope = ref.kind === 'note' ? { kind: 'note' as const, noteId: ref.id } : { kind: 'folder' as const, folderId: ref.id }
+          const { blob, fileName } = await transfer.exportFile(scope, { includeUnusedAttachments: false })
+          downloadBlob(blob, fileName)
+        } catch (e) {
+          console.warn('[export]', e)
+        }
+      },
       /** Moves an attachment to the trash (any time, used or not); notes using it show it as trashed. */
       trashAttachment(id: string): void {
         vault.trashAttachment(id)
       },
     }
-  }, [vault, maintenance, tree, expand, ancestors])
+  }, [vault, maintenance, transfer, tree, expand, ancestors])
 }
