@@ -139,6 +139,25 @@ describe('Indexer', () => {
     expect(await indexer.referencedAttachmentIds()).toEqual(new Set(['att1', 'att2']))
   })
 
+  it('keeps attachmentRefs in step with the note: replaced on reindex, dropped on purge, rebuilt by rebuildAll', async () => {
+    const a = vault.createNote({ title: 'A' })
+    await writeNote(a.id, [para('p1', ['x', media('att1'), media('att2')]), para('p2', [media('att1')])])
+    await indexer.indexNote(a.id)
+    const refs = async () => (await db.attachmentRefs.where('noteId').equals(a.id).toArray()).map((r) => r.attachmentId).sort()
+    expect(await refs()).toEqual(['att1', 'att2'])
+    expect(await db.attachmentRefs.where('attachmentId').equals('att1').count()).toBe(1)
+    const doc = cache.peek(a.id)!
+    doc.getXmlFragment('content').delete(0, 1) // drop p1: att2 no longer used
+    await indexer.indexNote(a.id)
+    expect(await refs()).toEqual(['att1'])
+    await db.attachmentRefs.clear()
+    await indexer.rebuildAll()
+    expect(await refs()).toEqual(['att1'])
+    vault.purgeNote(a.id)
+    await indexer.removeNote(a.id)
+    expect(await db.attachmentRefs.count()).toBe(0)
+  })
+
   it('creates a title-only row for untouched notes and follows renames', async () => {
     const n = vault.createNote({ title: 'Fresh' })
     stop = indexer.start()

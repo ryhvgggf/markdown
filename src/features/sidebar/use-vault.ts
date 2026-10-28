@@ -1,26 +1,31 @@
 import { useSyncExternalStore } from 'react'
 import { useServices } from '@/app/services-context'
 import { buildTree, type TreeNode } from '@/core/vault/tree'
-import type { FolderMeta, NoteMeta } from '@/core/vault/types'
+import type { AttachmentMeta, FolderMeta, NoteMeta } from '@/core/vault/types'
 import type { Vault } from '@/core/vault/vault'
 
 export type VaultSnapshot = {
   notes: NoteMeta[]
   folders: FolderMeta[]
   tree: TreeNode[]
-  trashed: { notes: NoteMeta[]; folders: FolderMeta[] }
+  /** Live (not trashed) attachments. */
+  attachments: AttachmentMeta[]
+  trashed: { notes: NoteMeta[]; folders: FolderMeta[]; attachments: AttachmentMeta[] }
 }
 
 function compute(vault: Vault): VaultSnapshot {
   const allNotes = vault.listNotes({ includeTrashed: true })
   const allFolders = vault.listFolders({ includeTrashed: true })
+  const allAttachments = vault.listAttachments({ includeTrashed: true })
   return {
     notes: allNotes.filter((n) => n.deletedAt === null),
     folders: allFolders.filter((f) => f.deletedAt === null),
     tree: buildTree(allFolders, allNotes),
+    attachments: allAttachments.filter((a) => a.deletedAt === null),
     trashed: {
       notes: allNotes.filter((n) => n.deletedAt !== null),
       folders: allFolders.filter((f) => f.deletedAt !== null),
+      attachments: allAttachments.filter((a) => a.deletedAt !== null),
     },
   }
 }
@@ -53,11 +58,19 @@ export function useVaultSnapshot(): VaultSnapshot {
   return useSyncExternalStore(store.subscribe, store.getSnapshot)
 }
 
-/** Trash entries that were trashed on their own: items inside a trashed folder travel with it. */
-export function trashRoots(t: VaultSnapshot['trashed']): Array<{ kind: 'note'; note: NoteMeta } | { kind: 'folder'; folder: FolderMeta }> {
+export type TrashItem =
+  | { kind: 'note'; note: NoteMeta }
+  | { kind: 'folder'; folder: FolderMeta }
+  | { kind: 'attachment'; attachment: AttachmentMeta }
+
+const trashedAt = (i: TrashItem) => (i.kind === 'note' ? i.note.deletedAt : i.kind === 'folder' ? i.folder.deletedAt : i.attachment.deletedAt) ?? 0
+
+/** Trash entries that were trashed on their own (items inside a trashed folder travel with it), newest first. */
+export function trashRoots(t: VaultSnapshot['trashed']): TrashItem[] {
   const trashedFolders = new Set(t.folders.map((f) => f.id))
   return [
     ...t.folders.filter((f) => f.parentId === null || !trashedFolders.has(f.parentId)).map((folder) => ({ kind: 'folder' as const, folder })),
     ...t.notes.filter((n) => n.folderId === null || !trashedFolders.has(n.folderId)).map((note) => ({ kind: 'note' as const, note })),
-  ].sort((a, b) => (b.kind === 'note' ? b.note.deletedAt! : b.folder.deletedAt!) - (a.kind === 'note' ? a.note.deletedAt! : a.folder.deletedAt!))
+    ...(t.attachments ?? []).map((attachment) => ({ kind: 'attachment' as const, attachment })),
+  ].sort((a, b) => trashedAt(b) - trashedAt(a))
 }

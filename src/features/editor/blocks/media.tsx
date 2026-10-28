@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react'
 import { mergeAttributes, Node } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
@@ -31,10 +31,25 @@ export function hasPastedText(data: DataTransfer | null): boolean {
 
 export type MediaOptions = { ctx: EditorContext | null }
 
+type AttachmentState = 'live' | 'trashed' | 'gone' | 'unknown'
+
+/** The attachment's vault state, re-read on vault changes (a primitive, so unrelated changes do not re-render). */
+function useAttachmentState(vault: EditorContext['vault'] | undefined, id: string): AttachmentState {
+  const subscribe = useCallback((cb: () => void) => (vault ? vault.observe(cb) : () => undefined), [vault])
+  const get = (): AttachmentState => {
+    if (!vault || !id) return 'unknown'
+    const a = vault.getAttachment(id)
+    return !a ? 'gone' : a.deletedAt === null ? 'live' : 'trashed'
+  }
+  return useSyncExternalStore(subscribe, get, get)
+}
+
 function MediaView({ node, selected, updateAttributes, editor, extension }: ReactNodeViewProps) {
   const ctx = (extension.options as MediaOptions).ctx
   const { attachmentId, kind, width } = node.attrs as { attachmentId: string; kind: 'image' | 'video'; width: number | null }
-  const { url, status } = useBlobUrl(ctx?.storage, attachmentId)
+  const state = useAttachmentState(ctx?.vault, attachmentId)
+  // Permanently deleted (metadata gone): reload, so the view does not keep showing a revoked file.
+  const { url, status } = useBlobUrl(ctx?.storage, state === 'gone' ? '' : attachmentId)
   const filename = ctx?.vault.getAttachment(attachmentId)?.filename ?? ''
   const wrapRef = useRef<HTMLDivElement>(null)
   const [dragWidth, setDragWidth] = useState<number | null>(null)
@@ -67,7 +82,23 @@ function MediaView({ node, selected, updateAttributes, editor, extension }: Reac
   }
 
   let body
-  if (status === 'loading') {
+  if (state === 'trashed') {
+    body = (
+      <div className="media-placeholder flex-col gap-2 text-fg-tertiary" contentEditable={false}>
+        <span>這個附件已移到垃圾桶</span>
+        <button
+          type="button"
+          className="rounded-control bg-fill px-2.5 py-1 text-xs text-fg hover:bg-black/10"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => ctx?.vault.restoreAttachment(attachmentId)}
+        >
+          還原
+        </button>
+      </div>
+    )
+  } else if (state === 'gone') {
+    body = <div className="media-placeholder text-fg-tertiary">找不到這個檔案</div>
+  } else if (status === 'loading') {
     body = <div className="media-placeholder text-fg-tertiary">載入中…</div>
   } else if (status === 'missing' || !url) {
     body = <div className="media-placeholder text-fg-tertiary">找不到這個檔案</div>
@@ -85,7 +116,7 @@ function MediaView({ node, selected, updateAttributes, editor, extension }: Reac
         style={{ width: shown ? `${shown}px` : undefined, maxWidth: '100%', borderRadius: 12, boxShadow: selected ? '0 0 0 2px var(--accent)' : undefined }}
       >
         {body}
-        {kind === 'image' && selected && editor.isEditable && status === 'ready' && (
+        {kind === 'image' && selected && editor.isEditable && status === 'ready' && state !== 'trashed' && state !== 'gone' && (
           <span
             role="slider"
             aria-label="調整圖片寬度"

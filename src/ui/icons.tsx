@@ -175,3 +175,14 @@ export const ImageIcon = make(
   </>,
 )
 export const Swap = make('Swap', <path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" />)
+export const Paperclip = make(
+  'Paperclip',
+  <path d="m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" />,
+)
+export const VideoIcon = make(
+  'VideoIcon',
+  <>
+    <rect x="3" y="6" width="13" height="12" rx="2" />
+    <path d="m16 10 5-3v10l-5-3" />
+  </>,
+)

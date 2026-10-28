@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useUi } from '@/app/ui-store'
 import { IconButton } from '@/ui/components/IconButton'
-import { Folder, Search, Settings, Tag } from '@/ui/icons'
+import { Folder, Paperclip, Search, Settings, Tag } from '@/ui/icons'
 import { useLayoutMode } from '@/features/shell/layout-mode'
 import { useRail } from './use-rail'
 
@@ -36,7 +36,14 @@ export function Rail() {
   useEffect(() => cancelClose, [cancelClose])
 
   const files = () => {
-    if (mode === 'narrow') ui.getState().setSidebarOverlay(!ui.getState().sidebarOverlayOpen)
+    const s = ui.getState()
+    if (mode === 'narrow') s.setSidebarOverlay(s.sidebarView !== 'tree' || !s.sidebarOverlayOpen)
+    s.setSidebarView('tree')
+  }
+  const attachments = () => {
+    const s = ui.getState()
+    if (mode === 'narrow') s.setSidebarOverlay(s.sidebarView !== 'attachments' || !s.sidebarOverlayOpen)
+    s.setSidebarView(s.sidebarView === 'attachments' && mode !== 'narrow' ? 'tree' : 'attachments')
   }
   const tags = () => {
     if (mode === 'narrow') ui.getState().setSidebarOverlay(true)
@@ -80,6 +87,9 @@ export function Rail() {
         </IconButton>
         <IconButton label="標籤" tooltip tooltipSide="right" className={RAIL_BTN} onClick={tags}>
           <Tag />
+        </IconButton>
+        <IconButton label="附件" tooltip tooltipSide="right" className={RAIL_BTN} onClick={attachments}>
+          <Paperclip />
         </IconButton>
         <div role="separator" className="my-1 h-px w-5 bg-black/10" />
         <IconButton label="設定" tooltip tooltipSide="right" className={RAIL_BTN} onClick={() => ui.getState().setSettings(true)}>

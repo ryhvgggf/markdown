@@ -22,6 +22,8 @@ export interface LinkRow {
 }
 export interface BlockRow { noteId: string; blockId: string; type: string; text: string }
 export interface TagRow { noteId: string; tag: string }
+/** Derived: which notes use which attachment (one row per pair). */
+export interface AttachmentRefRow { noteId: string; attachmentId: string }
 export interface MetaRow { key: string; value: unknown }
 
 export class NotesDb extends Dexie {
@@ -32,6 +34,7 @@ export class NotesDb extends Dexie {
   links!: Table<LinkRow, number>
   blocks!: Table<BlockRow, [string, string]>
   tags!: Table<TagRow, [string, string]>
+  attachmentRefs!: Table<AttachmentRefRow, [string, string]>
   meta!: Table<MetaRow, string>
 
   constructor(name: string, deps?: { indexedDB: IDBFactory; IDBKeyRange: typeof IDBKeyRange }) {
@@ -46,6 +49,8 @@ export class NotesDb extends Dexie {
       tags: '[noteId+tag], tag',
       meta: 'key',
     })
+    // v2: derived attachment usage (filled by the index rebuild that INDEX_VERSION 4 triggers).
+    this.version(2).stores({ attachmentRefs: '[noteId+attachmentId], attachmentId, noteId' })
   }
 }
 

@@ -1,21 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useServices } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
 import { IconButton } from '@/ui/components/IconButton'
 import { ChevronRight, FolderPlus, Plus, Trash } from '@/ui/icons'
 import { FolderTree } from './FolderTree'
 import { TrashView } from './TrashView'
+import { AttachmentsView } from './AttachmentsView'
 import { useActions } from './use-actions'
 import { useExpanded } from './use-expanded'
 import { trashRoots, useVaultSnapshot } from './use-vault'
 
 export function Sidebar() {
   const { vault, storageMode } = useServices()
-  const { tree, trashed } = useVaultSnapshot()
+  const { tree, trashed, attachments, notes } = useVaultSnapshot()
+  const allNotes = useMemo(() => [...notes, ...trashed.notes], [notes, trashed.notes])
   const { expanded, loaded, toggle, expand } = useExpanded()
   const actions = useActions(tree, expand)
   const openNoteId = useUi((s) => s.openNoteId)
-  const [view, setView] = useState<'tree' | 'trash'>('tree')
+  const view = useUi((s) => s.sidebarView)
+  const setView = useUi((s) => s.setSidebarView)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const trashCount = trashRoots(trashed).length
 
@@ -54,24 +57,18 @@ export function Sidebar() {
             )}
           </div>
         </>
+      ) : view === 'trash' ? (
+        <SubView title="垃圾桶" onBack={() => setView('tree')}>
+          <TrashView trashed={trashed} onRestore={actions.restore} onPurge={(ref) => void actions.purge(ref)} />
+        </SubView>
       ) : (
-        <>
-          <div className="flex items-center gap-1 px-3 pt-3 pb-2">
-            <button
-              type="button"
-              onClick={() => setView('tree')}
-              className="flex items-center gap-1 rounded-control px-1.5 py-1 text-[13px] text-fg-secondary hover:bg-fill hover:text-fg"
-            >
-              <ChevronRight size={14} className="rotate-180" />
-              返回
-            </button>
-            <h2 className="flex-1 text-center text-[13px] font-semibold text-fg-secondary">垃圾桶</h2>
-            <span className="w-12" />
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            <TrashView trashed={trashed} onRestore={actions.restore} onPurge={(ref) => void actions.purge(ref)} />
-          </div>
-        </>
+        <SubView title="附件" onBack={() => setView('tree')}>
+          <AttachmentsView
+            attachments={attachments}
+            notes={allNotes}
+            onTrash={actions.trashAttachment}
+          />
+        </SubView>
       )}
       <div className="px-2 pt-1">
         <button
@@ -98,5 +95,25 @@ export function Sidebar() {
         )}
       </p>
     </div>
+  )
+}
+
+function SubView({ title, onBack, children }: { title: string; onBack(): void; children: ReactNode }) {
+  return (
+    <>
+      <div className="flex items-center gap-1 px-3 pt-3 pb-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-1 rounded-control px-1.5 py-1 text-[13px] text-fg-secondary hover:bg-fill hover:text-fg"
+        >
+          <ChevronRight size={14} className="rotate-180" />
+          返回
+        </button>
+        <h2 className="flex-1 text-center text-[13px] font-semibold text-fg-secondary">{title}</h2>
+        <span className="w-12" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+    </>
   )
 }

@@ -5,6 +5,7 @@ import { focusTitleEnd } from '@/features/editor/focus-bridge'
 import type { TreeNode } from '@/core/vault/tree'
 import { VaultError } from '@/core/vault/types'
 import type { Move, Ref } from './dnd'
+import type { TrashRef } from './TrashView'
 
 /** Focuses the title of a just-created note once its editor has mounted. */
 function focusTitleSoon(noteId: string): void {
@@ -86,13 +87,18 @@ export function useActions(tree: TreeNode[], expand: (ids: string[]) => void) {
           if (!(e instanceof VaultError && e.code === 'cycle')) throw e
         }
       },
-      restore(ref: Ref): void {
+      restore(ref: TrashRef): void {
         if (ref.kind === 'note') vault.restoreNote(ref.id)
-        else vault.restoreFolder(ref.id)
+        else if (ref.kind === 'folder') vault.restoreFolder(ref.id)
+        else vault.restoreAttachment(ref.id)
       },
       /** Permanent delete; crash-safe and never rejects (failures reach the storage banner). */
-      purge(ref: Ref): Promise<boolean> {
-        return maintenance.purge(ref)
+      purge(ref: TrashRef): Promise<boolean> {
+        return ref.kind === 'attachment' ? maintenance.purgeAttachment(ref.id) : maintenance.purge({ kind: ref.kind, id: ref.id })
+      },
+      /** Moves an attachment to the trash (any time, used or not); notes using it show it as trashed. */
+      trashAttachment(id: string): void {
+        vault.trashAttachment(id)
       },
     }
   }, [vault, maintenance, tree, expand, ancestors])

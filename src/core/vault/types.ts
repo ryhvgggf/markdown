@@ -15,7 +15,15 @@ export type FolderMeta = {
   createdAt: number
   deletedAt: number | null
 }
-export type AttachmentMeta = { id: string; filename: string; mimeType: string; size: number; createdAt: number }
+export type AttachmentMeta = {
+  id: string
+  filename: string
+  mimeType: string
+  size: number
+  createdAt: number
+  /** Non-null: in the trash (moved there by the user); emptied 30 days later like notes. */
+  deletedAt: number | null
+}
 
 export type VaultErrorCode = 'duplicate-title' | 'not-found' | 'cycle'
 export class VaultError extends Error {

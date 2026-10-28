@@ -7,8 +7,8 @@ import type { NoteDocCache } from '../note-doc/cache'
 import type { Vault } from '../vault/vault'
 
 /** Bump when derived index data changes shape; startup maintenance then rebuilds it once. */
-/** 3: link snippet tokens carry the target block id. */
-export const INDEX_VERSION = 3
+/** 3: link snippet tokens carry the target block id. 4: attachmentRefs (which notes use which attachment). */
+export const INDEX_VERSION = 4
 export const INDEX_VERSION_KEY = 'indexVersion'
 /** meta: ids of notes whose permanent delete has started but not finished (crash-safe purge). */
 export const PENDING_PURGE_KEY = 'pendingPurge'
@@ -78,6 +78,9 @@ export class Maintenance {
       await this.finishPurge(purge)
     })
 
+    // 1b. attachments the user trashed more than 30 days ago: deleted even if a note still shows them
+    await this.step(async () => void (await this.deleteAttachments(vault.expiredAttachmentIds(now))))
+
     // 2. derived index: one rebuild after a version bump (or an empty index), then the dirty-note catch-up
     await this.step(async () => {
       const stored = (await db.meta.get(INDEX_VERSION_KEY))?.value
@@ -110,8 +113,9 @@ export class Maintenance {
       const ids = new Set(vault.unreferencedAttachmentIds(now, refs))
       const settled = new Set<string>() // due marks that are resolved (deleted, referenced or gone)
       for (const id of due) {
-        if (refs.has(id) || !vault.getAttachment(id)) settled.add(id)
-        else ids.add(id)
+        const a = vault.getAttachment(id)
+        if (refs.has(id) || !a) settled.add(id)
+        else if (a.deletedAt === null) ids.add(id) // one in the trash waits for the trash's own expiry
       }
       for (const id of await this.deleteAttachments([...ids])) if (due.includes(id)) settled.add(id)
       await this.updateMarks((m) => {
@@ -146,6 +150,24 @@ export class Maintenance {
           for (const id of candidates) m[id] = Math.max(m[id] ?? 0, after)
         })
       }
+      return true
+    } catch (e) {
+      this.report(e)
+      return false
+    }
+  }
+
+  /**
+   * Permanent delete of an attachment from the trash: blob first, then metadata (see deleteAttachments).
+   * Notes that still use it then show a missing file. Refuses attachments that are not in the trash.
+   * Never rejects: failures are reported through `onError`; returns whether it was removed.
+   */
+  async purgeAttachment(id: string): Promise<boolean> {
+    const a = this.d.vault.getAttachment(id)
+    if (!a || a.deletedAt === null) return false
+    try {
+      await this.d.storage.deleteBlob(id)
+      this.d.vault.removeAttachment(id)
       return true
     } catch (e) {
       this.report(e)

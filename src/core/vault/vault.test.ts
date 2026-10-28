@@ -147,6 +147,57 @@ describe('Vault', () => {
     expect(v.hasStaleAttachments(Date.now())).toBe(false)
   })
 
+  describe('attachment trash', () => {
+    const add = (v: Vault, name = 'a.png') => v.addAttachment({ filename: name, mimeType: 'image/png', size: 1 })
+
+    it('new attachments are live; legacy records without deletedAt read as live', async () => {
+      const v = await open()
+      const a = add(v)
+      expect(a.deletedAt).toBeNull()
+      ;(v.doc.getMap('attachments').get(a.id) as import('yjs').Map<unknown>).delete('deletedAt')
+      expect(v.getAttachment(a.id)?.deletedAt).toBeNull()
+      expect(v.listAttachments().map((x) => x.id)).toEqual([a.id])
+    })
+
+    it('trash and restore move an attachment in and out of the trash, whatever its age or use', async () => {
+      const v = await open()
+      const a = add(v)
+      const b = add(v, 'b.png')
+      v.trashAttachment(a.id)
+      expect(v.getAttachment(a.id)?.deletedAt).toEqual(expect.any(Number))
+      expect(v.listAttachments().map((x) => x.id)).toEqual([b.id])
+      expect(v.listAttachments({ includeTrashed: true }).map((x) => x.id).sort()).toEqual([a.id, b.id].sort())
+      v.restoreAttachment(a.id)
+      expect(v.getAttachment(a.id)?.deletedAt).toBeNull()
+      expect(() => v.trashAttachment('nope')).toThrowError(expect.objectContaining({ code: 'not-found' }))
+    })
+
+    it('expiredAttachmentIds lists attachments trashed more than 30 days ago', async () => {
+      const v = await open()
+      const old = add(v)
+      const recent = add(v, 'r.png')
+      add(v, 'live.png')
+      v.trashAttachment(old.id)
+      v.trashAttachment(recent.id)
+      const now = Date.now()
+      ;(v.doc.getMap('attachments').get(old.id) as import('yjs').Map<unknown>).set('deletedAt', now - 31 * DAY)
+      ;(v.doc.getMap('attachments').get(recent.id) as import('yjs').Map<unknown>).set('deletedAt', now - 29 * DAY)
+      expect(v.expiredAttachmentIds(now)).toEqual([old.id])
+    })
+
+    it('the unreferenced-attachment GC leaves trashed attachments to the trash', async () => {
+      const v = await open()
+      const now = Date.now()
+      const trashed = add(v)
+      ;(v.doc.getMap('attachments').get(trashed.id) as import('yjs').Map<unknown>).set('createdAt', now - 40 * DAY)
+      v.trashAttachment(trashed.id)
+      expect(v.hasStaleAttachments(now)).toBe(false)
+      expect(v.unreferencedAttachmentIds(now, new Set())).toEqual([])
+      expect(v.purgeExpired(now, new Set()).attachmentIds).toEqual([])
+      expect(v.getAttachment(trashed.id)).toBeDefined()
+    })
+  })
+
   it('resolveDuplicateTitles renames the later-created note', async () => {
     const v = await open()
     const a = v.createNote({ title: 'X' })

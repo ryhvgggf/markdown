@@ -108,5 +108,5 @@ test('一篇損壞的筆記加上索引重建，App 仍能開啟 (C1)', async ({
     .poll(() => idb<unknown>(page, `const r = db.transaction('meta').objectStore('meta').get('indexVersion'); r.onsuccess = () => done(r.result?.value)`), {
       timeout: 10000,
     })
-    .toBe(3) // INDEX_VERSION (3 since link snippet tokens carry block ids)
+    .toBe(4) // INDEX_VERSION (4 since attachmentRefs)
 })

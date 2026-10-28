@@ -1,13 +1,13 @@
 import Dexie from 'dexie'
 import * as Y from 'yjs'
 import { StorageError, toStorageError, type StorageAdapter } from '@/adapters/storage/types'
-import type { BlockRow, LinkRow, NoteTextRow, NotesDb, TagRow } from '@/adapters/storage/db'
+import type { AttachmentRefRow, BlockRow, LinkRow, NoteTextRow, NotesDb, TagRow } from '@/adapters/storage/db'
 import type { Vault } from '../vault/vault'
 import type { NoteDocCache } from '../note-doc/cache'
 import { extractNote } from '../extract/extract'
 import { onIdle } from '../idle'
 
-export type { BlockRow, LinkRow, NoteTextRow, TagRow }
+export type { AttachmentRefRow, BlockRow, LinkRow, NoteTextRow, TagRow }
 
 const DEFAULT_DEBOUNCE_MS = 1000
 const MIRROR_PAGE = 100
@@ -33,7 +33,7 @@ export interface IndexPassResult {
 type RowState = { title: string; updatedAt: number; trashed: boolean }
 
 /**
- * Keeps the derived Dexie tables (noteText, links, blocks, tags) in sync with the Yjs documents.
+ * Keeps the derived Dexie tables (noteText, links, blocks, tags, attachmentRefs) in sync with the Yjs documents.
  * Trashed notes keep their rows; rows are removed only once the note is gone from the vault.
  */
 export class Indexer {
@@ -82,12 +82,13 @@ export class Indexer {
     const t = this.timers.get(noteId)
     if (t !== undefined) clearTimeout(t)
     this.timers.delete(noteId)
-    const { noteText, links, blocks, tags, meta } = this.db
-    await this.db.transaction('rw', [noteText, links, blocks, tags, meta], async () => {
+    const { noteText, links, blocks, tags, attachmentRefs, meta } = this.db
+    await this.db.transaction('rw', [noteText, links, blocks, tags, attachmentRefs, meta], async () => {
       await noteText.delete(noteId)
       await links.where('sourceNoteId').equals(noteId).delete()
       await blocks.where('noteId').equals(noteId).delete()
       await tags.where('[noteId+tag]').between([noteId, ''], [noteId, '￿']).delete()
+      await attachmentRefs.where('[noteId+attachmentId]').between([noteId, ''], [noteId, '￿']).delete()
       await meta.delete(DIRTY_PREFIX + noteId)
     })
     this.rows?.delete(noteId)
@@ -261,12 +262,13 @@ export class Indexer {
 
   private async write(noteId: string, title: string, updatedAt: number, doc: Y.Doc): Promise<void> {
     const x = extractNote(doc.getXmlFragment('content'))
-    const { noteText, links, blocks, tags, meta } = this.db
+    const { noteText, links, blocks, tags, attachmentRefs, meta } = this.db
+    const refRows: AttachmentRefRow[] = x.attachmentIds.map((attachmentId) => ({ noteId, attachmentId }))
     const linkRows: LinkRow[] = x.links.map((l) => ({ sourceNoteId: noteId, ...l }))
     const blockRows: BlockRow[] = x.blocks.map((b) => ({ noteId, blockId: b.id, type: b.type, text: b.text }))
     const tagRows: TagRow[] = x.tags.map((tag) => ({ noteId, tag }))
     let written: RowState | null = null
-    await this.db.transaction('rw', [noteText, links, blocks, tags, meta], async () => {
+    await this.db.transaction('rw', [noteText, links, blocks, tags, attachmentRefs, meta], async () => {
       // The note may have been purged while we were loading; never recreate rows for it.
       const live = this.vault.getNote(noteId)
       if (!live) return
@@ -279,9 +281,11 @@ export class Indexer {
       await links.where('sourceNoteId').equals(noteId).delete()
       await blocks.where('noteId').equals(noteId).delete()
       await tags.where('[noteId+tag]').between([noteId, ''], [noteId, '￿']).delete()
+      await attachmentRefs.where('[noteId+attachmentId]').between([noteId, ''], [noteId, '￿']).delete()
       await links.bulkAdd(linkRows)
       await blocks.bulkPut(blockRows)
       await tags.bulkPut(tagRows)
+      await attachmentRefs.bulkPut(refRows)
     })
     if (written) this.rows?.set(noteId, written)
   }

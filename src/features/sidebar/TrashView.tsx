@@ -2,14 +2,23 @@ import { useState } from 'react'
 import { TRASH_TTL_MS } from '@/core/vault/vault'
 import { displayTitle } from '@/core/vault/titles'
 import { Button } from '@/ui/components/Button'
-import { Folder } from '@/ui/icons'
-import type { Ref } from './dnd'
-import { trashRoots, type VaultSnapshot } from './use-vault'
+import { Folder, Paperclip } from '@/ui/icons'
+import { trashRoots, type TrashItem, type VaultSnapshot } from './use-vault'
 
 export const TRASH_DAY_MS = 24 * 60 * 60 * 1000
 
 export const daysLeft = (deletedAt: number, now: number) =>
   Math.max(1, Math.ceil((deletedAt + TRASH_TTL_MS - now) / TRASH_DAY_MS))
+
+/** What a trash row stands for: a note, a folder subtree, or an attachment. */
+export type TrashRef = { kind: 'note' | 'folder' | 'attachment'; id: string }
+
+function describe(item: TrashItem): { ref: TrashRef; label: string; deletedAt: number | null } {
+  if (item.kind === 'note') return { ref: { kind: 'note', id: item.note.id }, label: displayTitle(item.note.title), deletedAt: item.note.deletedAt }
+  if (item.kind === 'folder')
+    return { ref: { kind: 'folder', id: item.folder.id }, label: item.folder.name || '未命名資料夾', deletedAt: item.folder.deletedAt }
+  return { ref: { kind: 'attachment', id: item.attachment.id }, label: item.attachment.filename || '未命名附件', deletedAt: item.attachment.deletedAt }
+}
 
 export function TrashView({
   trashed,
@@ -17,8 +26,8 @@ export function TrashView({
   onPurge,
 }: {
   trashed: VaultSnapshot['trashed']
-  onRestore(ref: Ref): void
-  onPurge(ref: Ref): void
+  onRestore(ref: TrashRef): void
+  onPurge(ref: TrashRef): void
 }) {
   const [confirming, setConfirming] = useState<string | null>(null)
   const [now] = useState(Date.now)
@@ -27,16 +36,15 @@ export function TrashView({
   return (
     <ul className="flex flex-col gap-0.5 px-2 pb-2">
       {items.map((item) => {
-        const ref: Ref = item.kind === 'note' ? { kind: 'note', id: item.note.id } : { kind: 'folder', id: item.folder.id }
-        const label = item.kind === 'note' ? displayTitle(item.note.title) : item.folder.name || '未命名資料夾'
-        const deletedAt = (item.kind === 'note' ? item.note.deletedAt : item.folder.deletedAt) ?? now
+        const { ref, label, deletedAt } = describe(item)
         return (
-          <li key={ref.id} className="flex flex-col gap-1 rounded-[8px] px-2 py-1.5 hover:bg-fill">
+          <li key={ref.id} data-kind={ref.kind} className="flex flex-col gap-1 rounded-[8px] px-2 py-1.5 hover:bg-fill">
             <div className="flex items-center gap-1.5 text-[13.5px] text-fg">
-              {item.kind === 'folder' && <Folder size={14} className="shrink-0 text-fg-tertiary" />}
+              {ref.kind === 'folder' && <Folder size={14} className="shrink-0 text-fg-tertiary" />}
+              {ref.kind === 'attachment' && <Paperclip size={14} aria-label="附件" className="shrink-0 text-fg-tertiary" />}
               <span className="min-w-0 flex-1 truncate">{label}</span>
             </div>
-            <div className="text-xs text-fg-tertiary">{daysLeft(deletedAt, now)} 天後永久刪除</div>
+            <div className="text-xs text-fg-tertiary">{daysLeft(deletedAt ?? now, now)} 天後永久刪除</div>
             {confirming === ref.id ? (
               <div className="flex items-center gap-1.5 text-xs">
                 <span className="flex-1 text-fg">確定永久刪除？</span>

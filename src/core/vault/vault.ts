@@ -37,6 +37,17 @@ function toFolder(m: YM): FolderMeta {
     deletedAt: (m.get('deletedAt') as number | null) ?? null,
   }
 }
+function toAttachment(id: string, m: YM): AttachmentMeta {
+  return {
+    id,
+    filename: (m.get('filename') as string) ?? '',
+    mimeType: (m.get('mimeType') as string) ?? '',
+    size: (m.get('size') as number) ?? 0,
+    createdAt: (m.get('createdAt') as number) ?? 0,
+    deletedAt: (m.get('deletedAt') as number | null) ?? null, // records from before the attachment trash have none
+  }
+}
+const isTrashed = (m: YM) => typeof m.get('deletedAt') === 'number'
 function isExpired(m: YM, now: number): boolean {
   const d = m.get('deletedAt') as number | null | undefined
   return typeof d === 'number' && now - d > TRASH_TTL_MS
@@ -246,22 +257,29 @@ export class Vault {
   }
 
   // ---- maintenance ----
-  /** True when some attachment is old enough to be purged if unreferenced (cheap pre-check for startup). */
+  /** True when some live attachment is old enough to be purged if unreferenced (cheap pre-check for startup). */
   hasStaleAttachments(now: number): boolean {
-    for (const m of this.attachments.values()) if (now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS) return true
+    for (const m of this.attachments.values()) if (!isTrashed(m) && now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS) return true
     return false
   }
   /** Ids of notes trashed more than 30 days ago (what `purgeExpired(now)` would remove). */
   expiredNoteIds(now: number): string[] {
     return [...this.notes.entries()].filter(([, m]) => isExpired(m, now)).map(([k]) => k)
   }
+  /** Ids of attachments the user trashed more than 30 days ago (deleted whether or not a note uses them). */
+  expiredAttachmentIds(now: number): string[] {
+    return [...this.attachments.entries()].filter(([, m]) => isExpired(m, now)).map(([k]) => k)
+  }
   /**
-   * Attachments that may be purged (R8): older than 30 days AND absent from `referencedAttachmentIds`,
-   * which must include references from trashed-but-unexpired notes too.
+   * Attachments that may be purged (R8): live (not in the trash, which has its own expiry), older than
+   * 30 days AND absent from `referencedAttachmentIds`, which must include references from
+   * trashed-but-unexpired notes too.
    */
   unreferencedAttachmentIds(now: number, referencedAttachmentIds: Set<string>): string[] {
     return [...this.attachments.entries()]
-      .filter(([k, m]) => !referencedAttachmentIds.has(k) && now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS)
+      .filter(
+        ([k, m]) => !isTrashed(m) && !referencedAttachmentIds.has(k) && now - ((m.get('createdAt') as number) ?? now) > TRASH_TTL_MS,
+      )
       .map(([k]) => k)
   }
   /**
@@ -295,8 +313,8 @@ export class Vault {
     })
     return { noteIds, attachmentIds }
   }
-  addAttachment(a: Omit<AttachmentMeta, 'id' | 'createdAt'>): AttachmentMeta {
-    const meta: AttachmentMeta = { ...a, id: newId(), createdAt: Date.now() }
+  addAttachment(a: Omit<AttachmentMeta, 'id' | 'createdAt' | 'deletedAt'>): AttachmentMeta {
+    const meta: AttachmentMeta = { ...a, id: newId(), createdAt: Date.now(), deletedAt: null }
     this.doc.transact(() => {
       const m: YM = new Y.Map()
       this.attachments.set(meta.id, m)
@@ -306,7 +324,20 @@ export class Vault {
   }
   getAttachment(id: string): AttachmentMeta | undefined {
     const m = this.attachments.get(id)
-    return m ? ({ id, ...Object.fromEntries(m.entries()) } as AttachmentMeta) : undefined
+    return m ? toAttachment(id, m) : undefined
+  }
+  listAttachments(o: { includeTrashed?: boolean } = {}): AttachmentMeta[] {
+    const all = [...this.attachments.entries()].map(([id, m]) => toAttachment(id, m))
+    return o.includeTrashed ? all : all.filter((a) => a.deletedAt === null)
+  }
+  /** Moves an attachment to the trash; notes that use it show it as trashed until it is restored. */
+  trashAttachment(id: string): void {
+    const m = this.attachment(id)
+    this.doc.transact(() => m.set('deletedAt', Date.now()))
+  }
+  restoreAttachment(id: string): void {
+    const m = this.attachment(id)
+    this.doc.transact(() => m.set('deletedAt', null))
   }
   /** Drops attachment metadata only (the blob is the caller's concern). */
   removeAttachment(id: string): void {
@@ -369,6 +400,11 @@ export class Vault {
   private note(id: string): YM {
     const m = this.notes.get(id)
     if (!m) throw new VaultError('not-found', `note ${id}`)
+    return m
+  }
+  private attachment(id: string): YM {
+    const m = this.attachments.get(id)
+    if (!m) throw new VaultError('not-found', `attachment ${id}`)
     return m
   }
   private folder(id: string): YM {

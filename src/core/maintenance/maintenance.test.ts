@@ -143,6 +143,60 @@ describe('Maintenance.runStartup (C1, I4, M5, M11)', () => {
   })
 })
 
+describe('attachment trash', () => {
+  it('purgeAttachment deletes blob and metadata at once, even when a note still uses it', async () => {
+    const att = await attachment(0)
+    await noteWith('Uses it', ['x', media(att)])
+    vault.trashAttachment(att)
+    await expect(m.purgeAttachment(att)).resolves.toBe(true)
+    expect(vault.getAttachment(att)).toBeUndefined()
+    expect(await storage.getBlob(att)).toBeUndefined()
+  })
+
+  it('purgeAttachment refuses an attachment that is not in the trash', async () => {
+    const att = await attachment(0)
+    await expect(m.purgeAttachment(att)).resolves.toBe(false)
+    expect(vault.getAttachment(att)).toBeDefined()
+    expect(await storage.getBlob(att)).toBeDefined()
+  })
+
+  it('purgeAttachment reports a storage failure and keeps the metadata (retry possible)', async () => {
+    const att = await attachment(0)
+    vault.trashAttachment(att)
+    vi.spyOn(storage, 'deleteBlob').mockRejectedValueOnce(new StorageError('unknown', 'boom'))
+    await expect(m.purgeAttachment(att)).resolves.toBe(false)
+    expect(onError).toHaveBeenCalled()
+    expect(vault.getAttachment(att)?.deletedAt).toEqual(expect.any(Number))
+  })
+
+  it('startup empties attachments trashed more than 30 days ago, referenced or not', async () => {
+    const old = await attachment(0)
+    const recent = await attachment(0)
+    await noteWith('Uses old', ['x', media(old)])
+    vault.trashAttachment(old)
+    vault.trashAttachment(recent)
+    ;(vault.doc.getMap('attachments').get(old) as Y.Map<unknown>).set('deletedAt', Date.now() - TRASH_TTL_MS - DAY)
+    await m.runStartup()
+    expect(vault.getAttachment(old)).toBeUndefined()
+    expect(await storage.getBlob(old)).toBeUndefined()
+    expect(vault.getAttachment(recent)).toBeDefined()
+    expect(await storage.getBlob(recent)).toBeDefined()
+  })
+
+  it('the daily GC and grace marks never delete an attachment sitting in the trash', async () => {
+    const stale = await attachment(40)
+    const marked = await attachment(0)
+    vault.trashAttachment(stale)
+    vault.trashAttachment(marked)
+    await db.meta.put({ key: ATTACHMENT_DELETE_AFTER_KEY, value: { [marked]: Date.now() - 1 } })
+    await db.meta.put({ key: LAST_ATTACHMENT_GC_KEY, value: 0 })
+    await m.runStartup()
+    expect(vault.getAttachment(stale)).toBeDefined()
+    expect(vault.getAttachment(marked)).toBeDefined()
+    expect(await storage.getBlob(marked)).toBeDefined()
+  })
+})
+
 describe('Maintenance.purge (I5)', () => {
   it('removes doc, index rows and attachments no other note references', async () => {
     const own = await attachment(0)

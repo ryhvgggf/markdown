@@ -162,6 +162,23 @@ describe('editor integration', () => {
     expect(img[0]).toHaveAttribute('alt', '1.png')
     expect(editor!.state.doc.lastChild?.type.name).toBe('paragraph')
   })
+  it('shows a trashed attachment as such with 還原, and a permanently deleted one as missing', async () => {
+    await setup()
+    await act(async () => {
+      fireEvent.paste(editor!.view.dom, { clipboardData: { files: [png('1.png')], getData: () => '', types: ['Files'] } })
+    })
+    await screen.findByRole('img')
+    const id = mediaNodes()[0].attachmentId as string
+    act(() => vault.trashAttachment(id))
+    expect(await screen.findByText('這個附件已移到垃圾桶')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '還原' }))
+    expect(vault.getAttachment(id)?.deletedAt).toBeNull()
+    expect(await screen.findByRole('img')).toBeInTheDocument()
+    act(() => vault.removeAttachment(id))
+    expect(await screen.findByText('找不到這個檔案')).toBeInTheDocument()
+    expect(mediaNodes()).toHaveLength(1) // the block stays; only its file is gone
+  })
   it('lets text paste win when the clipboard has an image plus text', async () => {
     await setup()
     await act(async () => {

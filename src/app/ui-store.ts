@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 
+export type SidebarView = 'tree' | 'trash' | 'attachments'
+
 export interface UiState {
   openNoteId: string | null
   /** The floating 反向連結 panel (summoned by the pill at the card's top right). */
@@ -11,6 +13,8 @@ export interface UiState {
   /** Text the switcher starts with when opened (e.g. '#' from the rail's tag button). */
   quickSwitcherSeed: string
   sidebarOverlayOpen: boolean
+  /** What the sidebar card shows: the folder tree, the trash, or the attachments list. */
+  sidebarView: SidebarView
   settingsOpen: boolean
   highlightBlockId: string | null
   openNote(id: string, blockId?: string): void
@@ -21,6 +25,7 @@ export interface UiState {
   setRailHover(v: boolean): void
   setQuickSwitcher(v: boolean, seed?: string): void
   setSidebarOverlay(v: boolean): void
+  setSidebarView(v: SidebarView): void
   setSettings(v: boolean): void
   clearHighlight(): void
 }
@@ -34,6 +39,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     quickSwitcherOpen: false,
     quickSwitcherSeed: '',
     sidebarOverlayOpen: false,
+    sidebarView: 'tree',
     settingsOpen: false,
     highlightBlockId: null,
     openNote: (id, blockId) => {
@@ -47,6 +53,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     setRailHover: (railHover) => set({ railHover }),
     setQuickSwitcher: (quickSwitcherOpen, seed = '') => set({ quickSwitcherOpen, quickSwitcherSeed: seed }),
     setSidebarOverlay: (sidebarOverlayOpen) => set({ sidebarOverlayOpen }),
+    setSidebarView: (sidebarView) => set({ sidebarView }),
     setSettings: (settingsOpen) => set({ settingsOpen }),
     clearHighlight: () => set({ highlightBlockId: null }),
   }))

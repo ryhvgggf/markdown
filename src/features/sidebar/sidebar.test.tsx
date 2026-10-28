@@ -49,7 +49,7 @@ beforeEach(async () => {
   }
   mode = 'persistent'
   focusTitleEnd.mockClear()
-  useUi.setState({ openNoteId: null })
+  useUi.setState({ openNoteId: null, sidebarView: 'tree' })
 })
 afterEach(() => {
   cleanup()

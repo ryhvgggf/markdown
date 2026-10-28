@@ -83,3 +83,14 @@ describe('Rail', () => {
     expect(useUi.getState().settingsOpen).toBe(true)
   })
 })
+
+describe('Rail 附件', () => {
+  it('opens the attachments list in the sidebar (and the sheet when narrow)', () => {
+    useUi.setState({ sidebarView: 'tree', sidebarOverlayOpen: false })
+    setup()
+    fireEvent.click(screen.getByRole('button', { name: '附件' }))
+    expect(useUi.getState().sidebarView).toBe('attachments')
+    fireEvent.click(screen.getByRole('button', { name: '檔案' }))
+    expect(useUi.getState().sidebarView).toBe('tree')
+  })
+})

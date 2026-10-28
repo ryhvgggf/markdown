@@ -149,8 +149,8 @@ describe('bootstrap: built-in guide', () => {
 })
 
 describe('bootstrap', () => {
-  it('index version 3: link snippets carry block ids, so older indexes are rebuilt once', () => {
-    expect(INDEX_VERSION).toBe(3)
+  it('index version 4: attachmentRefs is new, so older indexes are rebuilt once', () => {
+    expect(INDEX_VERSION).toBe(4)
   })
 
   it('creates a welcome note on first run and records lastNoteId', async () => {

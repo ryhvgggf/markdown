@@ -1,4 +1,5 @@
 // @vitest-environment node
+import Dexie from 'dexie'
 import { describe, expect, it } from 'vitest'
 import { createDb } from './db'
 import { DexieStorage } from './dexie-storage'
@@ -36,8 +37,32 @@ describe('DexieStorage errors', () => {
     const db = createDb()
     expect(db.name).toBe('notes-v2')
     expect(db.tables.map((t) => t.name).sort()).toEqual(
-      ['blobs', 'blocks', 'links', 'meta', 'noteText', 'snapshots', 'tags', 'updates'],
+      ['attachmentRefs', 'blobs', 'blocks', 'links', 'meta', 'noteText', 'snapshots', 'tags', 'updates'],
     )
+    db.close()
+  })
+
+  it('upgrades a version-1 database in place: stored data survives, attachmentRefs is added', async () => {
+    const name = `test-upgrade-${Math.random()}`
+    const old = new Dexie(name)
+    old.version(1).stores({
+      updates: '++seq, docId',
+      snapshots: 'docId',
+      blobs: 'id',
+      noteText: 'noteId',
+      links: '++id, sourceNoteId, targetNoteId, [targetNoteId+targetBlockId]',
+      blocks: '[noteId+blockId], noteId',
+      tags: '[noteId+tag], tag',
+      meta: 'key',
+    })
+    await old.table('updates').add({ docId: 'n1', update: new Uint8Array([1, 2, 3]) })
+    await old.table('meta').put({ key: 'indexVersion', value: 3 })
+    old.close()
+    const db = createDb(name)
+    expect((await db.updates.toArray()).map((r) => r.docId)).toEqual(['n1'])
+    expect((await db.meta.get('indexVersion'))?.value).toBe(3)
+    await db.attachmentRefs.put({ noteId: 'n1', attachmentId: 'a1' })
+    expect(await db.attachmentRefs.where('attachmentId').equals('a1').count()).toBe(1)
     db.close()
   })
 
