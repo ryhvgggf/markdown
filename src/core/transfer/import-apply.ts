@@ -167,6 +167,8 @@ export async function applyImport(
   for (let i = 0; i < pending.length; i += NOTE_CHUNK) {
     // A chunk's new notes appear in one vault transaction (one sidebar / index update, not 25).
     const creates: (() => void)[] = []
+    // New notes' content is written in parallel (one storage round trip per chunk, not per note).
+    const writes: (() => Promise<void>)[] = []
     // Recorded only once the whole chunk is stored (the chunk's notes are created together below).
     const chunkDone: string[] = []
     const chunkReport: Pick<ImportReport, 'renamed' | 'unresolved' | 'aliased' | 'lossy'> = { renamed: [], unresolved: [], aliased: [], lossy: [] }
@@ -225,14 +227,16 @@ export async function applyImport(
         const updatedAt = mn?.updatedAt ?? meta?.updatedAt ?? parsed.updated ?? undefined
         // Content first: a crash before the note exists leaves stored content that the re-run reuses.
         // A backup's id may have content left by an earlier crashed run: never add a second copy on top.
-        if (resumed) {
-          // Content stored by this same run before the crash is this same document: reuse it.
-          if ((await storage.loadDoc(id)).length === 0) await docs.write(id, doc)
-        } else {
-          // A fresh run: content under a backup's id can only be left from some other crashed run.
-          if (manifestNotes.has(n.path) && (await storage.loadDoc(id)).length) await storage.deleteDoc(id)
-          await docs.write(id, doc)
-        }
+        writes.push(async () => {
+          if (resumed) {
+            // Content stored by this same run before the crash is this same document: reuse it.
+            if ((await storage.loadDoc(id)).length === 0) await docs.write(id, doc)
+          } else {
+            // A fresh run: content under a backup's id can only be left from some other crashed run.
+            if (manifestNotes.has(n.path) && (await storage.loadDoc(id)).length) await storage.deleteDoc(id)
+            await docs.write(id, doc)
+          }
+        })
         const folderId = n.folderPath.length ? job.folderIds[n.folderPath.join('/')] : job.rootFolderId
         creates.push(() => {
           try {
@@ -246,6 +250,7 @@ export async function applyImport(
       }
       chunkDone.push(n.path)
     }
+    await Promise.all(writes.map((w) => w()))
     vault.doc.transact(() => creates.forEach((f) => f()))
     for (const p of chunkDone) {
       done.add(p)
