@@ -76,9 +76,10 @@ function atomText(n: PMNode, ctx: InlineContext): string {
     const blockId = (n.attrs?.blockId as string | null) ?? null
     const title = ctx.noteTitle(noteId)
     if (title === null) return '（已刪除的筆記）'
-    if (!blockId) return `[[${title}]]`
+    const label = typeof n.attrs?.label === 'string' && n.attrs.label.trim() ? `|${n.attrs.label.replace(/[[\]|\r\n]+/g, ' ').trim()}` : ''
+    if (!blockId) return `[[${title}${label}]]`
     const heading = ctx.headingText(noteId, blockId)
-    return heading !== null ? `[[${title}#${heading}]]` : `[[${title}#^${blockAnchor(blockId)}]]`
+    return heading !== null ? `[[${title}#${heading}${label}]]` : `[[${title}#^${blockAnchor(blockId)}${label}]]`
   }
   if (n.type === 'tag') return '#' + String(n.attrs?.name ?? '')
   return ''

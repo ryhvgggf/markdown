@@ -61,6 +61,7 @@ async function fixtureVault(): Promise<Side> {
       p('一般', b('粗'), i('斜'), s('刪'), u('底'), hl('螢光', '#FFF1A8'), code('c'), a('連結', 'https://e.com')),
       p('需要跳脫：1. # - > * _ ` [ ] < ~ ==x== #非標籤'),
       p(noteLink(two.id), ' ', noteLink(two.id, 'hd'), ' ', noteLink(two.id, 'blk'), ' ', tag('SAP')),
+      p({ type: 'noteLink', attrs: { noteId: two.id, blockId: null, label: '別名 A' } }, ' ', { type: 'noteLink', attrs: { noteId: two.id, blockId: 'hd', label: '小節別名' } }),
       ul(li('項目', ul('子項目')), '第二項'),
       ol('一', '二'),
       tasks(task(false, '待辦'), task(true, '完成')),

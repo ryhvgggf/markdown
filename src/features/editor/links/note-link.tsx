@@ -1,4 +1,6 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
+import { computePosition, flip, offset, shift } from '@floating-ui/dom'
 import { Node, mergeAttributes } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
@@ -39,19 +41,91 @@ function useNoteSnapshot(vault: Vault | undefined, noteId: string): string {
   })
 }
 
-function NoteLinkView({ node, extension }: ReactNodeViewProps) {
+export const RENAME_EVENT = 'note-link-rename'
+const MAX_LABEL = 100
+
+/** Keeps a name that survives `[[title|name]]`: no brackets, bars or line breaks. */
+export const cleanLabel = (v: string): string | null => v.replace(/[[\]|\r\n]+/g, ' ').trim().slice(0, MAX_LABEL).trim() || null
+
+function RenameBox({ anchor, initial, placeholder, onDone }: { anchor: HTMLElement; initial: string; placeholder: string; onDone: (value: string | null) => void }) {
+  const box = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLInputElement>(null)
+  const [value, setValue] = useState(initial)
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    void computePosition(anchor, el, { strategy: 'fixed', placement: 'bottom-start', middleware: [offset(6), flip({ padding: 8 }), shift({ padding: 8 })] }).then(({ x, y }) => {
+      el.style.left = `${x}px`
+      el.style.top = `${y}px`
+    })
+    // The editor takes focus back when the right-click is released; focus the box after that.
+    const focus = () => {
+      input.current?.focus()
+      input.current?.select()
+    }
+    focus()
+    const t = window.setTimeout(focus, 60)
+    return () => window.clearTimeout(t)
+  }, [anchor])
+  useEffect(() => {
+    // A press anywhere else closes it without changing the name (a blur would also fire on window switches).
+    const away = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as globalThis.Node)) onDone(null)
+    }
+    document.addEventListener('pointerdown', away, true)
+    return () => document.removeEventListener('pointerdown', away, true)
+  }, [onDone])
+  return createPortal(
+    <div ref={box} style={{ position: 'fixed', left: 0, top: 0, zIndex: 60 }} className="glass-float popup-pop p-2">
+      <input
+        ref={input}
+        aria-label="連結名稱"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            onDone(null)
+          } else if (e.key === 'Enter') {
+            e.preventDefault()
+            onDone(cleanLabel(value) ?? '')
+          }
+        }}
+        className="h-7 w-60 rounded-control bg-fill px-2 text-sm text-fg outline-none placeholder:text-fg-tertiary focus-visible:ring-2 focus-visible:ring-accent"
+      />
+      <div className="px-0.5 pt-1 text-xs text-fg-secondary">Enter 套用，留空則顯示筆記標題</div>
+    </div>,
+    document.body,
+  )
+}
+
+function NoteLinkView({ node, extension, editor, updateAttributes }: ReactNodeViewProps) {
   const ctx = (extension.options as NoteLinkOptions).ctx
   const target: LinkTarget = { noteId: node.attrs.noteId as string, blockId: (node.attrs.blockId as string | null) ?? null }
   useNoteSnapshot(ctx?.vault, target.noteId)
   const blockText = useBlockText(ctx?.db, target.noteId, target.blockId, ctx?.peekNoteDoc)
   const label = ctx?.vault ? noteLinkLabel(ctx.vault, target, blockText) : { text: '已刪除的筆記', state: 'deleted-note' as const }
   const ok = label.state === 'ok'
+  const own = (node.attrs.label as string | null) || null
+  const shown = ok && own ? own : label.text
+  const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null)
+  const [renaming, setRenaming] = useState(false)
+  useEffect(() => {
+    if (!anchor || !ok) return
+    const open = () => setRenaming(true)
+    anchor.addEventListener(RENAME_EVENT, open)
+    return () => anchor.removeEventListener(RENAME_EVENT, open)
+  }, [anchor, ok])
   return (
     <NodeViewWrapper as="span" className="note-link-wrapper">
       <span
+        ref={setAnchor}
         contentEditable={false}
         role={ok ? 'link' : undefined}
-        aria-label={ok ? `前往 ${label.text}` : undefined}
+        aria-label={ok ? `前往 ${shown}` : undefined}
         aria-disabled={ok ? undefined : true}
         data-note-link=""
         data-note-id={target.noteId}
@@ -67,9 +141,26 @@ function NoteLinkView({ node, extension }: ReactNodeViewProps) {
           e.preventDefault()
           ctx?.openNote(target.noteId, target.blockId ?? undefined)
         }}
+        onContextMenu={(e) => {
+          if (!ok) return
+          e.preventDefault()
+          setRenaming(true)
+        }}
       >
-        {label.text}
+        {shown}
       </span>
+      {renaming && anchor && (
+        <RenameBox
+          anchor={anchor}
+          initial={own ?? ''}
+          placeholder={label.text}
+          onDone={(v) => {
+            setRenaming(false)
+            if (v !== null) updateAttributes({ label: v || null })
+            editor.commands.focus()
+          }}
+        />
+      )}
     </NodeViewWrapper>
   )
 }
@@ -100,6 +191,12 @@ export const NoteLink = Node.create<NoteLinkOptions>({
         parseHTML: (el) => el.getAttribute('data-target-block') || null,
         renderHTML: (a) => (a.blockId ? { 'data-target-block': a.blockId as string } : {}),
       },
+      /** Name shown instead of the note's title (null = the title). */
+      label: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-label') || null,
+        renderHTML: (a) => (a.label ? { 'data-label': a.label as string } : {}),
+      },
     }
   },
 
@@ -128,6 +225,21 @@ export const NoteLink = Node.create<NoteLinkOptions>({
 
   addKeyboardShortcuts() {
     return {
+      // The link that is selected, or right next to the caret.
+      F2: ({ editor }) => {
+        const sel = editor.state.selection
+        let pos = -1
+        if (sel instanceof NodeSelection && sel.node.type.name === this.name) pos = sel.from
+        else if (sel.empty) {
+          const { nodeBefore, nodeAfter, pos: at } = sel.$from
+          if (nodeBefore?.type.name === this.name) pos = at - nodeBefore.nodeSize
+          else if (nodeAfter?.type.name === this.name) pos = at
+        }
+        if (pos < 0) return false
+        const dom = editor.view.nodeDOM(pos) as HTMLElement | null
+        dom?.querySelector('[data-note-link]')?.dispatchEvent(new CustomEvent(RENAME_EVENT))
+        return true
+      },
       Enter: ({ editor }) => {
         const sel = editor.state.selection
         if (!(sel instanceof NodeSelection) || sel.node.type.name !== this.name) return false

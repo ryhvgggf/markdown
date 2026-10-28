@@ -137,6 +137,37 @@ describe('block link format', () => {
   })
 })
 
+describe('renaming a link', () => {
+  it('right-click names a link; the name shows, survives, and empty goes back to the title', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await setup({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '見 ' }, { type: 'noteLink', attrs: { noteId: n.id, blockId: null } }] }] })
+    const link = () => screen.getByRole('link', { name: /前往/ })
+    fireEvent.contextMenu(link())
+    const input = await screen.findByLabelText('連結名稱')
+    fireEvent.change(input, { target: { value: '[流程]|說明' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(link()).toHaveTextContent('流程 說明'))
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: null, label: '流程 說明' } })])
+    fireEvent.contextMenu(link())
+    const again = await screen.findByLabelText('連結名稱')
+    expect(again).toHaveValue('流程 說明')
+    fireEvent.change(again, { target: { value: '' } })
+    fireEvent.keyDown(again, { key: 'Enter' })
+    await waitFor(() => expect(link()).toHaveTextContent('採購流程'))
+    expect(nodesOf('noteLink')[0].attrs!.label).toBeNull()
+  })
+  it('Escape leaves the name alone', async () => {
+    const n = vault.createNote({ title: '採購流程' })
+    await setup({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'noteLink', attrs: { noteId: n.id, blockId: null } }] }] })
+    fireEvent.contextMenu(screen.getByRole('link', { name: /前往/ }))
+    const input = await screen.findByLabelText('連結名稱')
+    fireEvent.change(input, { target: { value: '別的' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByLabelText('連結名稱')).toBeNull())
+    expect(screen.getByRole('link', { name: /前往/ })).toHaveTextContent('採購流程')
+  })
+})
+
 describe('[[ suggestion', () => {
   it('lists matching notes with folder path and inserts a noteLink', async () => {
     const folder = vault.createFolder({ name: '工作', parentId: null })
@@ -154,7 +185,7 @@ describe('[[ suggestion', () => {
     expect(editor!.getText()).toBe('[[採購流程')
     expect((await screen.findAllByRole('option'))[0]).toHaveTextContent('採購流程')
     await key('Enter') // second Enter links
-    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: null } })])
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: null, label: null } })])
     expect(nodesOf('text').map((t) => t.text).join('')).not.toContain('[[')
     expect(screen.queryByRole('listbox')).toBeNull()
   })
@@ -192,7 +223,7 @@ describe('[[ suggestion', () => {
     })
     const created = vault.listNotes().find((x) => x.title === '採')
     expect(created).toBeDefined()
-    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: created!.id, blockId: null } })])
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: created!.id, blockId: null, label: null } })])
     expect(ctx.openNote).not.toHaveBeenCalled()
   })
 
@@ -211,7 +242,7 @@ describe('[[ suggestion', () => {
     expect(options[0]).toHaveTextContent('段落')
     expect(options[0]).toHaveTextContent('核准層級依金額決定')
     await key('Enter')
-    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: 'p1' } })])
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: 'p1', label: null } })])
   })
 
   it('Enter with no items closes the menu without inserting or splitting the line', async () => {
@@ -368,7 +399,7 @@ describe('block link paste', () => {
       handled = paste(`  ${formatBlockLink(n.id, 'p1')}\n`)
     })
     expect(handled).toBe(true)
-    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: 'p1' } })])
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: 'p1', label: null } })])
     expect(nodesOf('text').map((t) => t.text ?? '').join('')).not.toContain('[[note:')
   })
   it('pastes tokens for missing or trashed notes as plain text', async () => {
@@ -385,7 +416,7 @@ describe('block link paste', () => {
     await act(async () => {
       editor!.commands.insertContent(`<p>a <span data-note-link data-note-id="ghost">x</span> b <span data-note-link data-note-id="${n.id}">y</span></p>`)
     })
-    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: null } })])
+    expect(nodesOf('noteLink')).toEqual([expect.objectContaining({ attrs: { noteId: n.id, blockId: null, label: null } })])
   })
   it('leaves other text and code blocks alone', async () => {
     await setup('<pre><code></code></pre>')

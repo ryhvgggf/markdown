@@ -35,11 +35,12 @@ describe('resolveRefs', () => {
     expect(body(run('[[另一篇#沒有]]').doc)![0].content![0]).toEqual({ type: 'noteLink', attrs: { noteId: 'n1', blockId: null } })
   })
 
-  it('keeps unknown links as their text and reports them; aliases are dropped and reported', () => {
+  it('keeps unknown links as their text and reports them; an alias becomes the link name', () => {
     const res = run('[[不存在]] 與 [[另一篇|別名]]')
     expect(body(res.doc)![0].content![0]).toEqual({ type: 'text', text: '[[不存在]]' })
     expect(res.unresolved).toEqual(['[[不存在]]'])
-    expect(res.aliased).toEqual(['[[另一篇|別名]]'])
+    expect((body(res.doc)![0].content as { type: string; attrs?: { label?: string } }[]).find((n) => n.type === 'noteLink')?.attrs?.label).toBe('別名')
+    expect(res.aliased).toEqual([])
   })
 
   it('an embed alone in a paragraph becomes a media block', () => {

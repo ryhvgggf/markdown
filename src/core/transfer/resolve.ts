@@ -33,9 +33,8 @@ export function resolveRefs(doc: PMNode, r: Resolver, fromPath = ''): Resolved {
         out.unresolved.push(a.raw)
         return { type: 'text', text: a.raw }
       }
-      if (a.alias) out.aliased.push(a.raw)
       const blockId = a.heading ? r.heading(noteId, a.heading) : a.anchor ? r.block(noteId, a.anchor) : null
-      return { type: 'noteLink', attrs: { noteId, blockId } }
+      return { type: 'noteLink', attrs: { noteId, blockId, ...(a.alias && { label: a.alias }) } }
     }
     if (n.type === 'embedRef') {
       const a = ref.attrs
