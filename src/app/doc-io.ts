@@ -58,6 +58,7 @@ export function createDocIO(deps: { storage: StorageAdapter; db: NotesDb; notes?
         notes.release(noteId)
       }
       await notes.flushAll() // stored before the caller records it as done
+      if (notes.hasFailedWrites()) throw new Error('無法儲存到這個瀏覽器（空間可能不足）')
       await markDirty(noteId)
     },
 

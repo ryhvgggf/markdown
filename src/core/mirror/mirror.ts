@@ -101,14 +101,15 @@ export class Mirror {
   stop(): Promise<void> {
     this.gen++
     this.stops.splice(0).forEach((f) => f())
-    this.releaseLock?.()
+    const release = this.releaseLock
     this.releaseLock = null
     if (this.manifestTimer) clearTimeout(this.manifestTimer)
     this.manifestTimer = null
     this.queue.clear()
     this.dir = null
     if (this.status !== 'off') this.setStatus('off')
-    return this.whenIdle()
+    // The next tab may start only after this tab's last write has finished.
+    return this.whenIdle().then(() => release?.())
   }
 
   /** Every note checked once (startup, after a pause): new, changed, moved or removed files. */

@@ -162,6 +162,18 @@ describe('import with a v2 manifest', () => {
     expect(io.docs.get(copy.id)!.content![1].content![0].attrs!.noteId).toBe(noteBy('二 (2)').id)
   })
 
+  it('a crash while overwriting does not lose a new note of the same chunk', async () => {
+    await run(backup(), { ...root, onExisting: null })
+    const src = backup()
+    src.entries.unshift(md('新的.md', '新'))
+    const io0 = io
+    deps.docs = { ...io0, replace: async () => { throw new Error('crash') } }
+    await expect(applyImport(await planImport(src, deps), src, { ...root, onExisting: 'overwrite' }, deps)).rejects.toThrow('crash')
+    deps.docs = io0
+    await applyImport(await planImport(src, deps), src, { ...root, onExisting: 'overwrite' }, deps)
+    expect(vault.listNotes().map((n) => n.title).sort()).toEqual(['一', '二', '新的'])
+  })
+
   it('overwrite: same id with the backup content; the old version is in the trash', async () => {
     await run(backup(), { ...root, onExisting: null })
     await io.replace('n1', doc(p('使用者後來改的')) as PMNode)

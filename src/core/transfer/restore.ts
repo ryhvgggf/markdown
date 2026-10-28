@@ -1,12 +1,12 @@
 import type { Dir } from '@/adapters/fs/types'
 import type { FileEntry } from '@/core/markdown/types'
-import { applyImport } from './import-apply'
+import { applyImport, resumableJob } from './import-apply'
 import { planImport } from './import-plan'
 import { sourceFromEntries } from './source'
-import { IMPORT_JOB_KEY, type ImportDeps, type ImportReport, type ImportSource } from './types'
+import { type ImportDeps, type ImportReport, type ImportSource } from './types'
 
 /** Copies the app kept of files edited outside it (mirror folder): not notes of the backup. */
-const KEPT_COPY = / \(外部修改 \d{4}-\d{2}-\d{2} \d{4}\)\.md$/
+const KEPT_COPY = / \(外部修改 \d{4}-\d{2}-\d{2} \d{4}\)( \(\d+\))?\.md$/
 
 /** A mirror folder (or any folder of .md files) as an import source; its `.垃圾桶/` is left out. */
 export async function sourceFromDir(dir: Dir): Promise<ImportSource> {
@@ -43,8 +43,7 @@ export async function restoreBackup(
   // again what the first run already restored.
   const plan = await planImport(src, deps)
   const choices = { destination: root, onExisting: 'overwrite' as const, relocate: true }
-  const job = (await deps.db.meta.get(IMPORT_JOB_KEY))?.value as { jobId?: string } | undefined
-  if (job?.jobId !== plan.jobId) {
+  if (!(await resumableJob(plan, choices, deps))) {
     for (const f of vault.listFolders().filter((x) => x.parentId === null)) vault.trashFolder(f.id)
     for (const n of vault.listNotes().filter((x) => x.folderId === null)) vault.trashNote(n.id)
   }

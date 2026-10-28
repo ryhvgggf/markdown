@@ -14,7 +14,7 @@ const SAVE_EVERY = 25
 const RESUME_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Progress of an import, kept in meta so a re-run with the same files continues where it stopped. */
-type Job = {
+export type Job = {
   jobId: string
   /** The choices it was started with: a re-run with other choices starts over. */
   choiceKey: string
@@ -30,6 +30,21 @@ type Job = {
 const emptyReport = (folderId: string | null): ImportReport => ({
   notes: 0, folders: 0, attachments: 0, renamed: [], unresolved: [], aliased: [], lossy: [], skipped: [], folderId,
 })
+
+const choiceKeyOf = (c: ImportChoices) => JSON.stringify([c.destination, c.onExisting, !!c.relocate, !!c.noBackupCopies])
+
+/**
+ * The unfinished run of this same import with these same choices, if it may continue: started within a
+ * week and its destination folder still live. Anything else starts over.
+ */
+export async function resumableJob(plan: ImportPlan, choices: ImportChoices, deps: Pick<ImportDeps, 'db' | 'vault' | 'now'>): Promise<Job | undefined> {
+  const saved = (await deps.db.meta.get(IMPORT_JOB_KEY))?.value as Job | undefined
+  const now = (deps.now ?? Date.now)()
+  const live = (id: string | null) => id === null || deps.vault.listFolders().some((f) => f.id === id)
+  return saved && saved.jobId === plan.jobId && saved.choiceKey === choiceKeyOf(choices) && now - saved.startedAt < RESUME_WINDOW_MS && live(saved.rootFolderId)
+    ? saved
+    : undefined
+}
 
 /** Replaces note ids in links (copies of existing notes get new ids; their links follow). */
 function remapLinks(doc: PMNode, ids: Map<string, string>): PMNode {
@@ -61,13 +76,11 @@ export async function applyImport(
   const now = deps.now ?? Date.now
   if (plan.existingCount > 0 && !choices.onExisting) throw new Error('請選擇要覆蓋還是建立副本')
 
-  const saved = (await db.meta.get(IMPORT_JOB_KEY))?.value as Job | undefined
-  const choiceKey = JSON.stringify([choices.destination, choices.onExisting, !!choices.relocate, !!choices.noBackupCopies])
-  const liveFolder = (id: string | null) => id === null || vault.listFolders().some((f) => f.id === id)
-  const resumable =
-    !!saved && saved.jobId === plan.jobId && saved.choiceKey === choiceKey && now() - saved.startedAt < RESUME_WINDOW_MS && liveFolder(saved.rootFolderId)
+  const choiceKey = choiceKeyOf(choices)
+  const saved = await resumableJob(plan, choices, deps)
+  const resumable = !!saved
   let job: Job
-  if (resumable) job = saved
+  if (saved) job = saved
   else {
     let rootFolderId: string | null
     if (choices.destination.kind === 'folder') rootFolderId = choices.destination.folderId
@@ -84,6 +97,7 @@ export async function applyImport(
   // re-run redo the step, never skip it.
   const save = async () => {
     await vault.flushWrites()
+    if (vault.hasFailedWrites()) throw new Error('無法儲存到這個瀏覽器（空間可能不足）')
     await db.meta.put({ key: IMPORT_JOB_KEY, value: { ...job, done: [...done] } })
   }
   const total = plan.attachments.length + plan.notes.length
@@ -153,6 +167,9 @@ export async function applyImport(
   for (let i = 0; i < pending.length; i += NOTE_CHUNK) {
     // A chunk's new notes appear in one vault transaction (one sidebar / index update, not 25).
     const creates: (() => void)[] = []
+    // Recorded only once the whole chunk is stored (the chunk's notes are created together below).
+    const chunkDone: string[] = []
+    const chunkReport: Pick<ImportReport, 'renamed' | 'unresolved' | 'aliased' | 'lossy'> = { renamed: [], unresolved: [], aliased: [], lossy: [] }
     for (const n of pending.slice(i, i + NOTE_CHUNK)) {
       const id = job.noteIds[n.path]
       const parsed = plan.parsed.get(n.path)!
@@ -162,9 +179,9 @@ export async function applyImport(
       else {
         const r = resolveRefs(parsed.doc, resolver, n.path)
         doc = assignBlockIds(withTags(r.doc, parsed.tags))
-        for (const raw of r.unresolved) job.report.unresolved.push({ noteId: id, raw })
-        for (const raw of r.aliased) job.report.aliased.push({ noteId: id, raw })
-        for (const syntax of parsed.lossy) job.report.lossy.push({ noteId: id, syntax })
+        for (const raw of r.unresolved) chunkReport.unresolved.push({ noteId: id, raw })
+        for (const raw of r.aliased) chunkReport.aliased.push({ noteId: id, raw })
+        for (const syntax of parsed.lossy) chunkReport.lossy.push({ noteId: id, syntax })
       }
 
       const current = vault.getNote(id)
@@ -181,7 +198,6 @@ export async function applyImport(
             vault.trashNote(backupId)
           })
           job.backups[n.path] = backupId
-          await save()
         }
         await docs.replace(id, doc)
         if (current.deletedAt !== null) vault.restoreNote(id)
@@ -189,27 +205,42 @@ export async function applyImport(
           const folderId = n.folderPath.length ? job.folderIds[n.folderPath.join('/')] : job.rootFolderId
           if (vault.getNote(id)!.folderId !== folderId) vault.moveNote(id, { folderId, index: Number.MAX_SAFE_INTEGER })
         }
-        if (current.title !== original && !vault.isTitleAvailable(original, id)) {
+        if (current.title !== original) {
           const taken = new Set(vault.listNotes().filter((x) => x.id !== id).map((x) => x.title))
-          vault.renameNote(id, dedupeTitle(original, taken))
-        } else if (current.title !== original) vault.renameNote(id, original)
+          const title = dedupeTitle(original, taken)
+          vault.renameNote(id, title)
+          titles.reserve(title)
+        }
       } else {
         const title = titles.take(original)
-        if (title !== original.trim()) job.report.renamed.push({ from: original, to: title, noteId: id })
+        if (title !== original.trim()) chunkReport.renamed.push({ from: original, to: title, noteId: id })
         const mn = manifestNotes.get(n.path)
         const meta = src.noteMeta?.get(n.path)
         const createdAt = mn?.createdAt ?? meta?.createdAt ?? parsed.created ?? undefined
         const updatedAt = mn?.updatedAt ?? meta?.updatedAt ?? parsed.updated ?? undefined
         // Content first: a crash before the note exists leaves stored content that the re-run reuses.
-        if (!resumed || (await storage.loadDoc(id)).length === 0) await docs.write(id, doc)
+        // A backup's id may have content left by an earlier crashed run: never add a second copy on top.
+        if ((!resumed && !manifestNotes.has(n.path)) || (await storage.loadDoc(id)).length === 0) await docs.write(id, doc)
         const folderId = n.folderPath.length ? job.folderIds[n.folderPath.join('/')] : job.rootFolderId
-        creates.push(() => vault.createNote({ id, title, folderId, createdAt, updatedAt }))
+        creates.push(() => {
+          try {
+            vault.createNote({ id, title, folderId, createdAt, updatedAt })
+          } catch {
+            // The title was taken meanwhile (e.g. by a restored note): fall back to a free one.
+            const taken = new Set(vault.listNotes().map((x) => x.title))
+            vault.createNote({ id, title: dedupeTitle(title, taken), folderId, createdAt, updatedAt })
+          }
+        })
       }
-      job.report.notes++
-      done.add(n.path)
-      step()
+      chunkDone.push(n.path)
     }
     vault.doc.transact(() => creates.forEach((f) => f()))
+    for (const p of chunkDone) {
+      done.add(p)
+      step()
+    }
+    job.report.notes += chunkDone.length
+    for (const k of ['renamed', 'unresolved', 'aliased', 'lossy'] as const) (job.report[k] as unknown[]).push(...chunkReport[k])
     await save()
     await yieldTask()
   }

@@ -124,10 +124,11 @@ export function makeResolver(batch: BatchNote[], vault: Vault, attachments: Map<
 }
 
 /** Titles in use (normalized); `take` returns `title` or `title (n)` and reserves it. O(1) per call. */
-export function titleTaker(existing: Iterable<string>): { take(title: string): string; has(title: string): boolean } {
+export function titleTaker(existing: Iterable<string>): { take(title: string): string; has(title: string): boolean; reserve(title: string): void } {
   const used = new Set([...existing].map(normalizeTitle))
   return {
     has: (t) => used.has(normalizeTitle(t)),
+    reserve: (t) => void used.add(normalizeTitle(t)),
     take(title) {
       const base = title.trim()
       let out = base
