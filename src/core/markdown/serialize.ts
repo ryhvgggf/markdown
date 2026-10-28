@@ -10,7 +10,6 @@ export type SerializeContext = InlineContext & {
 }
 
 const CALLOUT = new Set(['info', 'tip', 'warning'])
-const INLINE_ANCHOR = new Set(['paragraph', 'listItem', 'taskItem'])
 
 /** ProseMirror JSON → Markdown (spec 6). Ends with exactly one newline; an empty note is an empty file. */
 export function serializeNote(doc: PMNode, ctx: SerializeContext): string {
