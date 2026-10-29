@@ -44,6 +44,17 @@ describe('MemoryAttachmentSync', () => {
     expect(await sync.downloadAttachment('v2', 'a4')).not.toBeNull()
   })
 
+  it('deleteAttachmentsForNote keeps an attachment another note still uses', async () => {
+    await sync.uploadAttachment('v1', 'n1', 'shared', b('x'))
+    await sync.uploadAttachment('v1', 'n2', 'shared', b('x'))
+    await sync.deleteAttachmentsForNote('v1', 'n1')
+    expect(await sync.downloadAttachment('v1', 'shared')).not.toBeNull()
+    expect(await sync.listAttachments('v1', 'n1')).toEqual([])
+    expect(await sync.listAttachments('v1', 'n2')).toEqual(['shared'])
+    await sync.deleteAttachmentsForNote('v1', 'n2')
+    expect(await sync.downloadAttachment('v1', 'shared')).toBeNull()
+  })
+
   it('listAttachments returns only the ids for that note', async () => {
     await sync.uploadAttachment('v1', 'n1', 'a1', b('x'))
     await sync.uploadAttachment('v1', 'n2', 'a2', b('y'))

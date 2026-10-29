@@ -7,7 +7,7 @@
  *   packages and can run with plain `node`)
  *
  * Needs .env.local (see .env.example) with VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY, the migration in
- * supabase/migrations/0001_phase3_schema.sql already run, and "Confirm email" OFF under Authentication →
+ * supabase/migrations/0001 and 0002 already run, and "Confirm email" OFF under Authentication →
  * Sign In / Providers → Email in the Supabase dashboard (otherwise sign-up won't return a usable session —
  * turn it back on afterwards for real use).
  *
@@ -15,7 +15,7 @@
  * vault_keys round trip → unlock with password → push 2 updates + a snapshot for a note → pull and verify
  * byte-for-byte → turn sync off for the note (delete) → confirm it's gone → push/pull the cloud structure
  * manifest (design doc §3.1) and confirm it's filtered and encrypted → upload/download an attachment
- * (design doc §3, needs a private Storage bucket named "attachments" already created) and confirm it's
+ * (design doc §3; bucket + policies come from supabase/migrations/0002) and confirm it's
  * encrypted too.
  *
  * Uses one fixed account across runs instead of a fresh sign-up each time: Supabase's built-in email
@@ -33,6 +33,7 @@ import { SupabaseAttachmentSync } from '../src/adapters/sync/supabase-attachment
 import { decrypt, encrypt } from '../src/adapters/crypto/webcrypto-crypto'
 import { pullManifest, pushManifest } from '../src/core/sync-engine/manifest-sync'
 import { pullAttachment, pushAttachment } from '../src/core/sync-engine/attachment-sync'
+import { decryptDocChunk, encryptDocChunk } from '../src/core/sync-engine/doc-crypto'
 import type { FolderMeta, NoteMeta } from '../src/core/vault/types'
 
 try {
@@ -90,30 +91,39 @@ async function main() {
 
   const noteId = 'smoke-note-1'
   const deviceId = 'smoke-device-1'
-  const seq1 = await sync.pushUpdate(vaultId, noteId, await encrypt(kek, enc('update 1')), deviceId)
-  const seq2 = await sync.pushUpdate(vaultId, noteId, await encrypt(kek, enc('update 2')), deviceId)
+  const seal = (docId: string, s: string) => encryptDocChunk(kek, vaultId, docId, enc(s))
+  const open = (docId: string, c: Uint8Array) => decryptDocChunk(kek, vaultId, docId, c)
+  const seq1 = await sync.pushUpdate(vaultId, noteId, await seal(noteId, 'update 1'), deviceId)
+  const seq2 = await sync.pushUpdate(vaultId, noteId, await seal(noteId, 'update 2'), deviceId)
   ok('pushUpdate assigns increasing seq', seq2 > seq1)
 
   const pulled = await sync.pullDoc(vaultId, noteId)
-  const decrypted = await Promise.all(pulled.map((c) => decrypt(kek, c)))
+  const decrypted = await Promise.all(pulled.map((c) => open(noteId, c)))
   ok(
     'pullDoc returns both pushed updates, decryptable, in order',
     decrypted.length === 2 && dec(decrypted[0]) === 'update 1' && dec(decrypted[1]) === 'update 2',
   )
 
-  await sync.pushSnapshot(vaultId, noteId, await encrypt(kek, enc('compacted snapshot')), seq2)
+  await sync.pushSnapshot(vaultId, noteId, await seal(noteId, 'compacted snapshot'), seq2)
   const afterSnapshot = await sync.pullDoc(vaultId, noteId)
   ok(
     'pushSnapshot replaces prior updates (pullDoc now returns just the snapshot)',
-    afterSnapshot.length === 1 && dec(await decrypt(kek, afterSnapshot[0])) === 'compacted snapshot',
+    afterSnapshot.length === 1 && dec(await open(noteId, afterSnapshot[0])) === 'compacted snapshot',
   )
+  let swapRejected = false
+  try {
+    await open('some-other-note', afterSnapshot[0])
+  } catch {
+    swapRejected = true
+  }
+  ok("a note's ciphertext won't decrypt as another note (AAD binding)", swapRejected)
 
   await sync.deleteDoc(vaultId, noteId)
   const afterDelete = await sync.pullDoc(vaultId, noteId)
   ok('deleteDoc (turning sync off for a note) leaves nothing behind', afterDelete.length === 0)
 
   const otherNoteId = 'smoke-note-2'
-  await sync.pushUpdate(vaultId, otherNoteId, await encrypt(kek, enc('x')), deviceId)
+  await sync.pushUpdate(vaultId, otherNoteId, await seal(otherNoteId, 'x'), deviceId)
   const docs = await sync.listDocs(vaultId)
   ok('listDocs reflects deletion and remaining docs', !docs.includes(noteId) && docs.includes(otherNoteId))
   await sync.deleteDoc(vaultId, otherNoteId) // cleanup: this account is reused across runs
@@ -148,8 +158,19 @@ async function main() {
     "what's actually in Storage is opaque ciphertext, not the plaintext",
     rawAttachment !== null && !new TextDecoder().decode(rawAttachment).includes('fake image bytes'),
   )
+  // the same attachment used by a second synced note must survive turning sync off for the first
+  await pushAttachment(attachmentSync, kek, vaultId, 'second-note', attachmentId, attachmentBytes)
   await attachmentSync.deleteAttachmentsForNote(vaultId, 'synced-note')
-  ok('deleteAttachmentsForNote removes it', (await attachmentSync.downloadAttachment(vaultId, attachmentId)) === null)
+  ok(
+    'deleteAttachmentsForNote keeps an attachment another synced note still uses',
+    (await attachmentSync.downloadAttachment(vaultId, attachmentId)) !== null &&
+      (await attachmentSync.listAttachments(vaultId, 'synced-note')).length === 0,
+  )
+  await attachmentSync.deleteAttachmentsForNote(vaultId, 'second-note')
+  ok(
+    'deleteAttachmentsForNote removes it once no synced note uses it (missing object → null, not an error)',
+    (await attachmentSync.downloadAttachment(vaultId, attachmentId)) === null,
+  )
 
   console.log(`\nTest account: ${FIXED_EMAIL} (reused on every run — leave it, no need to delete)`)
 }

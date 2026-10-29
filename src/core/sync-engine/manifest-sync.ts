@@ -1,6 +1,6 @@
-import { decrypt, encrypt } from '@/adapters/crypto/webcrypto-crypto'
 import type { SyncAdapter } from '@/adapters/sync/types'
 import type { FolderMeta, NoteMeta } from '@/core/vault/types'
+import { decryptDocChunk, encryptDocChunk } from './doc-crypto'
 import { decodeManifest, encodeManifest } from './manifest-codec'
 import { deriveManifest, type StructureManifest } from './manifest'
 
@@ -21,8 +21,9 @@ export async function pushManifest(
   notes: readonly NoteMeta[],
   folders: readonly FolderMeta[],
 ): Promise<void> {
-  const ciphertext = await encrypt(kek, encodeManifest(deriveManifest(notes, folders)))
-  await sync.pushSnapshot(vaultId, manifestDocId(vaultId), ciphertext, 0)
+  const docId = manifestDocId(vaultId)
+  const ciphertext = await encryptDocChunk(kek, vaultId, docId, encodeManifest(deriveManifest(notes, folders)))
+  await sync.pushSnapshot(vaultId, docId, ciphertext, 0)
 }
 
 /**
@@ -30,9 +31,10 @@ export async function pushManifest(
  * no note has ever been synced for this vault, so there is nothing to show yet.
  */
 export async function pullManifest(sync: SyncAdapter, kek: CryptoKey, vaultId: string): Promise<StructureManifest | null> {
-  const chunks = await sync.pullDoc(vaultId, manifestDocId(vaultId))
+  const docId = manifestDocId(vaultId)
+  const chunks = await sync.pullDoc(vaultId, docId)
   if (chunks.length === 0) return null
   // pushManifest only ever writes a single snapshot and never an update for this docId, so there is at
   // most one chunk; decrypting the rest would be meaningless even if a future bug produced more.
-  return decodeManifest(await decrypt(kek, chunks[0]))
+  return decodeManifest(await decryptDocChunk(kek, vaultId, docId, chunks[0]))
 }

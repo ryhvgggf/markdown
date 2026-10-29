@@ -61,11 +61,19 @@ export async function deriveKeyFromSecret(
   return { key, params: { algorithm: 'PBKDF2-SHA256', saltB64: toB64(salt), iterations } }
 }
 
-/** AES-GCM encrypt with a fresh random IV each call. Output is `iv || ciphertext`. */
-export async function encrypt(key: CryptoKey, plaintext: Uint8Array): Promise<Uint8Array> {
+function gcmParams(iv: Uint8Array, aad?: Uint8Array): AesGcmParams {
+  return aad ? { name: AES_ALGO, iv: buf(iv), additionalData: buf(aad) } : { name: AES_ALGO, iv: buf(iv) }
+}
+
+/**
+ * AES-GCM encrypt with a fresh random IV each call. Output is `iv || ciphertext`. `aad` (additional
+ * authenticated data) binds the ciphertext to a context without encrypting it: decrypting with a different
+ * `aad` fails, so a server can't move one doc's ciphertext into another doc's slot (see core/sync-engine/doc-crypto).
+ */
+export async function encrypt(key: CryptoKey, plaintext: Uint8Array, aad?: Uint8Array): Promise<Uint8Array> {
   const iv = randomBytes(IV_BYTES)
   try {
-    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: AES_ALGO, iv: buf(iv) }, key, buf(plaintext)))
+    const ct = new Uint8Array(await crypto.subtle.encrypt(gcmParams(iv, aad), key, buf(plaintext)))
     const out = new Uint8Array(iv.length + ct.length)
     out.set(iv, 0)
     out.set(ct, iv.length)
@@ -75,13 +83,13 @@ export async function encrypt(key: CryptoKey, plaintext: Uint8Array): Promise<Ui
   }
 }
 
-/** Inverse of `encrypt`. Throws `CryptoError('invalid-key', ...)` on a wrong key or corrupted input. */
-export async function decrypt(key: CryptoKey, payload: Uint8Array): Promise<Uint8Array> {
+/** Inverse of `encrypt`. Throws `CryptoError('invalid-key', ...)` on a wrong key, a different `aad`, or corrupted input. */
+export async function decrypt(key: CryptoKey, payload: Uint8Array, aad?: Uint8Array): Promise<Uint8Array> {
   if (payload.length < IV_BYTES) throw toCryptoError({ name: 'OperationError' })
   const iv = payload.subarray(0, IV_BYTES)
   const ct = payload.subarray(IV_BYTES)
   try {
-    return new Uint8Array(await crypto.subtle.decrypt({ name: AES_ALGO, iv: buf(iv) }, key, buf(ct)))
+    return new Uint8Array(await crypto.subtle.decrypt(gcmParams(iv, aad), key, buf(ct)))
   } catch (e) {
     throw toCryptoError(e)
   }

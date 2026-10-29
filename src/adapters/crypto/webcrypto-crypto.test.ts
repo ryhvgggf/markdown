@@ -36,6 +36,16 @@ describe('encrypt/decrypt', () => {
     const corrupted = ciphertext.slice(0, -1)
     await expect(decrypt(key, corrupted)).rejects.toBeInstanceOf(CryptoError)
   })
+
+  it('binds ciphertext to its aad: decrypts only with the same aad', async () => {
+    const key = await generateKek()
+    const te = new TextEncoder()
+    const plaintext = te.encode('secret')
+    const ciphertext = await encrypt(key, plaintext, te.encode('doc-A'))
+    bytesEqual(await decrypt(key, ciphertext, te.encode('doc-A')), plaintext)
+    await expect(decrypt(key, ciphertext, te.encode('doc-B'))).rejects.toMatchObject({ kind: 'invalid-key' })
+    await expect(decrypt(key, ciphertext)).rejects.toMatchObject({ kind: 'invalid-key' })
+  })
 })
 
 describe('deriveKeyFromSecret', () => {

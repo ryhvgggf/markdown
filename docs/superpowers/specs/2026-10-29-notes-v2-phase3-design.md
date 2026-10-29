@@ -68,10 +68,10 @@ KEK 是**每個知識庫各一把**，不是整個帳號共用一把：同一帳
 | `vaults` | `id`, `userId`, `createdAt` | 第 1 階段本機知識庫 id 直接延用為此處的 `id` |
 | `doc_updates` | `vaultId`, `docId`, `seq`, `ciphertext`, `deviceId`, `createdAt` | 密文增量；`docId` 對應結構清單 / 已同步的各筆記文件 / 偏好文件。一篇筆記有沒有同步，等同於這張表有沒有它的 `docId` |
 | `doc_snapshots` | `vaultId`, `docId`, `ciphertext`, `upToSeq` | 密文快照 |
-| `attachments` | `id`, `vaultId`, `noteId`, `ciphertext`（Storage 物件參照）, `size`, `createdAt` | `size` 為加密後位元組數；`noteId` 讓取消同步筆記時可以一併刪除所屬附件 |
+| `attachment_refs` | `vaultId`, `attachmentId`, `noteId`, `size`, `createdAt`（主鍵 `vaultId+attachmentId+noteId`） | 「哪篇同步中的筆記用了哪個附件」，多對多（同本機 `attachmentRefs`）；密文本身在私有 Storage bucket `attachments`，路徑 `<vaultId>/<attachmentId>`。取消某筆記同步時只刪它的參照，沒有其他同步筆記在用的附件才刪檔。`size` 為加密後位元組數 |
 | `share_links` | （欄位預留，第 4 階段實作） | 本階段只建表不寫入邏輯 |
 
-Row Level Security：每張表以 `auth.uid() = userId`（或透過 `vaults.userId` 間接）限制，使用者只能讀寫自己的資料；`doc_updates` / `doc_snapshots` / `attachments` 對伺服器而言皆為不透明密文，RLS 只做歸屬權限，不做內容檢查。
+Row Level Security：每張表以 `auth.uid() = userId`（或透過 `vaults.userId` 間接）限制，使用者只能讀寫自己的資料；`doc_updates` / `doc_snapshots` / Storage 附件對伺服器而言皆為不透明密文，RLS 只做歸屬權限，不做內容檢查。
 
 ---
 
@@ -175,8 +175,10 @@ src/
    - `adapters/sync` 的 push/pull/snapshot/delete/listDocs，對應 doc_updates/doc_snapshots 資料表與 RLS。
    - `NoteMeta.synced` 欄位與 `Vault.setNoteSynced()`。
    - 雲端結構清單：`core/sync-engine/manifest.ts`（`deriveManifest`，純篩選）、`manifest-codec.ts`（`encodeManifest`/`decodeManifest`，過濾後的清單 ↔ Yjs 文件位元組）、`manifest-sync.ts`（`pushManifest`/`pullManifest`，加密後走 `SyncAdapter.pushSnapshot`/`pullDoc`，固定 docId = `vaultId + '-manifest'`，每次都整份覆蓋、不走增量）——即時驗證確認雲端那份 row 是不透明密文，沒有外洩明文標題。
-   - 附件的加密上傳/下載：`adapters/sync/attachment-types.ts`（`AttachmentSyncAdapter` 介面）、`memory-attachment-sync.ts`（假轉接層）、`supabase-attachment-sync.ts`（真實轉接層，Storage bucket 名稱 `attachments`，`attachments` 資料表只記歸屬，不存密文）、`core/sync-engine/attachment-sync.ts`（`pushAttachment`/`pullAttachment`，加密邊界）——即時驗證確認 Storage 裡的物件是密文、`deleteAttachmentsForNote` 正常清除。
-   - 資料表與 RLS 的 migration：`supabase/migrations/0001_phase3_schema.sql`，已在專案上執行。
+   - 附件的加密上傳/下載：`adapters/sync/attachment-types.ts`（`AttachmentSyncAdapter` 介面）、`memory-attachment-sync.ts`（假轉接層）、`supabase-attachment-sync.ts`（真實轉接層，Storage bucket 名稱 `attachments`，`attachment_refs` 資料表只記歸屬，不存密文）、`core/sync-engine/attachment-sync.ts`（`pushAttachment`/`pullAttachment`，加密邊界）——即時驗證確認 Storage 裡的物件是密文、`deleteAttachmentsForNote` 正常清除。
+   - 資料表與 RLS 的 migration：`supabase/migrations/0001_phase3_schema.sql`、`0002_attachment_refs_and_storage.sql`（Storage bucket 與其 RLS 也寫進來了，不再靠 Dashboard 手動建），兩份都可重複執行。
+   - 3c 審查後的修正：(1) 附件歸屬改多對多（`attachment_refs`），避免關掉一篇筆記的同步就刪掉另一篇還在用的附件；(2) 所有上雲密文都以 AES-GCM AAD 綁定所屬的 vault + doc／附件 id（`core/sync-engine/doc-crypto.ts`，3d 的筆記同步也必須走這裡），伺服器無法把密文搬到別的位置冒充；(3) `downloadAttachment` 只有物件不存在才回 `null`，其餘錯誤丟 `SyncError`；(4) 刪附件時 Storage 刪除失敗會丟錯，且先刪檔再刪參照，不留下孤兒檔案。
+   - 留給 3d（多裝置才會發生）：`nextSeq` 讀最大值 +1 的競態（unique 約束會擋下、不會默默覆蓋）；`pullDoc` 讀快照與增量分兩次查詢，中間若有另一台裝置壓縮可能漏更新；`deleteAttachmentsForNote` 判斷「沒人在用」與刪檔之間另一台裝置加參照的競態；`createVault` 先寫 `vaults` 再寫 `vault_keys` 非原子。
    - 還沒接上「`synced` 或結構變動時自動觸發重算 manifest」的事件監聽（manifest 目前是純函式，由呼叫方決定何時呼叫；這塊打算併入 3d 的 `core/sync-engine` 即時同步引擎一起做，而不是另外在 3c 生出一個半成品的本機監聽器）。
 4. **3d** — `core/sync-engine` 即時同步：Realtime 訂閱、多裝置驗證
 5. **3e** — 錯誤處理與邊角案例：離線佇列、專案暫停提示、兩裝置各有本機資料的合併選擇

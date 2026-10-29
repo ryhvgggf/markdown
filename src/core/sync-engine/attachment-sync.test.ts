@@ -35,4 +35,13 @@ describe('attachment sync', () => {
     await pushAttachment(sync, kek, 'v1', 'n1', 'a1', new TextEncoder().encode('x'))
     await expect(pullAttachment(sync, wrongKek, 'v1', 'a1')).rejects.toMatchObject({ kind: 'invalid-key' })
   })
+
+  it('rejects ciphertext moved into another attachment slot (server swap)', async () => {
+    const kek = await generateKek()
+    await pushAttachment(sync, kek, 'v1', 'n1', 'a1', new TextEncoder().encode('one'))
+    await pushAttachment(sync, kek, 'v1', 'n1', 'a2', new TextEncoder().encode('two'))
+    // a malicious server serves a1's blob when a2 is requested
+    await sync.uploadAttachment('v1', 'n1', 'a2', (await sync.downloadAttachment('v1', 'a1'))!)
+    await expect(pullAttachment(sync, kek, 'v1', 'a2')).rejects.toMatchObject({ kind: 'invalid-key' })
+  })
 })

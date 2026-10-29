@@ -1,4 +1,4 @@
-import { decrypt, encrypt } from '@/adapters/crypto/webcrypto-crypto'
+import { decryptAttachment, encryptAttachment } from './doc-crypto'
 import type { AttachmentSyncAdapter } from '@/adapters/sync/attachment-types'
 
 /**
@@ -14,7 +14,7 @@ export async function pushAttachment(
   attachmentId: string,
   plaintext: Uint8Array,
 ): Promise<void> {
-  await attachmentSync.uploadAttachment(vaultId, noteId, attachmentId, await encrypt(kek, plaintext))
+  await attachmentSync.uploadAttachment(vaultId, noteId, attachmentId, await encryptAttachment(kek, vaultId, attachmentId, plaintext))
 }
 
 /** Downloads and decrypts one attachment. `null` if it was never uploaded (or has since been deleted). */
@@ -25,5 +25,5 @@ export async function pullAttachment(
   attachmentId: string,
 ): Promise<Uint8Array | null> {
   const ciphertext = await attachmentSync.downloadAttachment(vaultId, attachmentId)
-  return ciphertext === null ? null : await decrypt(kek, ciphertext)
+  return ciphertext === null ? null : await decryptAttachment(kek, vaultId, attachmentId, ciphertext)
 }

@@ -42,6 +42,14 @@ describe('manifest sync', () => {
     await expect(pullManifest(sync, wrongKek, 'v1')).rejects.toMatchObject({ kind: 'invalid-key' })
   })
 
+  it("rejects another vault's manifest served in this vault's slot (server swap)", async () => {
+    const kek = await generateKek()
+    await pushManifest(sync, kek, 'v2', [n('n1', null, true)], [])
+    const [foreign] = await sync.pullDoc('v2', 'v2-manifest')
+    await sync.pushSnapshot('v1', 'v1-manifest', foreign, 0)
+    await expect(pullManifest(sync, kek, 'v1')).rejects.toMatchObject({ kind: 'invalid-key' })
+  })
+
   it('overwrites the previous manifest wholesale when re-pushed', async () => {
     const kek = await generateKek()
     await pushManifest(sync, kek, 'v1', [n('n1', null, true), n('n2', null, true)], [])
