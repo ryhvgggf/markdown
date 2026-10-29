@@ -171,7 +171,7 @@ src/
 
 1. **3a**（已完成，`v2` @ `4b56cfc`）— `adapters/crypto`：KDF、wrap/unwrap、加解密，純單元測試，不碰網路
 2. **3b**（已完成）— `core/account`：註冊/登入/忘記密碼/復原碼/建新知識庫，用 `MemoryAuth`／`MemoryKeyStore` 假轉接層驗證金鑰模型正確；真正接 Supabase Auth 留到有專案時再做
-3. **3c（第一刀已完成並在真實 Supabase 專案上跑過驗證）** — `adapters/sync` 的 push/pull/snapshot/delete/listDocs，對應 doc_updates/doc_snapshots 資料表與 RLS；**雲端結構清單的篩選與重算、附件的加密上傳下載，還沒做**，排到 3c 第二刀（尚未做多裝置即時同步，那是 3d）
+3. **3c** — 第一刀已完成並在真實 Supabase 專案上跑過驗證：`adapters/sync` 的 push/pull/snapshot/delete/listDocs，對應 doc_updates/doc_snapshots 資料表與 RLS。第二刀進行中：`NoteMeta.synced` 欄位與 `Vault.setNoteSynced()` 已完成；雲端結構清單的純篩選邏輯 `core/sync-engine/manifest.ts`（`deriveManifest`）已完成並有單元測試覆蓋（含巢狀資料夾鏈、已信任與未信任筆記共用資料夾、已丟進垃圾桶的祖先資料夾等邊角案例）。**還沒做**：把 `deriveManifest` 的結果接成一份 Yjs 文件、加密後比照一般流程推送／在 `synced` 或結構變動時重新計算並覆蓋雲端的那份 manifest，以及附件的加密上傳下載（尚未做多裝置即時同步，那是 3d）
 4. **3d** — `core/sync-engine` 即時同步：Realtime 訂閱、多裝置驗證
 5. **3e** — 錯誤處理與邊角案例：離線佇列、專案暫停提示、兩裝置各有本機資料的合併選擇
 
