@@ -79,11 +79,15 @@
 }
 .note-editor .code-block pre code { font: inherit; white-space: pre; }
 .note-editor .code-lang {
-  position: absolute; top: 6px; right: 8px; z-index: 1; max-width: 120px;
+  position: absolute; top: 6px; right: 8px; z-index: 1; max-width: 160px;
+  display: inline-flex; align-items: center; gap: 3px; padding: 3px 7px;
   border: 0; border-radius: 6px; background: transparent; color: var(--color-fg-tertiary);
   font: 12px var(--font-sans); cursor: pointer; opacity: 0.7;
 }
-.note-editor .code-block:hover .code-lang, .note-editor .code-lang:focus { opacity: 1; background: var(--color-fill); }
+.note-editor .code-lang:disabled { cursor: default; }
+.note-editor .code-block:hover .code-lang,
+.note-editor .code-lang:focus-visible,
+.note-editor .code-lang[data-state='open'] { opacity: 1; background: var(--color-fill); }
 .hljs-comment { color: #6e7781; font-style: italic; }
 .hljs-keyword, .hljs-built_in { color: #a626a4; }
 .hljs-string { color: #0a7d3e; }
