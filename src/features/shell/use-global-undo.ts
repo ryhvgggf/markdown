@@ -6,8 +6,10 @@ import { isMac } from '@/features/rail/use-rail'
  * App-wide Ctrl/⌘+Z. The note editor's own Yjs undo (from `Collaboration`) handles content edits and calls
  * `preventDefault()` when it does; whenever that doesn't happen — nothing focused in an editor, or that
  * note's own history is empty — this falls back to undoing the last sidebar action (create/rename/move/
- * trash/restore a note or folder; see `Vault.asUserAction`). A plain text input (e.g. a rename field) is
- * left to the browser's native field undo.
+ * trash/restore a note or folder; see `Vault.asUserAction`). A plain text input with actual content (e.g.
+ * mid-rename) is left to the browser's native field undo — but an EMPTY one (e.g. a just-created note's
+ * still-blank title) has nothing for that native undo to do, so it falls back too: "create a note, decide
+ * against it right away, Ctrl+Z" has to work even though the cursor is sitting in that title field.
  */
 export function useGlobalUndo(vault: Vault): void {
   useEffect(() => {
@@ -17,8 +19,9 @@ export function useGlobalUndo(vault: Vault): void {
       const redo = key === 'y' || (key === 'z' && e.shiftKey)
       if (!redo && key !== 'z') return
       if (e.isComposing || e.keyCode === 229) return
-      const tag = (document.activeElement as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const active = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null
+      const tag = active?.tagName
+      if ((tag === 'INPUT' || tag === 'TEXTAREA') && active!.value !== '') return
       if (e.defaultPrevented) return
       if (redo ? !vault.canRedo() : !vault.canUndo()) return
       e.preventDefault()

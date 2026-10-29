@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Button } from './Button'
 import { IconButton } from './IconButton'
@@ -94,5 +94,18 @@ describe('Tooltip', () => {
     await show(user)
     await user.pointer({ keys: '[MouseLeft>]', target: screen.getByRole('button', { name: '搜尋' }) })
     await vi.waitFor(() => expect(tip()).toBeNull())
+  })
+
+  it('does not open from a programmatic focus() restore (e.g. a closed dialog returning focus to the button that opened it) — only from real keyboard focus, so it never ends up stuck open with nothing to hover away from', () => {
+    render(
+      <IconButton label="設定" tooltip>
+        <Close />
+      </IconButton>,
+    )
+    // Simulates Radix's onCloseAutoFocus calling .focus() on the button that opened a now-closed dialog —
+    // not real keyboard navigation, so :focus-visible is false (same distinction Rail.tsx's own onFocus
+    // fix makes for the rail itself reopening from this same event).
+    act(() => screen.getByRole('button', { name: '設定' }).focus())
+    expect(tip()).toBeNull()
   })
 })
