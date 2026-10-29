@@ -198,6 +198,51 @@ describe('createSyncManager', () => {
     expect(noteDocs.isInUse(note.id)).toBe(false)
   })
 
+  it('picks up a note another device turned sync on for, without this device restarting', async () => {
+    await mkManager().start()
+    await wait()
+    expect(vault.listNotes()).toHaveLength(0)
+
+    // Device B: a separate Vault sharing the same cloud (`sync`), turning a note's sync on.
+    const storageB = new MemoryStorage()
+    const vaultB = await Vault.open(storageB, 'v1')
+    const notesB = vaultB.createNote({ title: 'From device B' })
+    vaultB.setNoteSynced(notesB.id, true)
+    const noteDocsB = new NoteDocCache(storageB)
+    const managerB = createSyncManager({ sync, attachmentSync, storage: storageB, noteDocs: noteDocsB, vault: vaultB, vaultId: 'v1', kek, deviceId: 'devB' })
+    await managerB.start()
+    await wait()
+
+    await wait(100) // this device's manager hears the manifest notification and merges it in on its own
+    expect(vault.getNote(notesB.id)?.title).toBe('From device B')
+    expect(vault.getNote(notesB.id)?.synced).toBe(true)
+
+    await manager!.close()
+    await managerB.close()
+  })
+
+  it('reports a manifest-merge id collision via onError without touching the local note', async () => {
+    const local = vault.createNote({ title: 'Mine', createdAt: 100, updatedAt: 100 })
+    const errors: Array<{ docId: string }> = []
+    await mkManager((_e, info) => errors.push(info)).start()
+    await wait()
+
+    // Someone else's manifest claims the same id with a different createdAt — a genuine collision.
+    const { pushManifest } = await import('./manifest-sync')
+    await pushManifest(
+      sync,
+      kek,
+      'v1',
+      [{ id: local.id, title: 'Unrelated note, same id', folderId: null, order: 'a', createdAt: 999, updatedAt: 999, deletedAt: null, synced: true }],
+      [],
+    )
+    await wait(100)
+
+    expect(vault.getNote(local.id)?.title).toBe('Mine')
+    expect(errors.some((e) => e.docId === local.id)).toBe(true)
+    await manager!.close()
+  })
+
   it('reports per-note errors via onError without here affecting other notes', async () => {
     const good = vault.createNote({ title: 'Good' })
     const bad = vault.createNote({ title: 'Bad' })

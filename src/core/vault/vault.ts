@@ -130,7 +130,7 @@ export class Vault {
   }
 
   // ---- notes ----
-  /** `id`, `createdAt`, `updatedAt`: only for import (an id already in use → VaultError 'exists'). */
+  /** `id`, `createdAt`, `updatedAt`: only for import or cloud-manifest merge (an id already in use → VaultError 'exists'). */
   createNote(
     i: { id?: string; title?: string; folderId?: string | null; index?: number; createdAt?: number; updatedAt?: number } = {},
   ): NoteMeta {
@@ -199,7 +199,8 @@ export class Vault {
   }
 
   // ---- folders ----
-  createFolder(i: { id?: string; name: string; parentId: string | null; index?: number }): FolderMeta {
+  /** `id`, `createdAt`: only for import or cloud-manifest merge (an id already in use → VaultError 'exists'). */
+  createFolder(i: { id?: string; name: string; parentId: string | null; index?: number; createdAt?: number }): FolderMeta {
     if (i.parentId !== null) this.folder(i.parentId)
     if (i.id && this.folders.has(i.id)) throw new VaultError('exists')
     const id = i.id ?? newId()
@@ -211,7 +212,7 @@ export class Vault {
       m.set('name', i.name.trim())
       m.set('parentId', i.parentId)
       m.set('order', order)
-      m.set('createdAt', Date.now())
+      m.set('createdAt', i.createdAt ?? Date.now())
       m.set('deletedAt', null)
     })
     return toFolder(this.folders.get(id)!)

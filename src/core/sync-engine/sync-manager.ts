@@ -8,7 +8,8 @@ import { onIdle } from '../idle'
 import { pushAttachment } from './attachment-sync'
 import { bindCloudDoc, pushInitialSnapshot, type CloudDocBinding } from './cloud-doc'
 import { getDeviceId } from './device-id'
-import { manifestDocId, pushManifest } from './manifest-sync'
+import { manifestDocId, pullManifest, pushManifest } from './manifest-sync'
+import { mergeManifestIntoVault } from './manifest-merge'
 
 export interface SyncManagerDeps {
   sync: SyncAdapter
@@ -46,14 +47,14 @@ interface NoteBinding {
  * synced notes and their titles/folders change, and attachments pushed when a synced note first starts
  * referencing them.
  *
+ * Also pulls the manifest continuously for an already-running device (the design doc only specified a
+ * one-time pull for a brand-new device at login, §8; this extends it so turning sync on for a note on
+ * device A makes it appear on device B without B re-logging-in): once at `start()`, and again whenever
+ * the manifest doc gets a realtime notification. Merging is `manifest-merge.ts`'s job — it only ever
+ * creates a note/folder id the local vault completely lacks, never touches one that's already there (see
+ * its own doc comment for the settled rules, including the id-collision case reported via `onError`).
+ *
  * Deliberately NOT included here — each is a separate, undecided piece of work, not an oversight:
- * - Pulling the manifest into an *already-running* device's own local structure (so turning sync on for a
- *   note on device A makes it appear on device B without B re-logging-in) isn't implemented. The design doc
- *   only specifies a one-time manifest pull for a brand-new device at login (§8); doing this continuously
- *   for an existing device means deciding how to merge an incoming note/folder into a local tree that may
- *   already have unrelated local-only content under the same ids, names, or positions — a real design
- *   decision, not implied by anything written down, so it's left for an explicit follow-up rather than
- *   invented here.
  * - The §9 error-handling table's offline queue (surviving a restart with pushes still pending) and the
  *   "push to a doc another device deleted comes back not-found, fall back to local-only silently" case are
  *   milestone 3e ("離線佇列、...兩裝置各有本機資料的合併選擇") by the design doc's own split, not 3d.
@@ -67,7 +68,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let prevSyncedIds = new Set<string>()
   let unobserve: (() => void) | null = null
   let unwatchContent: (() => void) | null = null
+  let unsubscribeManifest: (() => void) | null = null
   let manifestIdle: (() => void) | null = null
+  let manifestMergeIdle: (() => void) | null = null
+  let manifestMergeChain: Promise<void> = Promise.resolve()
   let closed = false
 
   const reportError = (e: unknown, docId: string) => {
@@ -81,6 +85,36 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       pushManifest(deps.sync, deps.kek, deps.vaultId, deps.vault.listNotes(), deps.vault.listFolders()).catch((e) =>
         reportError(e, manifestDocId(deps.vaultId)),
       )
+    })
+  }
+
+  // Pulls the cloud manifest and merges any id the local vault completely lacks into it (see the module
+  // doc comment above and `manifest-merge.ts`'s own). A collision (same id, unrelated note) is reported
+  // through the same `onError` channel as any other per-doc sync problem, keyed by the note's own id.
+  async function pullAndMergeManifest(): Promise<void> {
+    const manifest = await pullManifest(deps.sync, deps.kek, deps.vaultId)
+    if (!manifest) return
+    const { conflicts } = mergeManifestIntoVault(deps.vault, manifest)
+    for (const noteId of conflicts) {
+      reportError(
+        new SyncError('unknown', 'manifest note id collides with an unrelated local note (different createdAt) — left untouched'),
+        noteId,
+      )
+    }
+  }
+
+  // Debounced the same way `scheduleManifestPush` is (an idle tick, not every single notification), and
+  // serialized onto its own chain so two notifications arriving close together never run the merge
+  // concurrently — `pullAndMergeManifest` itself has no `await` between reading and writing vault state
+  // once the pull resolves, but a second pull started before the first one's merge finishes could still
+  // decide an id is "missing" based on a vault snapshot the first merge is about to change.
+  const scheduleManifestMerge = () => {
+    if (closed || manifestMergeIdle) return
+    manifestMergeIdle = onIdle(() => {
+      manifestMergeIdle = null
+      manifestMergeChain = manifestMergeChain
+        .then(() => pullAndMergeManifest())
+        .catch((e) => reportError(e, manifestDocId(deps.vaultId)))
     })
   }
 
@@ -181,6 +215,11 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
   return {
     async start() {
+      // Before the observer is registered below, so the merge's own `createNote`/`setNoteSynced` calls
+      // don't race `onVaultChange` — `prevSyncedIds` is computed fresh right after and already covers
+      // whatever this pass just merged in, same as it covers notes synced on this device in a past session.
+      await pullAndMergeManifest()
+
       prevSyncedIds = new Set(deps.vault.listNotes().filter((n) => n.synced).map((n) => n.id))
       for (const id of prevSyncedIds) await turnOn(id)
 
@@ -192,11 +231,20 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
       unobserve = deps.vault.observe(onVaultChange)
       unwatchContent = deps.noteDocs.onChange((noteId) => onNoteContentChange(noteId))
+      // The manifest doc's own pushes (ours and everyone else's) notify with `deviceId: ''` (design doc
+      // §3.1's manifest predates per-device echo filtering — see `cloud-doc.ts`'s subscribe for the
+      // contrast). So this can't tell "I just pushed this" from "someone else did" by deviceId the way a
+      // per-note binding does — but it doesn't need to: re-merging a manifest this very device just
+      // derived from its own local state is always a complete no-op (every id in it already exists
+      // locally, that's what "derived from" means), just a wasted pull. Not worth the bookkeeping to skip.
+      unsubscribeManifest = deps.sync.subscribe(deps.vaultId, (change) => {
+        if (change.docId === manifestDocId(deps.vaultId)) scheduleManifestMerge()
+      })
       scheduleManifestPush()
     },
 
     hasPending() {
-      if (manifestIdle !== null) return true
+      if (manifestIdle !== null || manifestMergeIdle !== null) return true
       for (const nb of noteBindings.values()) if (nb.binding.hasPending()) return true
       return false
     },
@@ -207,8 +255,13 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       unobserve = null
       unwatchContent?.()
       unwatchContent = null
+      unsubscribeManifest?.()
+      unsubscribeManifest = null
       manifestIdle?.()
       manifestIdle = null
+      manifestMergeIdle?.()
+      manifestMergeIdle = null
+      await manifestMergeChain
       // Let every already-queued reconcile finish first (a not-yet-started one bails out immediately via
       // `reconcile`'s own `closed` check; one already mid-`turnOn`/`turnOff` still needs to run to
       // completion) — otherwise closing `noteBindings` here and having `turnOn` register one into it a
