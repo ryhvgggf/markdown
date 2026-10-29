@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useUi } from '@/app/ui-store'
 import type { Vault } from '@/core/vault/vault'
 import { isMac } from '@/features/rail/use-rail'
 
@@ -27,6 +28,16 @@ export function useGlobalUndo(vault: Vault): void {
       e.preventDefault()
       if (redo) vault.redo()
       else vault.undo()
+      // Undoing a note's creation (or redoing its trash) can remove the note that's currently open in the
+      // editor. Left alone, openNoteId would still point at that now-gone id and the editor would be stuck
+      // showing the "select or create a note" empty state with no obvious way out — fall back to another
+      // live note (most recently edited) the same way closing/trashing the open note already does, or to
+      // no note open at all if none are left.
+      const openId = useUi.getState().openNoteId
+      if (openId && !vault.getNote(openId)) {
+        const next = [...vault.listNotes()].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+        useUi.setState({ openNoteId: next?.id ?? null })
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

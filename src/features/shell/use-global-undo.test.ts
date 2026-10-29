@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render } from '@testing-library/react'
 import { createElement, useEffect, useRef } from 'react'
-import type { Vault } from '@/core/vault/vault'
+import { MemoryStorage } from '@/adapters/storage/memory-storage'
+import { useUi } from '@/app/ui-store'
+import { Vault } from '@/core/vault/vault'
 import { useGlobalUndo } from './use-global-undo'
 
 function fakeVault(overrides: Partial<Vault> = {}): Vault {
@@ -68,5 +70,35 @@ describe('useGlobalUndo', () => {
     outside.focus()
     ctrlZ()
     expect(vault.undo).not.toHaveBeenCalled()
+  })
+
+  it('when undo removes the currently open note, falls back to another live note instead of leaving the editor stuck on a note that no longer exists', async () => {
+    const vault = await Vault.open(new MemoryStorage(), 'v1', {
+      channelFactory: () => ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel,
+    })
+    const earlier = vault.asUserAction(() => vault.createNote({ title: 'Earlier note' }))
+    const justCreated = vault.asUserAction(() => vault.createNote({ title: '' }))
+    useUi.setState({ openNoteId: justCreated.id })
+
+    const { outside } = setup(vault)
+    outside.focus()
+    ctrlZ()
+
+    expect(vault.getNote(justCreated.id)).toBeUndefined() // the undo really did remove it
+    expect(useUi.getState().openNoteId).toBe(earlier.id) // not left pointing at a note that's gone
+  })
+
+  it('when undo removes the currently open note and no other note is left, clears openNoteId (shows the empty-state placeholder) rather than pointing at nothing', async () => {
+    const vault = await Vault.open(new MemoryStorage(), 'v1', {
+      channelFactory: () => ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel,
+    })
+    const onlyNote = vault.asUserAction(() => vault.createNote({ title: '' }))
+    useUi.setState({ openNoteId: onlyNote.id })
+
+    const { outside } = setup(vault)
+    outside.focus()
+    ctrlZ()
+
+    expect(useUi.getState().openNoteId).toBeNull()
   })
 })
