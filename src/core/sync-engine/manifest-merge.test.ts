@@ -70,7 +70,7 @@ describe('mergeManifestIntoVault', () => {
     expect(vault.listNotes()).toHaveLength(1)
   })
 
-  it('reports a conflict and leaves the local note untouched when the same id has a different createdAt', () => {
+  it('reports an id-collision conflict (with a reason distinguishing it from a creation failure) when the same id has a different createdAt', () => {
     const local = vault.createNote({ title: 'Mine', createdAt: 100, updatedAt: 100 })
     const result = mergeManifestIntoVault(
       vault,
@@ -78,7 +78,7 @@ describe('mergeManifestIntoVault', () => {
         notes: [{ id: local.id, title: 'Unrelated note, same id', folderId: null, order: 'a', createdAt: 999, updatedAt: 999, deletedAt: null, synced: true }],
       }),
     )
-    expect(result.conflicts).toEqual([local.id])
+    expect(result.conflicts).toEqual([{ noteId: local.id, reason: 'id-collision' }])
     expect(vault.getNote(local.id)?.title).toBe('Mine')
     expect(vault.listNotes()).toHaveLength(1) // no duplicate created either
   })
@@ -95,7 +95,7 @@ describe('mergeManifestIntoVault', () => {
     expect(vault.getNote(local.id)?.title).toBe('Mine')
   })
 
-  it('skips a note whose creation fails (e.g. title collides with an unrelated local note) and reports it as a conflict', () => {
+  it('skips a note whose creation fails (e.g. title collides with an unrelated local note) and reports it as a creation failure, distinct from an id collision', () => {
     vault.createNote({ title: 'Existing title', createdAt: 1, updatedAt: 1 })
     const result = mergeManifestIntoVault(
       vault,
@@ -103,7 +103,7 @@ describe('mergeManifestIntoVault', () => {
         notes: [{ id: 'n-new', title: 'Existing title', folderId: null, order: 'a', createdAt: 100, updatedAt: 100, deletedAt: null, synced: true }],
       }),
     )
-    expect(result.conflicts).toEqual(['n-new'])
+    expect(result.conflicts).toEqual([{ noteId: 'n-new', reason: 'create-failed' }])
     expect(vault.getNote('n-new')).toBeUndefined()
   })
 })

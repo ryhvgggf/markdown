@@ -1,9 +1,18 @@
 import type { Vault } from '@/core/vault/vault'
 import type { StructureManifest } from './manifest'
 
+export interface ManifestConflict {
+  noteId: string
+  /** 'id-collision': an unrelated local note already uses this id (different `createdAt`). 'create-failed':
+   *  the id was genuinely missing locally, but creating it failed for some other reason (e.g. its title
+   *  collides with an unrelated local note's, or its folder never got created above) — distinct from
+   *  'id-collision' so a caller reporting this doesn't misdescribe what actually went wrong. */
+  reason: 'id-collision' | 'create-failed'
+}
+
 export interface ManifestMergeResult {
-  /** Ids of manifest notes left untouched because an unrelated local note already uses that id (different `createdAt`). */
-  conflicts: string[]
+  /** Manifest notes left untouched; see `ManifestConflict.reason` for why each one was skipped. */
+  conflicts: ManifestConflict[]
 }
 
 /**
@@ -26,7 +35,7 @@ export interface ManifestMergeResult {
  *   structure sync for already-bound notes" problem that was never asked for here. This only creates.
  */
 export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest): ManifestMergeResult {
-  const conflicts: string[] = []
+  const conflicts: ManifestConflict[] = []
 
   const localFolderIds = new Set(vault.listFolders({ includeTrashed: true }).map((f) => f.id))
   const missingFolders = manifest.folders.filter((f) => !localFolderIds.has(f.id))
@@ -47,14 +56,14 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
   for (const note of manifest.notes) {
     const local = vault.getNote(note.id)
     if (local) {
-      if (local.createdAt !== note.createdAt) conflicts.push(note.id) // same id, unrelated note — leave it alone
+      if (local.createdAt !== note.createdAt) conflicts.push({ noteId: note.id, reason: 'id-collision' }) // same id, unrelated note — leave it alone
       continue // same note either way (already here, or a genuine collision) — nothing to create
     }
     try {
       vault.createNote({ id: note.id, title: note.title, folderId: note.folderId, createdAt: note.createdAt, updatedAt: note.updatedAt })
       vault.setNoteSynced(note.id, true) // it came from the manifest, so it's synced by definition
     } catch {
-      conflicts.push(note.id) // e.g. title collides with an unrelated local note, or its folder never got created above
+      conflicts.push({ noteId: note.id, reason: 'create-failed' }) // e.g. title collides with an unrelated local note, or its folder never got created above
     }
   }
 

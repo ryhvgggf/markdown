@@ -221,6 +221,20 @@ src/
      完全沒有的」。
      - §9 錯誤處理表裡「推送目標被別裝置刪除時應該回傳找不到、裝置端悄悄退回本機模式」、離線佇列重開機後還
        在——這兩個照 §11 本來就是 3e 的範圍，不是 3d 漏做。
+   - 屬於高風險改動，完成後跑了一次獨立審查，抓到 2 個問題，都已修正並補了回歸測試：
+     1. `sync-manager.ts` 把 manifest 合併的衝突一律回報成「id 相同但 createdAt 不同」的訊息，但
+        `manifest-merge.ts` 的 `conflicts` 其實有兩種成因（id 碰撞 vs. `createNote` 因為標題撞到本機另一
+        篇不相關筆記、或它需要的資料夾沒建成功而失敗），卻共用同一句話回報，誤導看 `onError` 的人去查錯方
+        向。改成 `ManifestMergeResult.conflicts` 帶 `reason: 'id-collision' | 'create-failed'`，
+        `sync-manager.ts` 依 reason 給不同訊息。
+     2. `close()` 原本的順序是「`closed = true` → `unobserve()` → 才 `await manifestMergeChain`」：如果
+        manifest 合併剛好在 `close()` 呼叫的那一刻已經在 pull／解密中（已經 debounce 觸發、無法用取消 idle
+        callback擋下），合併本身還是會跑完、筆記還是會建立且標成 `synced: true`，但因為 `unobserve()` 已經
+        先把 vault observer 拆掉，合併呼叫的 `setNoteSynced` 再也觸發不到 `onVaultChange`，這篇筆記這次
+        session 就永遠不會被 `turnOn`——本機狀態說「已同步」，但實際上沒有即時綁定，要等下次 `start()` 才
+        會自我修復。改成先 `await manifestMergeChain`（連同它觸發的 `noteChains` 項目）、確認合併與其引發的
+        `turnOn` 都跑完，才設 `closed = true` 並 `unobserve()`。用一個會延遲 `pullDoc` 呼叫的假
+        `SyncAdapter`（取代盲猜固定 `wait()` 時間）precisely 重現了這個競態，修正前兩個測試都會真的失敗。
      - `devices` 表的列管理（新裝置登入時寫入、列出、移除裝置）：`adapters/sync/types.ts` 3c 時的註解把它標成
        「3d 再做」，但 §11 真正描述 3d 的那行只提即時同步跟多裝置驗證，沒有要求裝置管理 UI，這次也還沒寫。
      - 個人偏好文件還沒接進 `createSyncManager`（它吃的是 `Vault`，不是 `Preferences` 實例）；`cloud-doc.ts`

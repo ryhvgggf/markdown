@@ -95,11 +95,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     const manifest = await pullManifest(deps.sync, deps.kek, deps.vaultId)
     if (!manifest) return
     const { conflicts } = mergeManifestIntoVault(deps.vault, manifest)
-    for (const noteId of conflicts) {
-      reportError(
-        new SyncError('unknown', 'manifest note id collides with an unrelated local note (different createdAt) — left untouched'),
-        noteId,
-      )
+    for (const conflict of conflicts) {
+      const message =
+        conflict.reason === 'id-collision'
+          ? 'manifest note id collides with an unrelated local note (different createdAt) — left untouched'
+          : 'could not create a note pulled from the manifest (e.g. its title collides with an unrelated local note) — left uncreated'
+      reportError(new SyncError('unknown', message), conflict.noteId)
     }
   }
 
@@ -250,18 +251,35 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     },
 
     async close() {
+      // `manifestMergeIdle?.()` only cancels a merge that hasn't started yet. One already past that point —
+      // its idle callback fired and chained `pullAndMergeManifest` onto `manifestMergeChain` — is already
+      // running and can't be cancelled, so it has to be awaited here. Crucially, this has to happen *before*
+      // `closed` is set and `unobserve()` runs: that merge's own `createNote`/`setNoteSynced` calls only
+      // reach `onVaultChange` (hence `enqueue`/`reconcile`/`turnOn`) while the observer is attached AND
+      // `reconcile`'s own `if (closed) return` guard (below) hasn't tripped yet. Get either order wrong —
+      // await after `unobserve()`, or after `closed = true` — and the merge itself still finishes (the note
+      // ends up created and `synced: true`), but nothing ever calls `turnOn` for it this session: it sits
+      // flagged synced but never actually bound to live content sync until the next `start()` quietly
+      // catches it. `unsubscribeManifest` goes first just to stop any *further* notification from
+      // scheduling another merge while this one is still being waited on.
+      const cancelManifestIdle = () => {
+        manifestIdle?.()
+        manifestIdle = null
+      }
+      unsubscribeManifest?.()
+      unsubscribeManifest = null
+      manifestMergeIdle?.()
+      manifestMergeIdle = null
+      cancelManifestIdle()
+      await manifestMergeChain
+      await Promise.all(noteChains.values()) // whatever that merge's own onVaultChange just enqueued (e.g. turnOn for the merged note)
+      cancelManifestIdle() // onVaultChange above also calls scheduleManifestPush unconditionally — cancel that too
+
       closed = true
       unobserve?.()
       unobserve = null
       unwatchContent?.()
       unwatchContent = null
-      unsubscribeManifest?.()
-      unsubscribeManifest = null
-      manifestIdle?.()
-      manifestIdle = null
-      manifestMergeIdle?.()
-      manifestMergeIdle = null
-      await manifestMergeChain
       // Let every already-queued reconcile finish first (a not-yet-started one bails out immediately via
       // `reconcile`'s own `closed` check; one already mid-`turnOn`/`turnOff` still needs to run to
       // completion) — otherwise closing `noteBindings` here and having `turnOn` register one into it a

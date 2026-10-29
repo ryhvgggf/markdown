@@ -6,7 +6,7 @@ import { MemorySync } from '@/adapters/sync/memory-sync'
 import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { NoteDocCache } from '@/core/note-doc/cache'
 import { Vault } from '@/core/vault/vault'
-import { pullManifest } from './manifest-sync'
+import { manifestDocId, pullManifest } from './manifest-sync'
 import { createSyncManager, type SyncManager } from './sync-manager'
 
 const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms))
@@ -218,6 +218,64 @@ describe('createSyncManager', () => {
     expect(vault.getNote(notesB.id)?.synced).toBe(true)
 
     await manager!.close()
+    await managerB.close()
+  })
+
+  it('finishes an in-flight manifest merge before detaching the vault observer on close() (merged note still gets bound, not left synced-but-unbound)', async () => {
+    // Deterministic repro instead of hoping real timing lands inside the race window: gate this manager's
+    // (and only this manager's — device B keeps the real, ungated `sync`) next manifest pull so it's
+    // provably still in flight — suspended, not just "probably not done yet" — when close() runs.
+    let gateArmed = false
+    let releaseGate = () => {}
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve
+    })
+    const gated = Object.assign(Object.create(Object.getPrototypeOf(sync)), sync, {
+      pullDoc: async (vaultId: string, docId: string) => {
+        if (gateArmed && docId === manifestDocId('v1')) {
+          gateArmed = false
+          await gate
+        }
+        return sync.pullDoc(vaultId, docId)
+      },
+    })
+
+    const acquiredIds: string[] = []
+    const realAcquire = noteDocs.acquire.bind(noteDocs)
+    noteDocs.acquire = (id: string) => {
+      acquiredIds.push(id)
+      return realAcquire(id)
+    }
+
+    const managerA = createSyncManager({ sync: gated, attachmentSync, storage, noteDocs, vault, vaultId: 'v1', kek, deviceId: 'dev1' })
+    await managerA.start()
+    await wait()
+    gateArmed = true // armed only now, so start()'s own initial manifest pull (above) was never gated
+
+    const storageB = new MemoryStorage()
+    const vaultB = await Vault.open(storageB, 'v1')
+    const noteB = vaultB.createNote({ title: 'From device B' })
+    vaultB.setNoteSynced(noteB.id, true)
+    const noteDocsB = new NoteDocCache(storageB)
+    const managerB = createSyncManager({ sync, attachmentSync, storage: storageB, noteDocs: noteDocsB, vault: vaultB, vaultId: 'v1', kek, deviceId: 'devB' })
+    await managerB.start()
+
+    // devB's manifest push notifies managerA, which schedules its own merge; wait for that merge's pull to
+    // actually reach (and suspend on) the gate — `gateArmed` flips back to false the moment it does.
+    for (let i = 0; i < 50 && gateArmed; i++) await wait(5)
+    expect(gateArmed).toBe(false) // sanity: the merge really is suspended mid-pull right now, not finished
+
+    const closePromise = managerA.close() // must wait for that in-flight merge before detaching the observer
+    releaseGate()
+    await closePromise
+
+    expect(vault.getNote(noteB.id)?.synced).toBe(true) // the merge itself still completed
+    // If close() had detached the vault observer before the merge's own setNoteSynced ran, onVaultChange
+    // would never have enqueued a reconcile for this note, and turnOn (hence noteDocs.acquire) would never
+    // have been called for it at all in this session — unlike `synced`, this can't be papered over by
+    // checking state after the fact, so it's the one assertion that actually catches the race.
+    expect(acquiredIds).toContain(noteB.id)
+
     await managerB.close()
   })
 
