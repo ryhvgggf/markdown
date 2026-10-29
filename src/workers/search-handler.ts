@@ -1,13 +1,17 @@
 import type { NoteTextRow } from '../adapters/storage/db'
-import { findMentions, searchByTag, searchNotes, type SearchHit } from '../core/search/search'
+import { findMentions, listTags, searchByTag, searchNotes, type SearchHit, type TagInfo } from '../core/search/search'
 
 export type SearchRequest =
   | { kind: 'init'; dbName: string }
   | { id: number; kind: 'search'; query: string }
   | { id: number; kind: 'searchTags'; query: string }
+  | { id: number; kind: 'listTags' }
   | { id: number; kind: 'mentions'; title: string; excludeNoteIds: string[] }
 
-export type SearchReply = { id: number; hits: SearchHit[] } | { id: number; error: string }
+export type SearchReply =
+  | { id: number; hits: SearchHit[] }
+  | { id: number; tags: TagInfo[] }
+  | { id: number; error: string }
 
 export interface SearchState {
   rows: NoteTextRow[]
@@ -22,6 +26,7 @@ export function handleRequest(
 ): SearchReply {
   if (state.error !== null) return { id: req.id, error: state.error }
   try {
+    if (req.kind === 'listTags') return { id: req.id, tags: listTags(state.rows, state.tags) }
     const hits =
       req.kind === 'search'
         ? searchNotes(req.query, state.rows, state.tags)

@@ -74,6 +74,21 @@ export function searchByTag(
   return hits.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, opts.limit ?? 50)
 }
 
+export type TagInfo = { tag: string; count: number }
+
+/** Every distinct tag in use (untrashed notes only), most-used first, ties broken alphabetically. */
+export function listTags(rows: NoteTextRow[], tags: Map<string, string[]>): TagInfo[] {
+  const live = new Set(rows.filter((r) => !r.trashed).map((r) => r.noteId))
+  const counts = new Map<string, number>()
+  for (const [noteId, list] of tags) {
+    if (!live.has(noteId)) continue
+    for (const tag of list) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+}
+
 /** Notes whose body (not title) mentions `title`; excluded ids and same-titled notes are skipped. */
 export function findMentions(
   title: string,

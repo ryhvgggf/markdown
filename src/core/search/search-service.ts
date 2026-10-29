@@ -1,9 +1,10 @@
 import type { NotesDb } from '@/adapters/storage/db'
-import { findMentions, searchByTag, searchNotes, type SearchHit } from './search'
+import { findMentions, listTags, searchByTag, searchNotes, type SearchHit, type TagInfo } from './search'
 
 export interface SearchService {
   search(query: string): Promise<SearchHit[]>
   searchTags(query: string): Promise<SearchHit[]>
+  listTags(): Promise<TagInfo[]>
   mentions(title: string, excludeNoteIds: string[]): Promise<SearchHit[]>
   dispose(): void
 }
@@ -31,6 +32,11 @@ export class LocalSearch implements SearchService {
   async searchTags(query: string): Promise<SearchHit[]> {
     const { rows, tags } = await this.load()
     return searchByTag(query, rows, tags)
+  }
+
+  async listTags(): Promise<TagInfo[]> {
+    const { rows, tags } = await this.load()
+    return listTags(rows, tags)
   }
 
   async mentions(title: string, excludeNoteIds: string[]): Promise<SearchHit[]> {

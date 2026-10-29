@@ -1,8 +1,8 @@
-import type { SearchHit } from './search'
+import type { SearchHit, TagInfo } from './search'
 import type { SearchService } from './search-service'
 
-type Pending = { resolve: (h: SearchHit[]) => void; reject: (e: Error) => void }
-type Reply = { id: number; hits?: SearchHit[]; error?: string }
+type Pending = { resolve: (r: Omit<Reply, 'id'>) => void; reject: (e: Error) => void }
+type Reply = { id: number; hits?: SearchHit[]; tags?: TagInfo[]; error?: string }
 
 export interface SearchClientOptions {
   dbName?: string
@@ -27,7 +27,7 @@ export class SearchClient implements SearchService {
       if (!p) return
       this.pending.delete(e.data.id)
       if (e.data.error !== undefined) p.reject(new Error(e.data.error))
-      else p.resolve(e.data.hits ?? [])
+      else p.resolve(e.data)
     }
     this.worker.onerror = (e: ErrorEvent) =>
       this.fail(new Error(`Search worker failed: ${e.message || 'unknown error'}`))
@@ -37,15 +37,19 @@ export class SearchClient implements SearchService {
   }
 
   search(query: string): Promise<SearchHit[]> {
-    return this.request({ kind: 'search', query })
+    return this.request({ kind: 'search', query }).then((r) => r.hits ?? [])
   }
 
   searchTags(query: string): Promise<SearchHit[]> {
-    return this.request({ kind: 'searchTags', query })
+    return this.request({ kind: 'searchTags', query }).then((r) => r.hits ?? [])
+  }
+
+  listTags(): Promise<TagInfo[]> {
+    return this.request({ kind: 'listTags' }).then((r) => r.tags ?? [])
   }
 
   mentions(title: string, excludeNoteIds: string[]): Promise<SearchHit[]> {
-    return this.request({ kind: 'mentions', title, excludeNoteIds })
+    return this.request({ kind: 'mentions', title, excludeNoteIds }).then((r) => r.hits ?? [])
   }
 
   dispose(): void {
@@ -59,7 +63,7 @@ export class SearchClient implements SearchService {
     this.pending.clear()
   }
 
-  private request(msg: object): Promise<SearchHit[]> {
+  private request(msg: object): Promise<Omit<Reply, 'id'>> {
     if (this.fatal) return Promise.reject(this.fatal)
     const id = this.nextId++
     return new Promise((resolve, reject) => {
