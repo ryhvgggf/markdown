@@ -70,6 +70,11 @@ export class Vault {
   private readonly teardown: Array<() => void>
   private readonly binding: PersistBinding
   private readonly undoManager: Y.UndoManager
+  /** Fired by `purgeNote`/`purgeFolder` only — a deliberate, permanent delete. Never for `trashNote`/
+   * `trashFolder` (reversible), and never inferred from a note simply being absent elsewhere (that could
+   * just as easily mean an unrelated bug or local data loss — only this explicit call means "really gone,
+   * on purpose"). `core/sync-engine` uses this as the one safe signal to also delete a note's cloud copy. */
+  private readonly notePurgedHandlers = new Set<(id: string) => void>()
 
   private constructor(
     private readonly id: string,
@@ -196,6 +201,12 @@ export class Vault {
   purgeNote(id: string): void {
     this.note(id)
     this.doc.transact(() => this.notes.delete(id))
+    for (const h of this.notePurgedHandlers) h(id)
+  }
+  /** Subscribes to permanent note deletes (see `notePurgedHandlers`'s own comment). */
+  onNotePurged(cb: (id: string) => void): () => void {
+    this.notePurgedHandlers.add(cb)
+    return () => this.notePurgedHandlers.delete(cb)
   }
 
   // ---- folders ----
@@ -277,6 +288,7 @@ export class Vault {
       noteIds.forEach((k) => this.notes.delete(k))
       ids.forEach((k) => this.folders.delete(k))
     })
+    for (const noteId of noteIds) for (const h of this.notePurgedHandlers) h(noteId)
     return noteIds
   }
 

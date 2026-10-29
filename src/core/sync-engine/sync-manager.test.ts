@@ -301,6 +301,51 @@ describe('createSyncManager', () => {
     await manager!.close()
   })
 
+  it('does not delete the cloud copy when a synced note vanishes from the local vault without an explicit purge (a bug or local data loss, not a deliberate delete) — and self-heals it back locally from the preserved manifest', async () => {
+    const note = vault.createNote({ title: 'Hello' })
+    vault.setNoteSynced(note.id, true)
+    await mkManager().start()
+    await wait()
+    expect(await sync.listDocs('v1')).toContain(note.id)
+
+    // The note's entry disappears some other way than purgeNote/purgeFolder — a bug, corrupted storage, a
+    // bad undo — never through `onNotePurged`, which is the only signal that means "really gone, on
+    // purpose". Reaching into the doc directly (bypassing the public API) is exactly the point: it's
+    // standing in for whatever actually caused today's incident, which by definition didn't go through
+    // purgeNote either.
+    vault.doc.transact(() => vault.doc.getMap('notes').delete(note.id))
+
+    expect(await sync.listDocs('v1')).toContain(note.id) // cloud content untouched throughout
+    const manifest = await pullManifest(sync, kek, 'v1')
+    expect(manifest?.notes.map((n) => n.id)).toContain(note.id) // manifest still lists it too
+
+    // Because the manifest still lists it, this device's own manifest push notifies its own merge
+    // subscription (same self-notify the module doc comment already calls out), which recreates the
+    // metadata from the cloud-preserved manifest — same id, so it reattaches to the untouched content doc.
+    await wait(100)
+    expect(vault.getNote(note.id)?.title).toBe('Hello')
+    expect(vault.getNote(note.id)?.synced).toBe(true)
+    expect(noteDocs.isInUse(note.id)).toBe(true) // and resumes active syncing
+    await manager!.close()
+  })
+
+  it('permanently purging a synced note deletes its cloud copy and drops it from the manifest', async () => {
+    const note = vault.createNote({ title: 'Hello' })
+    vault.setNoteSynced(note.id, true)
+    await mkManager().start()
+    await wait()
+    expect(await sync.listDocs('v1')).toContain(note.id)
+
+    vault.trashNote(note.id)
+    vault.purgeNote(note.id)
+    await wait()
+
+    expect(await sync.listDocs('v1')).not.toContain(note.id)
+    const manifest = await pullManifest(sync, kek, 'v1')
+    expect(manifest?.notes.map((n) => n.id)).not.toContain(note.id)
+    await manager!.close()
+  })
+
   it('reports per-note errors via onError without here affecting other notes', async () => {
     const good = vault.createNote({ title: 'Good' })
     const bad = vault.createNote({ title: 'Bad' })

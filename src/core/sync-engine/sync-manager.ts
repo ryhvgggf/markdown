@@ -68,23 +68,45 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let prevSyncedIds = new Set<string>()
   let unobserve: (() => void) | null = null
   let unwatchContent: (() => void) | null = null
+  let unwatchPurge: (() => void) | null = null
   let unsubscribeManifest: (() => void) | null = null
   let manifestIdle: (() => void) | null = null
   let manifestMergeIdle: (() => void) | null = null
   let manifestMergeChain: Promise<void> = Promise.resolve()
   let closed = false
 
+  // Ids this device has deliberately told the cloud to delete this session (an explicit `setNoteSynced`
+  // toggle-off, or a `Vault.onNotePurged` permanent delete — see `turnOff`). The ONLY ids a manifest push
+  // is allowed to drop relative to what the cloud already has: a note missing from the local vault for any
+  // other reason (a bug, corrupted storage, a bad undo — exactly today's incident) must not look like a
+  // delete just because a live scan of the local vault no longer finds it.
+  const deliberatelyRemoved = new Set<string>()
+
   const reportError = (e: unknown, docId: string) => {
     deps.onError?.(e instanceof SyncError ? e : new SyncError('unknown', String(e), { cause: e }), { docId })
+  }
+
+  // A snapshot overwrite, but merged against the cloud's current manifest rather than blindly replacing it:
+  // anything the cloud already lists that this device's local vault doesn't currently have is carried over
+  // unchanged, unless it's in `deliberatelyRemoved` — so a note that merely vanished locally (never an
+  // intentional delete) keeps its cloud copy and its place in the manifest, recoverable once the real cause
+  // is fixed, instead of being wiped out the next time anything else triggers a manifest push.
+  async function pushMergedManifest(): Promise<void> {
+    const cloud = await pullManifest(deps.sync, deps.kek, deps.vaultId).catch(() => null)
+    const localNotes = deps.vault.listNotes()
+    const localFolders = deps.vault.listFolders()
+    const localNoteIds = new Set(localNotes.map((n) => n.id))
+    const localFolderIds = new Set(localFolders.map((f) => f.id))
+    const keptCloudNotes = (cloud?.notes ?? []).filter((n) => !localNoteIds.has(n.id) && !deliberatelyRemoved.has(n.id))
+    const keptCloudFolders = (cloud?.folders ?? []).filter((f) => !localFolderIds.has(f.id))
+    await pushManifest(deps.sync, deps.kek, deps.vaultId, [...localNotes, ...keptCloudNotes], [...localFolders, ...keptCloudFolders])
   }
 
   const scheduleManifestPush = () => {
     if (closed || manifestIdle) return
     manifestIdle = onIdle(() => {
       manifestIdle = null
-      pushManifest(deps.sync, deps.kek, deps.vaultId, deps.vault.listNotes(), deps.vault.listFolders()).catch((e) =>
-        reportError(e, manifestDocId(deps.vaultId)),
-      )
+      pushMergedManifest().catch((e) => reportError(e, manifestDocId(deps.vaultId)))
     })
   }
 
@@ -151,7 +173,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     }
   }
 
+  /** A deliberate stop: closes the binding (if any) and tells the cloud to delete this note's content —
+   * for an explicit `setNoteSynced(false)` toggle or a `Vault.onNotePurged` permanent delete only. */
   async function turnOff(noteId: string): Promise<void> {
+    deliberatelyRemoved.add(noteId)
     const nb = noteBindings.get(noteId)
     noteBindings.delete(noteId)
     try {
@@ -161,6 +186,20 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       }
       await deps.sync.deleteDoc(deps.vaultId, noteId)
       await deps.attachmentSync.deleteAttachmentsForNote(deps.vaultId, noteId)
+    } catch (e) {
+      reportError(e, noteId)
+    }
+  }
+
+  /** Stops actively syncing a note this device can no longer find locally, WITHOUT telling the cloud to
+   * delete anything — see `reconcile`'s own comment for when this runs instead of `turnOff`. */
+  async function detachOnly(noteId: string): Promise<void> {
+    const nb = noteBindings.get(noteId)
+    noteBindings.delete(noteId)
+    if (!nb) return
+    try {
+      await nb.binding.close()
+      deps.noteDocs.release(noteId)
     } catch (e) {
       reportError(e, noteId)
     }
@@ -192,10 +231,19 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   }
   async function reconcile(noteId: string): Promise<void> {
     if (closed) return
-    const shouldSync = deps.vault.getNote(noteId)?.synced === true
+    const note = deps.vault.getNote(noteId)
     const isBound = noteBindings.has(noteId)
+    if (note === undefined) {
+      // Gone from the local vault with no explicit purge notification — could just as easily be a bug or
+      // local data loss as a real delete (see `pushMergedManifest`'s comment), so never infer a cloud
+      // deletion from this alone. Just stop actively pushing/pulling it on this device; `onNotePurged`
+      // (wired in `start()`) is the only path that actually calls `turnOff` for a permanent delete.
+      if (isBound) await detachOnly(noteId)
+      return
+    }
+    const shouldSync = note.synced === true
     if (shouldSync && !isBound) await turnOn(noteId)
-    else if (!shouldSync && isBound) await turnOff(noteId)
+    else if (!shouldSync && isBound) await turnOff(noteId) // explicit setNoteSynced(false)
   }
 
   function onVaultChange(): void {
@@ -232,6 +280,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
       unobserve = deps.vault.observe(onVaultChange)
       unwatchContent = deps.noteDocs.onChange((noteId) => onNoteContentChange(noteId))
+      // The one explicit "really gone, on purpose" signal (see `reconcile`'s comment) — a permanent
+      // delete should still delete the cloud copy, even though a note merely vanishing otherwise must not.
+      unwatchPurge = deps.vault.onNotePurged((noteId) => enqueue(noteId, () => turnOff(noteId)))
       // The manifest doc's own pushes (ours and everyone else's) notify with `deviceId: ''` (design doc
       // §3.1's manifest predates per-device echo filtering — see `cloud-doc.ts`'s subscribe for the
       // contrast). So this can't tell "I just pushed this" from "someone else did" by deviceId the way a
@@ -280,6 +331,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       unobserve = null
       unwatchContent?.()
       unwatchContent = null
+      unwatchPurge?.()
+      unwatchPurge = null
       // Let every already-queued reconcile finish first (a not-yet-started one bails out immediately via
       // `reconcile`'s own `closed` check; one already mid-`turnOn`/`turnOff` still needs to run to
       // completion) — otherwise closing `noteBindings` here and having `turnOn` register one into it a

@@ -255,6 +255,31 @@ describe('Vault', () => {
     expect(v.listNotes({ includeTrashed: true }).map((n) => n.id)).toEqual([n3.id])
   })
 
+  it('onNotePurged fires with the note id for purgeNote, and for every note purgeFolder removes — never for trashNote alone, and never after unsubscribing', async () => {
+    const v = await open()
+    const a = v.createFolder({ name: 'A', parentId: null })
+    const n1 = v.createNote({ title: 'one' })
+    const n2 = v.createNote({ title: 'two', folderId: a.id })
+    const purged: string[] = []
+    const off = v.onNotePurged((id) => purged.push(id))
+
+    v.trashNote(n1.id)
+    expect(purged).toEqual([]) // trashing alone (reversible) must never look like a permanent delete
+    v.purgeNote(n1.id)
+    expect(purged).toEqual([n1.id])
+
+    v.trashFolder(a.id)
+    v.purgeFolder(a.id) // removes n2 along with the folder
+    expect(purged).toEqual([n1.id, n2.id])
+
+    off()
+    purged.length = 0
+    const n3 = v.createNote({ title: 'three' })
+    v.trashNote(n3.id)
+    v.purgeNote(n3.id)
+    expect(purged).toEqual([]) // unsubscribed — no further calls
+  })
+
   it('purgeExpired keeps the whole folder chain of a skipped note', async () => {
     const v = await open()
     const top = v.createFolder({ name: 'top', parentId: null })
