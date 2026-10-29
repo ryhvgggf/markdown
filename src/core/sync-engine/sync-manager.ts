@@ -131,10 +131,44 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     }
   }
 
+  // Per-note operation queue (design doc §9 wants a toggle-off mid-flight to end in "not synced", never
+  // in a resurrected cloud doc). `turnOn`/`turnOff` are async and `onVaultChange` fires synchronously on
+  // every structure change, so a note flipped synced→unsynced→synced (or the reverse) in quick succession
+  // used to race: `turnOff` would run while a `turnOn` for the same note was still in flight, find no
+  // `noteBindings` entry yet (so skip closing/releasing anything) but still unconditionally call
+  // `sync.deleteDoc`/`deleteAttachmentsForNote` — and then the earlier `turnOn` would complete afterward,
+  // register a binding, and keep pushing a note the user had already turned sync back off for, undoing the
+  // delete and leaking the `NoteDocCache` ref for good (nothing left tracking it to release later).
+  //
+  // Fixed by never calling `turnOn`/`turnOff` directly from the diff: every change enqueues a `reconcile`
+  // for that note id on a per-note promise chain, so two changes to the same note always run strictly one
+  // after the other, never overlapping. `reconcile` re-reads what should currently be true (the vault's
+  // live `synced` flag) and what actually is true (is there a `noteBindings` entry) right when it *runs*,
+  // not what the diff looked like when it was *scheduled* — so a reconcile that was queued behind an
+  // in-flight `turnOn` sees the binding that `turnOn` just registered and correctly turns it back off,
+  // instead of asserting "not synced" into a `noteBindings` map that doesn't reflect reality yet.
+  const noteChains = new Map<string, Promise<void>>()
+  function enqueue(noteId: string, op: () => Promise<void>): void {
+    const prev = noteChains.get(noteId) ?? Promise.resolve()
+    noteChains.set(
+      noteId,
+      prev.then(op).catch((e) => reportError(e, noteId)),
+    )
+  }
+  async function reconcile(noteId: string): Promise<void> {
+    if (closed) return
+    const shouldSync = deps.vault.getNote(noteId)?.synced === true
+    const isBound = noteBindings.has(noteId)
+    if (shouldSync && !isBound) await turnOn(noteId)
+    else if (!shouldSync && isBound) await turnOff(noteId)
+  }
+
   function onVaultChange(): void {
     const syncedIds = new Set(deps.vault.listNotes().filter((n) => n.synced).map((n) => n.id))
-    for (const id of syncedIds) if (!prevSyncedIds.has(id)) void turnOn(id)
-    for (const id of prevSyncedIds) if (!syncedIds.has(id)) void turnOff(id)
+    const changed = new Set<string>()
+    for (const id of syncedIds) if (!prevSyncedIds.has(id)) changed.add(id)
+    for (const id of prevSyncedIds) if (!syncedIds.has(id)) changed.add(id)
+    for (const id of changed) enqueue(id, () => reconcile(id))
     prevSyncedIds = syncedIds
     scheduleManifestPush()
   }
@@ -175,6 +209,11 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       unwatchContent = null
       manifestIdle?.()
       manifestIdle = null
+      // Let every already-queued reconcile finish first (a not-yet-started one bails out immediately via
+      // `reconcile`'s own `closed` check; one already mid-`turnOn`/`turnOff` still needs to run to
+      // completion) — otherwise closing `noteBindings` here and having `turnOn` register one into it a
+      // moment later would leak exactly the binding + unreleased `NoteDocCache` ref this is meant to avoid.
+      await Promise.all(noteChains.values())
       await Promise.all(
         [...noteBindings.entries()].map(async ([noteId, nb]) => {
           await nb.binding.close()

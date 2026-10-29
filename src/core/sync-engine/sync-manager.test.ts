@@ -169,6 +169,35 @@ describe('createSyncManager', () => {
     expect(await sync.listDocs('v1')).toEqual([])
   })
 
+  it('rapid on→off (toggled off again before turn-on finishes) ends up not synced, no leaked binding or ref', async () => {
+    const note = vault.createNote({ title: 'Hello' })
+    await mkManager().start()
+
+    vault.setNoteSynced(note.id, true)
+    vault.setNoteSynced(note.id, false) // fires before turnOn's first await even resolves
+    await wait(50)
+
+    expect(await sync.listDocs('v1')).toEqual(['v1-manifest']) // the note itself never stayed uploaded
+    expect(await attachmentSync.listAttachments('v1', note.id)).toEqual([])
+    await manager!.close()
+    expect(noteDocs.isInUse(note.id)).toBe(false) // the acquire() from turnOn was matched by a release()
+  })
+
+  it('rapid off→on (toggled on again before turn-off finishes) ends up synced', async () => {
+    const note = vault.createNote({ title: 'Hello' })
+    vault.setNoteSynced(note.id, true)
+    await mkManager().start()
+    await wait() // let the initial turn-on actually finish before the race below
+
+    vault.setNoteSynced(note.id, false)
+    vault.setNoteSynced(note.id, true) // fires before turnOff's first await even resolves
+    await wait(50)
+
+    expect(await sync.listDocs('v1')).toContain(note.id)
+    await manager!.close()
+    expect(noteDocs.isInUse(note.id)).toBe(false)
+  })
+
   it('reports per-note errors via onError without here affecting other notes', async () => {
     const good = vault.createNote({ title: 'Good' })
     const bad = vault.createNote({ title: 'Bad' })

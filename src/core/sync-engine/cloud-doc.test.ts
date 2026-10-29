@@ -141,6 +141,31 @@ describe('bindCloudDoc', () => {
   })
 })
 
+describe('compaction', () => {
+  it('compacts once per `compactAfter` pushes, not on every push once past the threshold', async () => {
+    let snapshotCalls = 0
+    const realPushSnapshot = sync.pushSnapshot.bind(sync)
+    const counting = Object.assign(Object.create(Object.getPrototypeOf(sync)), sync, {
+      pushSnapshot: (...args: Parameters<typeof realPushSnapshot>) => {
+        snapshotCalls++
+        return realPushSnapshot(...args)
+      },
+    })
+    const doc = new Y.Doc()
+    const binding = await bindCloudDoc(doc, deps({ sync: counting, compactAfter: 3 }))
+
+    // 7 separate edits, each flushed on its own, so each becomes its own pushUpdate (no batching merging
+    // them together) — 7 pushes against a threshold of 3 should compact twice (after push 3 and push 6),
+    // not five times (the bug: comparing the server's ever-climbing `seq` to the threshold directly would
+    // fire on every push from the 3rd one onward: pushes 3,4,5,6,7 → 5 snapshot calls instead of 2).
+    for (let i = 0; i < 7; i++) {
+      doc.getText('t').insert(i, 'x')
+      await binding.flush()
+    }
+    expect(snapshotCalls).toBe(2)
+  })
+})
+
 describe('pushInitialSnapshot', () => {
   it('uploads the whole current doc state as a snapshot at seq 0', async () => {
     const doc = new Y.Doc()

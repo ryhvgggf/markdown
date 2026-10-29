@@ -57,6 +57,16 @@ export async function bindCloudDoc(doc: Y.Doc, deps: CloudDocDeps): Promise<Clou
   let chain: Promise<void> = Promise.resolve()
   let failures = 0
   let retryTimer: ReturnType<typeof setTimeout> | null = null
+  // Rows pushed since the last compaction. NOT `seq` — `seq` is the server's all-time counter for this doc
+  // (it keeps climbing across compactions, see `nextSeq` in supabase-sync.ts), so comparing it against
+  // `compactAfter` directly would trigger a fresh full-state snapshot on every single push once past the
+  // threshold once, forever. `core/persist.ts`'s equivalent resets its own counter after compacting
+  // (`count = 0`); this does the same, just counting pushes locally instead of reading a count back from
+  // storage. Starts at 0 even when resuming a doc that already has rows from an earlier session — a minor,
+  // one-time undercount (this session won't compact until it alone has pushed `compactAfter` rows), not a
+  // correctness issue: compaction here is a storage/bandwidth optimization, not something sync correctness
+  // depends on.
+  let pushedSinceCompaction = 0
 
   const scheduleRetry = () => {
     if (closed || retryTimer !== null) return
@@ -76,9 +86,11 @@ export async function bindCloudDoc(doc: Y.Doc, deps: CloudDocDeps): Promise<Clou
         const ciphertext = await encryptDocChunk(deps.kek, deps.vaultId, deps.docId, batch)
         const seq = await deps.sync.pushUpdate(deps.vaultId, deps.docId, ciphertext, deps.deviceId)
         pending.splice(0, n)
-        if (seq >= compactAfter && !closed) {
+        pushedSinceCompaction++
+        if (pushedSinceCompaction >= compactAfter && !closed) {
           const state = await encryptDocChunk(deps.kek, deps.vaultId, deps.docId, Y.encodeStateAsUpdate(doc))
           await deps.sync.pushSnapshot(deps.vaultId, deps.docId, state, seq)
+          pushedSinceCompaction = 0
         }
       }
       failures = 0
