@@ -11,17 +11,28 @@
  * Sign In / Providers → Email in the Supabase dashboard (otherwise sign-up won't return a usable session —
  * turn it back on afterwards for real use).
  *
- * Exercises: sign-up → vault_keys round trip → unlock with password → push 2 updates + a snapshot for a
- * note → pull and verify byte-for-byte → turn sync off for the note (delete) → confirm it's gone →
- * push/pull the cloud structure manifest (design doc §3.1) and confirm it's filtered and encrypted.
+ * Exercises: sign-in-or-sign-up (fixed throwaway account, reused across runs — see signInOrSignUp below) →
+ * vault_keys round trip → unlock with password → push 2 updates + a snapshot for a note → pull and verify
+ * byte-for-byte → turn sync off for the note (delete) → confirm it's gone → push/pull the cloud structure
+ * manifest (design doc §3.1) and confirm it's filtered and encrypted → upload/download an attachment
+ * (design doc §3, needs a private Storage bucket named "attachments" already created) and confirm it's
+ * encrypted too.
+ *
+ * Uses one fixed account across runs instead of a fresh sign-up each time: Supabase's built-in email
+ * service has a low, fixed hourly send rate limit that sign-up counts against even with email
+ * confirmation off, and re-running this script a few times in a row exhausts it. Sign-in sends no email,
+ * so only the very first run (or one after the account is deleted) pays that cost.
  */
 import { createClient } from '@supabase/supabase-js'
-import { signUp, unlockVaultWithPassword } from '../src/core/account/account'
+import { signIn, signUp, unlockVaultWithPassword } from '../src/core/account/account'
 import { SupabaseAuth } from '../src/adapters/auth/supabase-auth'
+import { AuthError } from '../src/adapters/auth/types'
 import { SupabaseKeyStore } from '../src/adapters/key-store/supabase-key-store'
 import { SupabaseSync } from '../src/adapters/sync/supabase-sync'
+import { SupabaseAttachmentSync } from '../src/adapters/sync/supabase-attachment-sync'
 import { decrypt, encrypt } from '../src/adapters/crypto/webcrypto-crypto'
 import { pullManifest, pushManifest } from '../src/core/sync-engine/manifest-sync'
+import { pullAttachment, pushAttachment } from '../src/core/sync-engine/attachment-sync'
 import type { FolderMeta, NoteMeta } from '../src/core/vault/types'
 
 try {
@@ -41,6 +52,7 @@ const client = createClient(url, anonKey)
 const auth = new SupabaseAuth(client)
 const keyStore = new SupabaseKeyStore(client)
 const sync = new SupabaseSync(client)
+const attachmentSync = new SupabaseAttachmentSync(client)
 
 const ok = (label: string, pass: boolean) => {
   console.log(`${pass ? '✓' : '✗'} ${label}`)
@@ -49,65 +61,97 @@ const ok = (label: string, pass: boolean) => {
 const enc = (s: string) => new TextEncoder().encode(s)
 const dec = (b: Uint8Array) => new TextDecoder().decode(b)
 
+const FIXED_EMAIL = 'smoke-test-fixed@yopmail.com'
+const FIXED_PASSWORD = 'smoke-test-password-123'
+
+/** Signs in to the one reused throwaway account; signs it up only the first time it doesn't exist yet. */
+async function signInOrSignUp(email: string, password: string): Promise<{ vaultId: string; kek: CryptoKey; isNew: boolean }> {
+  try {
+    const si = await signIn({ auth, keyStore }, email, password)
+    const vaultId = si.vaults[0]?.vaultId
+    if (!vaultId) throw new Error(`signed in to ${email} but it has no vault — delete it from Authentication → Users and rerun`)
+    const kek = await unlockVaultWithPassword(keyStore, vaultId, password)
+    return { vaultId, kek, isNew: false }
+  } catch (e) {
+    if (e instanceof AuthError && e.kind === 'invalid-credentials') {
+      const su = await signUp({ auth, keyStore }, email, password)
+      return { vaultId: su.vaultId, kek: su.kek, isNew: true }
+    }
+    throw e
+  }
+}
+
 async function main() {
-  const email = `smoke-test-${Date.now()}@yopmail.com`
-  const password = 'smoke-test-password-123'
+  const { vaultId, kek, isNew } = await signInOrSignUp(FIXED_EMAIL, FIXED_PASSWORD)
+  ok(isNew ? 'signed up the fixed test account (first run)' : 'signed in to the existing fixed test account', !!vaultId)
 
-  const su = await signUp({ auth, keyStore }, email, password)
-  ok('signUp returns a vaultId + recovery code', !!su.vaultId && !!su.recoveryCode)
-
-  const kek = await unlockVaultWithPassword(keyStore, su.vaultId, password)
   const probe = enc('round-trip probe')
   ok('unlockVaultWithPassword recovers a working KEK', dec(await decrypt(kek, await encrypt(kek, probe))) === dec(probe))
 
   const noteId = 'smoke-note-1'
   const deviceId = 'smoke-device-1'
-  const seq1 = await sync.pushUpdate(su.vaultId, noteId, await encrypt(su.kek, enc('update 1')), deviceId)
-  const seq2 = await sync.pushUpdate(su.vaultId, noteId, await encrypt(su.kek, enc('update 2')), deviceId)
+  const seq1 = await sync.pushUpdate(vaultId, noteId, await encrypt(kek, enc('update 1')), deviceId)
+  const seq2 = await sync.pushUpdate(vaultId, noteId, await encrypt(kek, enc('update 2')), deviceId)
   ok('pushUpdate assigns increasing seq', seq2 > seq1)
 
-  const pulled = await sync.pullDoc(su.vaultId, noteId)
-  const decrypted = await Promise.all(pulled.map((c) => decrypt(su.kek, c)))
+  const pulled = await sync.pullDoc(vaultId, noteId)
+  const decrypted = await Promise.all(pulled.map((c) => decrypt(kek, c)))
   ok(
     'pullDoc returns both pushed updates, decryptable, in order',
     decrypted.length === 2 && dec(decrypted[0]) === 'update 1' && dec(decrypted[1]) === 'update 2',
   )
 
-  await sync.pushSnapshot(su.vaultId, noteId, await encrypt(su.kek, enc('compacted snapshot')), seq2)
-  const afterSnapshot = await sync.pullDoc(su.vaultId, noteId)
+  await sync.pushSnapshot(vaultId, noteId, await encrypt(kek, enc('compacted snapshot')), seq2)
+  const afterSnapshot = await sync.pullDoc(vaultId, noteId)
   ok(
     'pushSnapshot replaces prior updates (pullDoc now returns just the snapshot)',
-    afterSnapshot.length === 1 && dec(await decrypt(su.kek, afterSnapshot[0])) === 'compacted snapshot',
+    afterSnapshot.length === 1 && dec(await decrypt(kek, afterSnapshot[0])) === 'compacted snapshot',
   )
 
-  await sync.deleteDoc(su.vaultId, noteId)
-  const afterDelete = await sync.pullDoc(su.vaultId, noteId)
+  await sync.deleteDoc(vaultId, noteId)
+  const afterDelete = await sync.pullDoc(vaultId, noteId)
   ok('deleteDoc (turning sync off for a note) leaves nothing behind', afterDelete.length === 0)
 
   const otherNoteId = 'smoke-note-2'
-  await sync.pushUpdate(su.vaultId, otherNoteId, await encrypt(su.kek, enc('x')), deviceId)
-  const docs = await sync.listDocs(su.vaultId)
+  await sync.pushUpdate(vaultId, otherNoteId, await encrypt(kek, enc('x')), deviceId)
+  const docs = await sync.listDocs(vaultId)
   ok('listDocs reflects deletion and remaining docs', !docs.includes(noteId) && docs.includes(otherNoteId))
+  await sync.deleteDoc(vaultId, otherNoteId) // cleanup: this account is reused across runs
 
   const folders: FolderMeta[] = [{ id: 'f1', name: 'Folder', parentId: null, order: 'a', createdAt: 0, deletedAt: null }]
   const notes: NoteMeta[] = [
     { id: 'synced-note', title: 'secret title', folderId: 'f1', order: 'a', createdAt: 0, updatedAt: 0, deletedAt: null, synced: true },
     { id: 'unsynced-note', title: 'should never leave the device', folderId: 'f1', order: 'b', createdAt: 0, updatedAt: 0, deletedAt: null, synced: false },
   ]
-  await pushManifest(sync, su.kek, su.vaultId, notes, folders)
-  const manifest = await pullManifest(sync, su.kek, su.vaultId)
+  await pushManifest(sync, kek, vaultId, notes, folders)
+  const manifest = await pullManifest(sync, kek, vaultId)
   ok(
     'pullManifest returns only the synced note and the folder it needs',
     manifest !== null && manifest.notes.map((n) => n.id).join(',') === 'synced-note' && manifest.folders.map((f) => f.id).join(',') === 'f1',
   )
-  const [rawManifest] = await sync.pullDoc(su.vaultId, `${su.vaultId}-manifest`)
-  const rawText = Array.from(rawManifest).join(',')
+  const [rawManifest] = await sync.pullDoc(vaultId, `${vaultId}-manifest`)
   ok(
     'the cloud manifest row is opaque ciphertext — no plaintext note title leaked',
-    !new TextDecoder().decode(rawManifest).includes('secret title') && rawText.length > 0,
+    !new TextDecoder().decode(rawManifest).includes('secret title') && rawManifest.length > 0,
   )
 
-  console.log('\nTest account:', email, '(safe to delete from Authentication → Users in the dashboard)')
+  const attachmentId = 'smoke-attachment-1'
+  const attachmentBytes = enc('fake image bytes for the smoke test')
+  await pushAttachment(attachmentSync, kek, vaultId, 'synced-note', attachmentId, attachmentBytes)
+  const pulledAttachment = await pullAttachment(attachmentSync, kek, vaultId, attachmentId)
+  ok(
+    'pushAttachment/pullAttachment round-trip the bytes',
+    pulledAttachment !== null && dec(pulledAttachment) === dec(attachmentBytes),
+  )
+  const rawAttachment = await attachmentSync.downloadAttachment(vaultId, attachmentId)
+  ok(
+    "what's actually in Storage is opaque ciphertext, not the plaintext",
+    rawAttachment !== null && !new TextDecoder().decode(rawAttachment).includes('fake image bytes'),
+  )
+  await attachmentSync.deleteAttachmentsForNote(vaultId, 'synced-note')
+  ok('deleteAttachmentsForNote removes it', (await attachmentSync.downloadAttachment(vaultId, attachmentId)) === null)
+
+  console.log(`\nTest account: ${FIXED_EMAIL} (reused on every run — leave it, no need to delete)`)
 }
 
 main().catch((e) => {
