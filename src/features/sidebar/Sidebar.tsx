@@ -81,7 +81,12 @@ export function Sidebar() {
         </>
       ) : view === 'trash' ? (
         <SubView title="垃圾桶" onBack={() => setView('tree')}>
-          <TrashView trashed={trashed} onRestore={actions.restore} onPurge={(ref) => void actions.purge(ref)} />
+          <TrashView
+            trashed={trashed}
+            onRestore={actions.restore}
+            onPurge={(ref) => void actions.purge(ref)}
+            onPurgeAll={(refs) => void actions.purgeAll(refs)}
+          />
         </SubView>
       ) : (
         <SubView title="附件" onBack={() => setView('tree')}>

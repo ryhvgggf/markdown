@@ -252,6 +252,27 @@ describe('Trash', () => {
     expect(vault.getNote(n.id)).toBeUndefined()
     expect(maintenance.purge).toHaveBeenCalledWith({ kind: 'folder', id: f.id })
   })
+
+  it('清空垃圾桶 asks for one confirmation, then purges every trashed item', async () => {
+    const a = vault.createNote({ title: 'A' })
+    const b = vault.createNote({ title: 'B' })
+    vault.trashNote(a.id)
+    vault.trashNote(b.id)
+    mount()
+    await openTrash()
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: '清空垃圾桶' }))
+    expect(screen.getByText('確定永久刪除全部 2 項？此動作無法復原。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(vault.getNote(a.id)).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '清空垃圾桶' }))
+    await act(async () => void fireEvent.click(screen.getByRole('button', { name: '全部刪除' })))
+    expect(vault.getNote(a.id)).toBeUndefined()
+    expect(vault.getNote(b.id)).toBeUndefined()
+    expect(maintenance.purge).toHaveBeenCalledWith({ kind: 'note', id: a.id })
+    expect(maintenance.purge).toHaveBeenCalledWith({ kind: 'note', id: b.id })
+    expect(screen.getByText('垃圾桶是空的')).toBeInTheDocument()
+  })
 })
 
 describe('row menus (typing cost)', () => {

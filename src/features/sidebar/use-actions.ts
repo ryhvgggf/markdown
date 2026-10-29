@@ -101,6 +101,12 @@ export function useActions(tree: TreeNode[], expand: (ids: string[]) => void) {
       purge(ref: TrashRef): Promise<boolean> {
         return ref.kind === 'attachment' ? maintenance.purgeAttachment(ref.id) : maintenance.purge({ kind: ref.kind, id: ref.id })
       },
+      /** Empties the trash: purges every ref one at a time (maintenance's pending-list updates aren't safe concurrently). */
+      async purgeAll(refs: TrashRef[]): Promise<void> {
+        for (const ref of refs) {
+          await (ref.kind === 'attachment' ? maintenance.purgeAttachment(ref.id) : maintenance.purge({ kind: ref.kind, id: ref.id }))
+        }
+      },
       /** A note → its `.md`; a folder → a ZIP (downloaded). Failures are logged; nothing changes in the vault. */
       async exportMarkdown(ref: Ref): Promise<void> {
         try {
