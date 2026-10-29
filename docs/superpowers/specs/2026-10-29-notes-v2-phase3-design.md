@@ -63,7 +63,7 @@ KEK 是**每個知識庫各一把**，不是整個帳號共用一把：同一帳
 | 資料表 | 欄位 | 說明 |
 |---|---|---|
 | `auth.users` | （Supabase Auth 內建） | email + 密碼雜湊，Supabase 管理 |
-| `vault_keys` | `vaultId`, `userId`, `wrappedKeyPassword`, `wrappedKeyRecovery`, `kdfParams` | 每知識庫一列（非每使用者一列）；`kdfParams` 記錄 KDF 演算法與參數，供日後升級 |
+| `vault_keys` | `vaultId`, `userId`, `wrappedKeyPassword`, `kdfParamsPassword`, `wrappedKeyRecovery`, `kdfParamsRecovery` | 每知識庫一列（非每使用者一列）；密碼與復原碼是兩個獨立的秘密、各自隨機 salt，所以 KDF 參數要分開存兩份，不是共用一份（3a/3b 實作時發現原稿寫成單一 `kdfParams` 是疏漏，已更正） |
 | `devices` | `id`, `userId`, `name`, `createdAt`, `lastSeenAt` | 裝置顯示名稱可由使用者自訂（如「我的 MacBook」） |
 | `vaults` | `id`, `userId`, `createdAt` | 第 1 階段本機知識庫 id 直接延用為此處的 `id` |
 | `doc_updates` | `vaultId`, `docId`, `seq`, `ciphertext`, `deviceId`, `createdAt` | 密文增量；`docId` 對應結構清單 / 已同步的各筆記文件 / 偏好文件。一篇筆記有沒有同步，等同於這張表有沒有它的 `docId` |
@@ -85,7 +85,7 @@ Row Level Security：每張表以 `auth.uid() = userId`（或透過 `vaults.user
 
 **開放決策（需要你確認，列入文件「待審閱」狀態）**：
 
-1. **KDF 選 PBKDF2 還是 Argon2id**：PBKDF2 可直接用 WebCrypto、零額外套件；Argon2id 安全性更好但需引入 WASM 套件（增加打包體積、需確認瀏覽器相容性）。`kdfParams` 欄位已把演算法存成可升級的參數，先上 PBKDF2、日後要換不需要改資料模型。
+1. **KDF 選 PBKDF2 還是 Argon2id**：PBKDF2 可直接用 WebCrypto、零額外套件；Argon2id 安全性更好但需引入 WASM 套件（增加打包體積、需確認瀏覽器相容性）。`kdfParamsPassword`/`kdfParamsRecovery` 欄位已把演算法存成可升級的參數，先上 PBKDF2、日後要換不需要改資料模型。
 2. **裝置上限**：規格沒提到是否限制單一帳號的裝置數量。建議先不限制（Supabase 免費方案用量低時不是瓶頸），但 `devices` 介面要能移除裝置（登出遠端裝置、失竊時用）。
 3. **離線編輯後的上傳順序**：單裝置內的增量天生有序（`seq` 遞增），多裝置間的合併交給 Yjs CRDT，這部分不需要額外決策；但「使用者在舊版本未同步前，離線超久（例如 Supabase 專案因一週無活動被免費方案暫停，見第 1 階段規格第 15 節風險）」時的重試與提示文案，建議實作時再定，不影響本文件的架構決策。
 4. **新筆記預設同步還是不同步**：啟用同步後，之後新增的筆記預設要自動打勾同步，還是預設不同步、每篇都要手動選？建議**預設不同步**（opt-in）：符合本機優先、使用者主動選擇要上雲的資料這個精神，也跟你這次提的需求一致（你是主動點名 A、C 要同步，不是「全部同步、B 除外」）。
@@ -169,9 +169,9 @@ src/
 
 ## 11. 里程碑拆分（供實作排序，降低單次改動風險）
 
-1. **3a** — `adapters/crypto`：KDF、wrap/unwrap、加解密，純單元測試，不碰網路
-2. **3b** — `core/account` + Supabase Auth：註冊/登入/復原碼，先不接同步，只驗證金鑰模型正確
-3. **3c** — `adapters/sync` + Supabase 資料表/RLS：單裝置把選定筆記上雲、下載回來驗證一致，含雲端結構清單的篩選與重算、取消同步時的雲端刪除（尚未做多裝置即時同步）
+1. **3a**（已完成，`v2` @ `4b56cfc`）— `adapters/crypto`：KDF、wrap/unwrap、加解密，純單元測試，不碰網路
+2. **3b**（已完成）— `core/account`：註冊/登入/忘記密碼/復原碼/建新知識庫，用 `MemoryAuth`／`MemoryKeyStore` 假轉接層驗證金鑰模型正確；真正接 Supabase Auth 留到有專案時再做
+3. **3c** — `adapters/sync` + Supabase 資料表/RLS：單裝置把選定筆記上雲、下載回來驗證一致，含雲端結構清單的篩選與重算、取消同步時的雲端刪除（尚未做多裝置即時同步）；**這步需要實際 Supabase 專案**
 4. **3d** — `core/sync-engine` 即時同步：Realtime 訂閱、多裝置驗證
 5. **3e** — 錯誤處理與邊角案例：離線佇列、專案暫停提示、兩裝置各有本機資料的合併選擇
 
