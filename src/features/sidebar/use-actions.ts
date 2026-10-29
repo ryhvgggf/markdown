@@ -48,13 +48,13 @@ export function useActions(tree: TreeNode[], expand: (ids: string[]) => void) {
       createNote(folderId?: string | null): void {
         const open = useUi.getState().openNoteId
         const target = folderId !== undefined ? folderId : ((open && vault.getNote(open)?.folderId) ?? null)
-        const note = vault.createNote({ title: '', folderId: target })
+        const note = vault.asUserAction(() => vault.createNote({ title: '', folderId: target }))
         expand(ancestors(target))
         openNote(note.id)
         focusTitleSoon(note.id)
       },
       createFolder(parentId: string | null): string {
-        const folder = vault.createFolder({ name: '新資料夾', parentId })
+        const folder = vault.asUserAction(() => vault.createFolder({ name: '新資料夾', parentId }))
         expand(ancestors(parentId))
         return folder.id
       },
@@ -63,15 +63,17 @@ export function useActions(tree: TreeNode[], expand: (ids: string[]) => void) {
         if (ref.kind === 'note') {
           if (v === (vault.getNote(ref.id)?.title ?? '')) return 'ok'
           if (!vault.isTitleAvailable(v, ref.id)) return 'duplicate'
-          vault.renameNote(ref.id, v)
-        } else if (v !== '') vault.renameFolder(ref.id, v)
+          vault.asUserAction(() => vault.renameNote(ref.id, v))
+        } else if (v !== '') vault.asUserAction(() => vault.renameFolder(ref.id, v))
         return 'ok'
       },
       trash(node: TreeNode): void {
         const order = noteOrder(tree)
         const open = useUi.getState().openNoteId
-        if (node.kind === 'note') vault.trashNote(node.note.id)
-        else vault.trashFolder(node.folder.id)
+        vault.asUserAction(() => {
+          if (node.kind === 'note') vault.trashNote(node.note.id)
+          else vault.trashFolder(node.folder.id)
+        })
         if (!open || vault.getNote(open)?.deletedAt === null) return
         const at = order.indexOf(open)
         const live = (id: string) => vault.getNote(id)?.deletedAt === null
@@ -81,16 +83,18 @@ export function useActions(tree: TreeNode[], expand: (ids: string[]) => void) {
       },
       move(drag: Ref, to: Move): void {
         try {
-          if (drag.kind === 'note') vault.moveNote(drag.id, { folderId: to.parentId, index: to.index })
-          else vault.moveFolder(drag.id, { parentId: to.parentId, index: to.index })
+          vault.asUserAction(() => {
+            if (drag.kind === 'note') vault.moveNote(drag.id, { folderId: to.parentId, index: to.index })
+            else vault.moveFolder(drag.id, { parentId: to.parentId, index: to.index })
+          })
           expand(ancestors(to.parentId))
         } catch (e) {
           if (!(e instanceof VaultError && e.code === 'cycle')) throw e
         }
       },
       restore(ref: TrashRef): void {
-        if (ref.kind === 'note') vault.restoreNote(ref.id)
-        else if (ref.kind === 'folder') vault.restoreFolder(ref.id)
+        if (ref.kind === 'note') vault.asUserAction(() => vault.restoreNote(ref.id))
+        else if (ref.kind === 'folder') vault.asUserAction(() => vault.restoreFolder(ref.id))
         else if (vault.getAttachment(ref.id)) vault.restoreAttachment(ref.id) // another tab may have purged it
       },
       /** Permanent delete; crash-safe and never rejects (failures reach the storage banner). */

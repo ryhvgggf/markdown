@@ -73,7 +73,7 @@ function Panel() {
       if (!row) return
       const ui = useUi.getState()
       if (row.kind === 'create') {
-        const made = vault.createNote({ title: row.title })
+        const made = vault.asUserAction(() => vault.createNote({ title: row.title }))
         ui.setQuickSwitcher(false)
         ui.openNote(made.id)
       } else {

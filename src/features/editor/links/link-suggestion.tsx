@@ -106,7 +106,7 @@ export function runLinkItem(ctx: EditorContext, editor: Editor, range: Range, it
   else {
     let id: string
     try {
-      id = ctx.vault.createNote({ title: item.title }).id
+      id = ctx.vault.asUserAction(() => ctx.vault.createNote({ title: item.title })).id
     } catch {
       const existing = exactNote(ctx.vault, item.title)
       if (!existing) return

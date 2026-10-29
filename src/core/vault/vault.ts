@@ -9,6 +9,9 @@ import { VaultError, type AttachmentMeta, type FolderMeta, type NoteMeta } from 
 
 export const TRASH_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
+/** Origin for vault mutations the user directly asked for (sidebar create/rename/move/trash/restore). Tracked by `undoManager`; maintenance and import writes use no origin and are not undoable. */
+export const USER_ACTION: unique symbol = Symbol('user-action')
+
 export interface VaultOpenOptions {
   channelFactory?: (name: string) => BroadcastChannel
   onStorageError?: (e: StorageError) => void
@@ -65,6 +68,7 @@ export class Vault {
   private readonly meta: YM
   private readonly teardown: Array<() => void>
   private readonly binding: PersistBinding
+  private readonly undoManager: Y.UndoManager
 
   private constructor(
     private readonly id: string,
@@ -79,6 +83,8 @@ export class Vault {
     this.notes = doc.getMap('notes')
     this.folders = doc.getMap('folders')
     this.attachments = doc.getMap('attachments')
+    // captureTimeout 0: each call below is one discrete user action, never merged with the next.
+    this.undoManager = new Y.UndoManager([this.notes, this.folders], { trackedOrigins: new Set([USER_ACTION]), captureTimeout: 0 })
   }
 
   static async open(storage: StorageAdapter, vaultId: string, opts: VaultOpenOptions = {}): Promise<Vault> {
@@ -407,7 +413,37 @@ export class Vault {
     maps.forEach((m) => m.observeDeep(h))
     return () => maps.forEach((m) => m.unobserveDeep(h))
   }
+
+  // ---- undo (notes & folders only; see USER_ACTION) ----
+  /** Runs `fn` as one undoable step. Calls it makes to Vault mutators join the undo stack as a single step. */
+  asUserAction<T>(fn: () => T): T {
+    return this.doc.transact(fn, USER_ACTION)
+  }
+  canUndo(): boolean {
+    return this.undoManager.undoStack.length > 0
+  }
+  canRedo(): boolean {
+    return this.undoManager.redoStack.length > 0
+  }
+  undo(): void {
+    this.undoManager.undo()
+  }
+  redo(): void {
+    this.undoManager.redo()
+  }
+  /** Fires after every undo-stack change (push, undo, redo, or `stopCapturing`-separated step). */
+  onUndoChange(cb: () => void): () => void {
+    const h = () => cb()
+    this.undoManager.on('stack-item-added', h)
+    this.undoManager.on('stack-item-popped', h)
+    return () => {
+      this.undoManager.off('stack-item-added', h)
+      this.undoManager.off('stack-item-popped', h)
+    }
+  }
+
   close(): void {
+    this.undoManager.destroy()
     this.teardown.reverse().forEach((t) => t())
     this.teardown.length = 0
   }

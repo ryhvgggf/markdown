@@ -8,6 +8,7 @@ import { Background, BakedGlass } from './Background'
 import { NoteCardBackground } from './NoteCardBackground'
 import { ResizeHandle } from './ResizeHandle'
 import { useLayoutMode } from './layout-mode'
+import { useGlobalUndo } from './use-global-undo'
 
 export interface ShellProps {
   sidebar: ReactNode
@@ -17,13 +18,14 @@ export interface ShellProps {
 }
 
 export function Shell({ sidebar, main, overlay }: ShellProps) {
-  const { prefs } = useServices()
+  const { prefs, vault } = useServices()
   const { sidebarWidth } = usePrefs()
   const mode = useLayoutMode()
   const overlayOpen = useUi((s) => s.sidebarOverlayOpen)
   const setOverlay = useUi((s) => s.setSidebarOverlay)
 
   useEffect(() => installTypingWatch(), [])
+  useGlobalUndo(vault)
   const scroller = useRef<HTMLDivElement>(null)
   const ghosts = useRef<HTMLDivElement>(null)
   useEffect(() => noteSwitchFade(scroller, ghosts), [])

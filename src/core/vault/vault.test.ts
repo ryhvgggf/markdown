@@ -280,3 +280,68 @@ describe('Vault — import options', () => {
     expect(() => v.addAttachment({ id: 'a', filename: 'b', mimeType: 'x', size: 1 })).toThrow(expect.objectContaining({ code: 'exists' }))
   })
 })
+
+describe('Vault — undo (notes & folders)', () => {
+  it('undo/redo only tracks mutations made through asUserAction', async () => {
+    const v = await open()
+    expect(v.canUndo()).toBe(false)
+    const n = v.asUserAction(() => v.createNote({ title: 'A' }))
+    expect(v.canUndo()).toBe(true)
+    v.createNote({ title: 'B' }) // not a user action: untracked
+    v.undo()
+    expect(v.listNotes().map((x) => x.title)).toEqual(['B'])
+    expect(v.canUndo()).toBe(false)
+    expect(v.canRedo()).toBe(true)
+    v.redo()
+    expect(v.listNotes().map((x) => x.title).sort()).toEqual(['A', 'B'])
+    expect(v.getNote(n.id)?.title).toBe('A')
+  })
+
+  it('undoes trash/restore, rename and move as separate steps, LIFO', async () => {
+    const v = await open()
+    const n = v.asUserAction(() => v.createNote({ title: 'orig' }))
+    v.asUserAction(() => v.renameNote(n.id, 'renamed'))
+    v.asUserAction(() => v.trashNote(n.id))
+    expect(v.getNote(n.id)?.deletedAt).not.toBeNull()
+    v.undo() // undo trash
+    expect(v.getNote(n.id)?.deletedAt).toBeNull()
+    expect(v.getNote(n.id)?.title).toBe('renamed')
+    v.undo() // undo rename
+    expect(v.getNote(n.id)?.title).toBe('orig')
+    v.undo() // undo create
+    expect(v.getNote(n.id)).toBeUndefined()
+    expect(v.canUndo()).toBe(false)
+  })
+
+  it('undoes folder creation and move', async () => {
+    const v = await open()
+    const a = v.asUserAction(() => v.createFolder({ name: 'a', parentId: null }))
+    const b = v.asUserAction(() => v.createFolder({ name: 'b', parentId: null }))
+    v.asUserAction(() => v.moveFolder(b.id, { parentId: a.id, index: 0 }))
+    expect(v.listFolders().find((f) => f.id === b.id)?.parentId).toBe(a.id)
+    v.undo() // undo move
+    expect(v.listFolders().find((f) => f.id === b.id)?.parentId).toBeNull()
+    v.undo() // undo create b
+    expect(v.listFolders().map((f) => f.id)).toEqual([a.id])
+    v.undo() // undo create a
+    expect(v.listFolders()).toEqual([])
+  })
+
+  it('an action outside asUserAction (e.g. import) does not join the undo stack', async () => {
+    const v = await open()
+    v.createNote({ id: 'imported', title: 'imported' }) // plain call, as import-apply.ts does
+    expect(v.canUndo()).toBe(false)
+  })
+
+  it('onUndoChange fires on push and on undo', async () => {
+    const v = await open()
+    const seen = vi.fn()
+    const off = v.onUndoChange(seen)
+    v.asUserAction(() => v.createNote({ title: 'A' }))
+    expect(seen).toHaveBeenCalledTimes(1)
+    const before = seen.mock.calls.length
+    v.undo() // pops the undo stack and pushes the inverse onto the redo stack: at least one more event
+    expect(seen.mock.calls.length).toBeGreaterThan(before)
+    off()
+  })
+})
