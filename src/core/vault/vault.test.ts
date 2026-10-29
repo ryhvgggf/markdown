@@ -131,6 +131,24 @@ describe('Vault', () => {
     expect(v.getNote(recent.id)).toBeDefined()
   })
 
+  it('purgeExpired fires onNotePurged for every note it removes (the 30-day trash-TTL sweep is a permanent delete too, same as purgeNote/purgeFolder)', async () => {
+    const v = await open()
+    const old = v.createNote({ title: 'old' })
+    const recent = v.createNote({ title: 'recent' })
+    v.trashNote(old.id)
+    v.trashNote(recent.id)
+    const now = Date.now()
+    v.doc.transact(() => {
+      const notes = v.doc.getMap<import('yjs').Map<unknown>>('notes')
+      notes.get(old.id)!.set('deletedAt', now - 31 * DAY)
+      notes.get(recent.id)!.set('deletedAt', now - 29 * DAY)
+    })
+    const purged: string[] = []
+    v.onNotePurged((id) => purged.push(id))
+    v.purgeExpired(now)
+    expect(purged).toEqual([old.id]) // only the one actually removed, never the one kept
+  })
+
   it('purgeExpired only removes old unreferenced attachments', async () => {
     const v = await open()
     const now = Date.now()

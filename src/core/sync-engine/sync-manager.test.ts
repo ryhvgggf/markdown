@@ -346,6 +346,24 @@ describe('createSyncManager', () => {
     await manager!.close()
   })
 
+  it('letting a trashed synced note age out via the 30-day TTL sweep (purgeExpired) also deletes its cloud copy and drops it from the manifest, not just the explicit purgeNote button', async () => {
+    const note = vault.createNote({ title: 'Hello' })
+    vault.setNoteSynced(note.id, true)
+    await mkManager().start()
+    await wait()
+    expect(await sync.listDocs('v1')).toContain(note.id)
+
+    vault.trashNote(note.id)
+    vault.purgeExpired(Date.now() + 31 * 24 * 60 * 60 * 1000) // same TTL sweep maintenance.ts runs at startup
+    await wait()
+
+    expect(await sync.listDocs('v1')).not.toContain(note.id)
+    const manifest = await pullManifest(sync, kek, 'v1')
+    expect(manifest?.notes.map((n) => n.id)).not.toContain(note.id)
+    expect(noteDocs.isInUse(note.id)).toBe(false) // the binding/ref is released too, not leaked
+    await manager!.close()
+  })
+
   it('reports per-note errors via onError without here affecting other notes', async () => {
     const good = vault.createNote({ title: 'Good' })
     const bad = vault.createNote({ title: 'Bad' })

@@ -347,6 +347,10 @@ export class Vault {
       folderIds.forEach((k) => this.folders.delete(k))
       attachmentIds.forEach((k) => this.attachments.delete(k))
     })
+    // A permanent delete, same as purgeNote/purgeFolder — this is in fact how most users' "delete" actually
+    // resolves (trash, then age out), so core/sync-engine needs this signal here too, not just from the
+    // explicit "delete forever" buttons.
+    for (const noteId of noteIds) for (const h of this.notePurgedHandlers) h(noteId)
     return { noteIds, attachmentIds }
   }
   addAttachment(a: Omit<AttachmentMeta, 'id' | 'createdAt' | 'deletedAt'> & { id?: string; createdAt?: number }): AttachmentMeta {
