@@ -75,6 +75,15 @@ describe('Rail', () => {
     expect(nav).toHaveAttribute('data-open', 'true')
   })
 
+  it('does not reopen when a closed dialog programmatically refocuses its trigger button', () => {
+    const nav = setup()
+    expect(nav).toHaveAttribute('data-open', 'false')
+    // Simulates Radix's onCloseAutoFocus calling .focus() on the button that opened the dialog —
+    // not real keyboard navigation, so :focus-visible is false and the rail must stay closed.
+    act(() => screen.getByRole('button', { name: '設定' }).focus())
+    expect(nav).toHaveAttribute('data-open', 'false')
+  })
+
   it('wires search and settings buttons', () => {
     setup()
     fireEvent.click(screen.getByRole('button', { name: '搜尋' }))
