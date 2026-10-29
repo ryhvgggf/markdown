@@ -139,6 +139,45 @@ describe('bindCloudDoc', () => {
     await binding.flush()
     expect((await sync.pullDoc('v1', 'n1')).length).toBe(1)
   })
+
+  it('on attach, recovers and pushes a local edit that was never pushed because it happened with no binding attached at all (design doc §9: an offline queue surviving a restart — the in-memory pending list a prior binding would have used is gone, but the edit is already in the local Yjs doc)', async () => {
+    const doc = new Y.Doc()
+    const first = await bindCloudDoc(doc, deps())
+    doc.getText('t').insert(0, 'synced before restart')
+    await first.flush()
+    await first.close() // simulates the app closing — no binding exists on `doc` any more
+
+    // An edit made while completely offline (or just before the next binding attaches) — applied straight
+    // to the Yjs doc the way a reload would replay it from local storage, never seen by any cloud-doc
+    // `pending` queue because none existed at the time.
+    doc.getText('t').insert(0, 'OFFLINE EDIT ')
+
+    const second = await bindCloudDoc(doc, deps()) // simulates re-opening after the restart
+    await second.flush()
+
+    const check = new Y.Doc()
+    await bindCloudDoc(check, deps({ docId: 'n1', deviceId: 'devCheck' }))
+    expect(check.getText('t').toString()).toBe('OFFLINE EDIT synced before restart')
+  })
+
+  it('on attach, does not push anything when local already matches what was just pulled from the cloud', async () => {
+    const seed = new Y.Doc()
+    seed.getText('t').insert(0, 'seeded')
+    await pushInitialSnapshot(seed, deps())
+
+    let pushCalls = 0
+    const realPushUpdate = sync.pushUpdate.bind(sync)
+    const counting = Object.assign(Object.create(Object.getPrototypeOf(sync)), sync, {
+      pushUpdate: (...args: Parameters<typeof realPushUpdate>) => {
+        pushCalls++
+        return realPushUpdate(...args)
+      },
+    })
+    const doc = new Y.Doc()
+    const binding = await bindCloudDoc(doc, deps({ sync: counting }))
+    await binding.flush()
+    expect(pushCalls).toBe(0)
+  })
 })
 
 describe('compaction', () => {
