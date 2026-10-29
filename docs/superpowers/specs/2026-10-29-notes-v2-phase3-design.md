@@ -180,8 +180,44 @@ src/
    - 3c 審查後的修正：(1) 附件歸屬改多對多（`attachment_refs`），避免關掉一篇筆記的同步就刪掉另一篇還在用的附件；(2) 所有上雲密文都以 AES-GCM AAD 綁定所屬的 vault + doc／附件 id（`core/sync-engine/doc-crypto.ts`，3d 的筆記同步也必須走這裡），伺服器無法把密文搬到別的位置冒充；(3) `downloadAttachment` 只有物件不存在才回 `null`，其餘錯誤丟 `SyncError`；(4) 刪附件時 Storage 刪除失敗會丟錯，且先刪檔再刪參照，不留下孤兒檔案。
    - 留給 3d（多裝置才會發生）：`nextSeq` 讀最大值 +1 的競態（unique 約束會擋下、不會默默覆蓋）；`pullDoc` 讀快照與增量分兩次查詢，中間若有另一台裝置壓縮可能漏更新；`deleteAttachmentsForNote` 判斷「沒人在用」與刪檔之間另一台裝置加參照的競態；`createVault` 先寫 `vaults` 再寫 `vault_keys` 非原子。
    - 還沒接上「`synced` 或結構變動時自動觸發重算 manifest」的事件監聽（manifest 目前是純函式，由呼叫方決定何時呼叫；這塊打算併入 3d 的 `core/sync-engine` 即時同步引擎一起做，而不是另外在 3c 生出一個半成品的本機監聽器）。
-4. **3d** — `core/sync-engine` 即時同步：Realtime 訂閱、多裝置驗證
-5. **3e** — 錯誤處理與邊角案例：離線佇列、專案暫停提示、兩裝置各有本機資料的合併選擇
+4. **3d**（已完成）— `core/sync-engine` 即時同步：
+   - `adapters/sync/types.ts` 新增 `SyncAdapter.subscribe(vaultId, onChange)`：`SupabaseSync` 訂閱 `doc_updates`／
+     `doc_snapshots` 的 Realtime postgres_changes（需要 migration 0003 把這兩張表加進 `supabase_realtime`
+     publication）；`MemorySync` 用同步、同行程的 in-memory 版本供測試用。
+   - `core/sync-engine/cloud-doc.ts`：`bindCloudDoc` 是雲端版的 `bindPersistence`——本機編輯排隊、加密、推送、
+     失敗退避重試；同時訂閱雲端變更，收到別裝置的通知就整份重新 `pullDoc`＋解密＋套用（Yjs 更新本來就是冪等
+     的，整份重套用比追蹤「差多少」簡單且一樣正確，跟 `tabs-bridge.ts` 的 `sync-step2` 同樣道理）；用
+     `deviceId` 過濾掉自己推送觸發的回音通知。`pushInitialSnapshot` 處理 8.5「開啟」那次性的整份上傳。
+   - `core/sync-engine/sync-manager.ts`：`createSyncManager` 把 `Vault`／`NoteDocCache`／manifest／附件接起來
+     ——觀察 vault 偵測哪些筆記的 `synced` 被打開/關閉，對應呼叫初始快照上傳＋即時綁定，或刪雲端文件＋附件；
+     結構（標題、資料夾、`synced`）一變就 debounce 重算並推送 manifest；筆記內容新增的附件 id 也會順便推上去。
+   - `core/sync-engine/device-id.ts`：每個瀏覽器一個穩定 id（localStorage），當 `pushUpdate` 的 `deviceId`，
+     也用來判斷 realtime 通知是不是自己推送造成的回音。
+   - 補上設計文件 §11 留給 3d 的 4 個競態問題：
+     1. `nextSeq` 搶號——`unique (vault_id, doc_id, seq)` 本來就會擋下輸家，`pushUpdate` 现在抓到
+        `unique_violation` 就重算 seq 重試（上限 5 次）。
+     2. `pullDoc` 快照／增量分兩次查詢的競態——查詢前後各讀一次快照的 `up_to_seq`，兩次不一樣（代表中間有人
+        壓縮）就整個重試（上限 5 次），不會回傳「舊快照＋被壓縮扣掉的增量」這種不一致的組合。
+     3. `deleteAttachmentsForNote`「沒人在用」判斷與刪檔之間的競態——新增 migration 0003 的
+        `reap_note_attachment_refs`／`add_attachment_ref` 兩個 RPC，用同一把 `pg_advisory_xact_lock`
+        把「刪這篇筆記的參照＋算出誰歸零」和「新增參照」在資料庫端序列化成不會交錯；刪 Storage 檔案前再查一次
+        確認還是沒人用，把剩下「RPC 交易 commit 之後、真的刪檔之前」這段無法用資料庫鎖收斂的窗口盡量縮小
+        （已在程式註解裡說明這是刻意的取捨，不是遺漏）。
+     4. `createVault` 先寫 `vaults`再寫 `vault_keys` 非原子——migration 0003 的 `create_vault_with_keys` RPC
+        把兩個 insert 包進同一個 Postgres 函式（天生一個交易），失敗就整個回滾，不會留孤兒知識庫。
+   - 刻意沒做、留白的部分（不是漏掉，是覺得需要你明確決定，不想自己假設）：
+     - manifest 目前只有「推」：本裝置的 synced 筆記一變就重算上傳。已經在跑的裝置不會持續拉別裝置的 manifest
+       來即時反映「另一台裝置剛打開某篇筆記的同步」——這需要決定「拉回來的筆記/資料夾要怎麼跟本機既有結構合
+       併」，設計文件只寫了新裝置登入時的一次性拉取，沒寫既有裝置要怎麼持續合併，所以沒有自己腦補規則。
+     - §9 錯誤處理表裡「推送目標被別裝置刪除時應該回傳找不到、裝置端悄悄退回本機模式」、離線佇列重開機後還
+       在——這兩個照 §11 本來就是 3e 的範圍，不是 3d 漏做。
+     - `devices` 表的列管理（新裝置登入時寫入、列出、移除裝置）：`adapters/sync/types.ts` 3c 時的註解把它標成
+       「3d 再做」，但 §11 真正描述 3d 的那行只提即時同步跟多裝置驗證，沒有要求裝置管理 UI，這次也還沒寫。
+     - 個人偏好文件還沒接進 `createSyncManager`（它吃的是 `Vault`，不是 `Preferences` 實例）；`cloud-doc.ts`
+       是通用的，接的人可以直接對 `Preferences` 的 doc 呼叫 `bindCloudDoc`，但還沒有人在呼叫。
+   - 屬於高風險改動（同步、加密、帳號），照你的流程這次全部做完才一次送審，還沒送。
+5. **3e** — 錯誤處理與邊角案例：離線佇列、專案暫停提示、兩裝置各有本機資料的合併選擇、manifest 持續合併進既有
+   裝置本機結構（3d 留白的部分，若你決定要做）
 
 每個里程碑可獨立合併進 `v2` 分支，3a/3b 風險較低可依你的一般流程處理，3c 起涉及資料儲存與同步，建議照你的高風險改動規則另外審查。
 

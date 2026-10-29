@@ -26,19 +26,21 @@ const toRecord = (row: VaultKeysRow): VaultKeyRecord => ({
 export class SupabaseKeyStore implements KeyStoreAdapter {
   constructor(private client: SupabaseClient) {}
 
+  /**
+   * 3c wrote `vaults` then `vault_keys` as two separate inserts — if the second failed, the first left a
+   * vault with no keys behind, permanently unusable. `create_vault_with_keys` (migration 0003) does both in
+   * one Postgres function call, which is one transaction: either both rows land, or neither does.
+   */
   async createVault(record: VaultKeyRecord): Promise<void> {
-    const { error: vaultError } = await this.client.from('vaults').insert({ id: record.vaultId, user_id: record.userId })
-    if (vaultError) throw toKeyStoreError(vaultError)
-
-    const { error: keysError } = await this.client.from('vault_keys').insert({
-      vault_id: record.vaultId,
-      user_id: record.userId,
-      wrapped_key_password: record.wrappedKeyPassword,
-      kdf_params_password: record.kdfParamsPassword,
-      wrapped_key_recovery: record.wrappedKeyRecovery,
-      kdf_params_recovery: record.kdfParamsRecovery,
+    const { error } = await this.client.rpc('create_vault_with_keys', {
+      p_vault_id: record.vaultId,
+      p_user_id: record.userId,
+      p_wrapped_key_password: record.wrappedKeyPassword,
+      p_kdf_params_password: record.kdfParamsPassword,
+      p_wrapped_key_recovery: record.wrappedKeyRecovery,
+      p_kdf_params_recovery: record.kdfParamsRecovery,
     })
-    if (keysError) throw toKeyStoreError(keysError)
+    if (error) throw toKeyStoreError(error)
   }
 
   async getVaultKeys(vaultId: string): Promise<VaultKeyRecord | undefined> {

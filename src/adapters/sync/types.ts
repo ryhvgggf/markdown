@@ -8,6 +8,12 @@
  * login — out of scope for 3c's single-device push/pull/delete round trip.
  */
 
+/** Who pushed a change a `subscribe` notification is about, and which doc. */
+export interface RemoteChange {
+  docId: string
+  deviceId: string
+}
+
 export interface SyncAdapter {
   /** Appends one encrypted increment for (vaultId, docId). Returns the assigned seq. */
   pushUpdate(vaultId: string, docId: string, ciphertext: Uint8Array, deviceId: string): Promise<number>
@@ -18,6 +24,15 @@ export interface SyncAdapter {
   /** Removes a doc entirely from the cloud (design doc §3.1 — turning sync off for a note). */
   deleteDoc(vaultId: string, docId: string): Promise<void>
   listDocs(vaultId: string): Promise<string[]>
+  /**
+   * Realtime push notifications for this vault (design doc §5 "同步傳輸", 3d): fires once for every new
+   * `doc_updates`/`doc_snapshots` row, including this device's own pushes — callers that want to skip
+   * their own echoes compare `deviceId` themselves (e.g. `core/sync-engine`'s cloud-doc binding). This is
+   * a notification only, never a payload: the callback re-`pullDoc`s to find out what actually changed,
+   * so a dropped or coalesced notification just means catching up a little later, never a missed update.
+   * Returns a function that unsubscribes.
+   */
+  subscribe(vaultId: string, onChange: (change: RemoteChange) => void): () => void
 }
 
 export type SyncErrorKind = 'not-found' | 'offline' | 'unknown'

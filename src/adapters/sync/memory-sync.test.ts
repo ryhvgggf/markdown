@@ -52,4 +52,46 @@ describe('MemorySync', () => {
     await sync.pushUpdate('v2', 'n3', b('c'), 'dev1')
     expect(new Set(await sync.listDocs('v1'))).toEqual(new Set(['n1', 'n2']))
   })
+
+  describe('subscribe', () => {
+    it('notifies on pushUpdate with the docId and deviceId', async () => {
+      const seen: Array<{ docId: string; deviceId: string }> = []
+      sync.subscribe('v1', (c) => seen.push(c))
+      await sync.pushUpdate('v1', 'n1', b('a'), 'dev1')
+      expect(seen).toEqual([{ docId: 'n1', deviceId: 'dev1' }])
+    })
+
+    it('notifies on pushSnapshot with an empty deviceId', async () => {
+      const seen: Array<{ docId: string; deviceId: string }> = []
+      sync.subscribe('v1', (c) => seen.push(c))
+      await sync.pushSnapshot('v1', 'n1', b('snap'), 0)
+      expect(seen).toEqual([{ docId: 'n1', deviceId: '' }])
+    })
+
+    it('only notifies subscribers of the same vault', async () => {
+      const seen: string[] = []
+      sync.subscribe('v1', (c) => seen.push(c.docId))
+      await sync.pushUpdate('v2', 'n1', b('a'), 'dev1')
+      expect(seen).toEqual([])
+    })
+
+    it('the returned unsubscribe function stops further notifications', async () => {
+      const seen: string[] = []
+      const unsubscribe = sync.subscribe('v1', (c) => seen.push(c.docId))
+      await sync.pushUpdate('v1', 'n1', b('a'), 'dev1')
+      unsubscribe()
+      await sync.pushUpdate('v1', 'n2', b('b'), 'dev1')
+      expect(seen).toEqual(['n1'])
+    })
+
+    it('supports several subscribers on the same vault', async () => {
+      const a: string[] = []
+      const b2: string[] = []
+      sync.subscribe('v1', (c) => a.push(c.docId))
+      sync.subscribe('v1', (c) => b2.push(c.docId))
+      await sync.pushUpdate('v1', 'n1', b('a'), 'dev1')
+      expect(a).toEqual(['n1'])
+      expect(b2).toEqual(['n1'])
+    })
+  })
 })

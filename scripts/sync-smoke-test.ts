@@ -6,17 +6,20 @@
  *   which Node's own native type-stripping doesn't resolve; unlike scripts/bench.ts, which only imports
  *   packages and can run with plain `node`)
  *
- * Needs .env.local (see .env.example) with VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY, the migration in
- * supabase/migrations/0001 and 0002 already run, and "Confirm email" OFF under Authentication →
+ * Needs .env.local (see .env.example) with VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY, migrations
+ * supabase/migrations/0001 through 0003 already run, and "Confirm email" OFF under Authentication →
  * Sign In / Providers → Email in the Supabase dashboard (otherwise sign-up won't return a usable session —
- * turn it back on afterwards for real use).
+ * turn it back on afterwards for real use). 0003 also needs Realtime enabled for the project (on by default)
+ * for the subscribe check near the end.
  *
- * Exercises: sign-in-or-sign-up (fixed throwaway account, reused across runs — see signInOrSignUp below) →
- * vault_keys round trip → unlock with password → push 2 updates + a snapshot for a note → pull and verify
- * byte-for-byte → turn sync off for the note (delete) → confirm it's gone → push/pull the cloud structure
- * manifest (design doc §3.1) and confirm it's filtered and encrypted → upload/download an attachment
- * (design doc §3; bucket + policies come from supabase/migrations/0002) and confirm it's
- * encrypted too.
+ * Exercises: sign-in-or-sign-up (fixed throwaway account, reused across runs — see signInOrSignUp below;
+ * createVault now goes through the create_vault_with_keys RPC from migration 0003, so this also covers
+ * that) → vault_keys round trip → unlock with password → push 2 updates + a snapshot for a note → pull and
+ * verify byte-for-byte → turn sync off for the note (delete) → confirm it's gone → push/pull the cloud
+ * structure manifest (design doc §3.1) and confirm it's filtered and encrypted → upload/download an
+ * attachment (design doc §3; bucket + policies come from supabase/migrations/0002) and confirm it's
+ * encrypted too → deleteAttachmentsForNote across two notes sharing one attachment (now the
+ * reap_note_attachment_refs RPC from migration 0003) → subscribe fires on a push with the right docId/deviceId.
  *
  * Uses one fixed account across runs instead of a fresh sign-up each time: Supabase's built-in email
  * service has a low, fixed hourly send rate limit that sign-up counts against even with email
@@ -171,6 +174,29 @@ async function main() {
     'deleteAttachmentsForNote removes it once no synced note uses it (missing object → null, not an error)',
     (await attachmentSync.downloadAttachment(vaultId, attachmentId)) === null,
   )
+
+  // 3d: realtime subscribe — confirm a push actually reaches a subscriber, and that it carries the right
+  // docId/deviceId so a live binding (core/sync-engine/cloud-doc.ts) can filter out its own echoes.
+  const realtimeNoteId = 'smoke-note-realtime'
+  const notified = new Promise<{ docId: string; deviceId: string }>((resolve, reject) => {
+    const unsubscribe = sync.subscribe(vaultId, (change) => {
+      if (change.docId !== realtimeNoteId) return
+      unsubscribe()
+      resolve(change)
+    })
+    setTimeout(() => {
+      unsubscribe()
+      reject(new Error('no realtime notification within 10s — check that migration 0003 ran (doc_updates/doc_snapshots added to the supabase_realtime publication) and that Realtime is enabled for this project'))
+    }, 10_000)
+  })
+  await sync.pushUpdate(vaultId, realtimeNoteId, await seal(realtimeNoteId, 'x'), deviceId)
+  try {
+    const change = await notified
+    ok('subscribe fires on a push, with the right docId and deviceId', change.docId === realtimeNoteId && change.deviceId === deviceId)
+  } catch (e) {
+    ok(String(e instanceof Error ? e.message : e), false)
+  }
+  await sync.deleteDoc(vaultId, realtimeNoteId) // cleanup
 
   console.log(`\nTest account: ${FIXED_EMAIL} (reused on every run — leave it, no need to delete)`)
 }
