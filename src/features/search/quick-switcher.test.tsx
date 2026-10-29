@@ -14,9 +14,10 @@ const channelFactory = () =>
 let vault: Vault
 let search: ReturnType<typeof vi.fn>
 let searchTags: ReturnType<typeof vi.fn>
+let listTags: ReturnType<typeof vi.fn>
 
 function mount() {
-  const services = { vault, search: { search, searchTags, mentions: vi.fn(), dispose() {} } } as unknown as AppServices
+  const services = { vault, search: { search, searchTags, listTags, mentions: vi.fn(), dispose() {} } } as unknown as AppServices
   return render(
     <ServicesProvider services={services}>
       <button>外部</button>
@@ -35,6 +36,7 @@ beforeEach(async () => {
   vault = await Vault.open(new MemoryStorage(), 'v', { channelFactory })
   search = vi.fn(async () => [])
   searchTags = vi.fn(async () => [])
+  listTags = vi.fn(async () => [])
   useUi.setState({ openNoteId: null, quickSwitcherOpen: false, quickSwitcherSeed: '' })
 })
 afterEach(() => cleanup())
@@ -161,6 +163,19 @@ describe('tag mode', () => {
     expect(screen.queryAllByRole('option')).toHaveLength(0)
     keyOn('Enter')
     expect(useUi.getState().openNoteId).toBeNull()
+  })
+
+  it('lists every tag on a bare #, and picking one drills into that tag', async () => {
+    listTags.mockResolvedValue([{ tag: '採購', count: 2 }, { tag: '財務', count: 1 }])
+    mount()
+    act(() => useUi.getState().setQuickSwitcher(true))
+    type('#')
+    const row = await screen.findByRole('option', { name: /採購/ })
+    expect(row).toHaveTextContent('2 篇筆記')
+    expect(screen.getByRole('option', { name: /財務/ })).toBeInTheDocument()
+    fireEvent.click(row)
+    expect(input()).toHaveValue('#採購 ')
+    expect(useUi.getState().quickSwitcherOpen).toBe(true) // picking a tag keeps the panel open to show its notes
   })
 })
 

@@ -74,7 +74,17 @@ export function Rail() {
         className="glass rail fixed top-1/2 left-[10px] z-50 flex flex-col items-center gap-1 rounded-[16px] p-1.5"
         onPointerEnter={cancelClose}
         onPointerLeave={scheduleClose}
-        onFocus={() => setOpen(true)}
+        onFocus={(e) => {
+          // A closed dialog restores focus to the button that opened it; that's a programmatic
+          // focus() call, not real keyboard navigation, so it must not pop the rail open again.
+          let keyboardFocus = false
+          try {
+            keyboardFocus = e.target.matches(':focus-visible')
+          } catch {
+            // :focus-visible unsupported
+          }
+          if (keyboardFocus) setOpen(true)
+        }}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false)
         }}

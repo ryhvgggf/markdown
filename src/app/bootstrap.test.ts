@@ -18,7 +18,7 @@ let n = 0
 const name = () => `boot-${Date.now()}-${n++}`
 const channelFactory = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
-const stubSearch = () => ({ search: async () => [], searchTags: async () => [], mentions: async () => [], dispose() {} })
+const stubSearch = () => ({ search: async () => [], searchTags: async () => [], listTags: async () => [], mentions: async () => [], dispose() {} })
 const boot = (dbName: string, extra: Parameters<typeof bootstrap>[0] = {}) =>
   bootstrap({ dbName, channelFactory, createSearch: stubSearch, seedGuide: false, ...extra })
 

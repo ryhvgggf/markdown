@@ -28,6 +28,7 @@ function toNote(m: YM): NoteMeta {
     createdAt: (m.get('createdAt') as number) ?? 0,
     updatedAt: (m.get('updatedAt') as number) ?? 0,
     deletedAt: (m.get('deletedAt') as number | null) ?? null,
+    synced: (m.get('synced') as boolean) ?? false, // absent on notes created before phase 3
   }
 }
 function toFolder(m: YM): FolderMeta {
@@ -69,6 +70,11 @@ export class Vault {
   private readonly teardown: Array<() => void>
   private readonly binding: PersistBinding
   private readonly undoManager: Y.UndoManager
+  /** Fired by `purgeNote`/`purgeFolder` only — a deliberate, permanent delete. Never for `trashNote`/
+   * `trashFolder` (reversible), and never inferred from a note simply being absent elsewhere (that could
+   * just as easily mean an unrelated bug or local data loss — only this explicit call means "really gone,
+   * on purpose"). `core/sync-engine` uses this as the one safe signal to also delete a note's cloud copy. */
+  private readonly notePurgedHandlers = new Set<(id: string) => void>()
 
   private constructor(
     private readonly id: string,
@@ -129,7 +135,7 @@ export class Vault {
   }
 
   // ---- notes ----
-  /** `id`, `createdAt`, `updatedAt`: only for import (an id already in use → VaultError 'exists'). */
+  /** `id`, `createdAt`, `updatedAt`: only for import or cloud-manifest merge (an id already in use → VaultError 'exists'). */
   createNote(
     i: { id?: string; title?: string; folderId?: string | null; index?: number; createdAt?: number; updatedAt?: number } = {},
   ): NoteMeta {
@@ -151,6 +157,7 @@ export class Vault {
       m.set('createdAt', i.createdAt ?? now)
       m.set('updatedAt', i.updatedAt ?? i.createdAt ?? now)
       m.set('deletedAt', null)
+      m.set('synced', false) // opt-in (design doc §5 open decision 4)
     })
     return this.getNote(id)!
   }
@@ -176,6 +183,13 @@ export class Vault {
     const m = this.note(id)
     this.doc.transact(() => m.set('updatedAt', Date.now()))
   }
+  /** Phase 3 design doc §8.5: turn cloud sync on/off for one note. Pure local flag — pushing the initial
+   * snapshot, deleting the cloud copy, and recomputing the cloud manifest are `core/sync-engine`'s job
+   * (it observes this field), not the vault's. */
+  setNoteSynced(id: string, synced: boolean): void {
+    const m = this.note(id)
+    this.doc.transact(() => m.set('synced', synced))
+  }
   trashNote(id: string): void {
     const m = this.note(id)
     this.doc.transact(() => m.set('deletedAt', Date.now()))
@@ -187,10 +201,17 @@ export class Vault {
   purgeNote(id: string): void {
     this.note(id)
     this.doc.transact(() => this.notes.delete(id))
+    for (const h of this.notePurgedHandlers) h(id)
+  }
+  /** Subscribes to permanent note deletes (see `notePurgedHandlers`'s own comment). */
+  onNotePurged(cb: (id: string) => void): () => void {
+    this.notePurgedHandlers.add(cb)
+    return () => this.notePurgedHandlers.delete(cb)
   }
 
   // ---- folders ----
-  createFolder(i: { id?: string; name: string; parentId: string | null; index?: number }): FolderMeta {
+  /** `id`, `createdAt`: only for import or cloud-manifest merge (an id already in use → VaultError 'exists'). */
+  createFolder(i: { id?: string; name: string; parentId: string | null; index?: number; createdAt?: number }): FolderMeta {
     if (i.parentId !== null) this.folder(i.parentId)
     if (i.id && this.folders.has(i.id)) throw new VaultError('exists')
     const id = i.id ?? newId()
@@ -202,7 +223,7 @@ export class Vault {
       m.set('name', i.name.trim())
       m.set('parentId', i.parentId)
       m.set('order', order)
-      m.set('createdAt', Date.now())
+      m.set('createdAt', i.createdAt ?? Date.now())
       m.set('deletedAt', null)
     })
     return toFolder(this.folders.get(id)!)
@@ -267,6 +288,7 @@ export class Vault {
       noteIds.forEach((k) => this.notes.delete(k))
       ids.forEach((k) => this.folders.delete(k))
     })
+    for (const noteId of noteIds) for (const h of this.notePurgedHandlers) h(noteId)
     return noteIds
   }
 
@@ -325,6 +347,10 @@ export class Vault {
       folderIds.forEach((k) => this.folders.delete(k))
       attachmentIds.forEach((k) => this.attachments.delete(k))
     })
+    // A permanent delete, same as purgeNote/purgeFolder — this is in fact how most users' "delete" actually
+    // resolves (trash, then age out), so core/sync-engine needs this signal here too, not just from the
+    // explicit "delete forever" buttons.
+    for (const noteId of noteIds) for (const h of this.notePurgedHandlers) h(noteId)
     return { noteIds, attachmentIds }
   }
   addAttachment(a: Omit<AttachmentMeta, 'id' | 'createdAt' | 'deletedAt'> & { id?: string; createdAt?: number }): AttachmentMeta {

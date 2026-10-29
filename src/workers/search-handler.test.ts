@@ -3,7 +3,7 @@ import { handleRequest, respond, type SearchState } from './search-handler'
 
 const state = (error: string | null): SearchState => ({
   rows: [{ noteId: 'a', title: 't', text: 'hello', updatedAt: 1 }],
-  tags: new Map(),
+  tags: new Map([['a', ['採購']]]),
   error,
 })
 
@@ -15,6 +15,10 @@ describe('handleRequest', () => {
   it('answers searchTags requests', () => {
     const r = handleRequest(state(null), { id: 4, kind: 'searchTags', query: 'zzz' })
     expect(r).toEqual({ id: 4, hits: [] })
+  })
+  it('answers listTags requests', () => {
+    const r = handleRequest(state(null), { id: 5, kind: 'listTags' })
+    expect(r).toEqual({ id: 5, tags: [{ tag: '採購', count: 1 }] })
   })
   it('replies with an error (not stale hits) while a source is in error', () => {
     expect(handleRequest(state('Search index unavailable: x'), { id: 2, kind: 'search', query: 'hel' })).toEqual({

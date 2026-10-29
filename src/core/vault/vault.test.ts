@@ -54,6 +54,18 @@ describe('Vault', () => {
     expect(() => v.renameNote('nope', 'x')).toThrowError(expect.objectContaining({ code: 'not-found' }))
   })
 
+  it('setNoteSynced flips the sync flag and throws not-found for a missing note', async () => {
+    const v = await open()
+    const n = v.createNote({ title: 'n' })
+    expect(v.getNote(n.id)?.synced).toBe(false)
+    v.setNoteSynced(n.id, true)
+    expect(v.getNote(n.id)?.synced).toBe(true)
+    expect(v.listNotes().find((x) => x.id === n.id)?.synced).toBe(true)
+    v.setNoteSynced(n.id, false)
+    expect(v.getNote(n.id)?.synced).toBe(false)
+    expect(() => v.setNoteSynced('nope', true)).toThrowError(expect.objectContaining({ code: 'not-found' }))
+  })
+
   it('trashes and restores folders recursively; orphan restores to root', async () => {
     const v = await open()
     const a = v.createFolder({ name: 'a', parentId: null })
@@ -117,6 +129,24 @@ describe('Vault', () => {
     expect(v.purgeExpired(now)).toEqual({ noteIds: [old.id], attachmentIds: [] })
     expect(v.getNote(old.id)).toBeUndefined()
     expect(v.getNote(recent.id)).toBeDefined()
+  })
+
+  it('purgeExpired fires onNotePurged for every note it removes (the 30-day trash-TTL sweep is a permanent delete too, same as purgeNote/purgeFolder)', async () => {
+    const v = await open()
+    const old = v.createNote({ title: 'old' })
+    const recent = v.createNote({ title: 'recent' })
+    v.trashNote(old.id)
+    v.trashNote(recent.id)
+    const now = Date.now()
+    v.doc.transact(() => {
+      const notes = v.doc.getMap<import('yjs').Map<unknown>>('notes')
+      notes.get(old.id)!.set('deletedAt', now - 31 * DAY)
+      notes.get(recent.id)!.set('deletedAt', now - 29 * DAY)
+    })
+    const purged: string[] = []
+    v.onNotePurged((id) => purged.push(id))
+    v.purgeExpired(now)
+    expect(purged).toEqual([old.id]) // only the one actually removed, never the one kept
   })
 
   it('purgeExpired only removes old unreferenced attachments', async () => {
@@ -241,6 +271,31 @@ describe('Vault', () => {
     expect(v.purgeFolder(a.id).sort()).toEqual([n1.id, n2.id].sort())
     expect(v.listFolders({ includeTrashed: true }).map((f) => f.id)).toEqual([keep.id])
     expect(v.listNotes({ includeTrashed: true }).map((n) => n.id)).toEqual([n3.id])
+  })
+
+  it('onNotePurged fires with the note id for purgeNote, and for every note purgeFolder removes — never for trashNote alone, and never after unsubscribing', async () => {
+    const v = await open()
+    const a = v.createFolder({ name: 'A', parentId: null })
+    const n1 = v.createNote({ title: 'one' })
+    const n2 = v.createNote({ title: 'two', folderId: a.id })
+    const purged: string[] = []
+    const off = v.onNotePurged((id) => purged.push(id))
+
+    v.trashNote(n1.id)
+    expect(purged).toEqual([]) // trashing alone (reversible) must never look like a permanent delete
+    v.purgeNote(n1.id)
+    expect(purged).toEqual([n1.id])
+
+    v.trashFolder(a.id)
+    v.purgeFolder(a.id) // removes n2 along with the folder
+    expect(purged).toEqual([n1.id, n2.id])
+
+    off()
+    purged.length = 0
+    const n3 = v.createNote({ title: 'three' })
+    v.trashNote(n3.id)
+    v.purgeNote(n3.id)
+    expect(purged).toEqual([]) // unsubscribed — no further calls
   })
 
   it('purgeExpired keeps the whole folder chain of a skipped note', async () => {

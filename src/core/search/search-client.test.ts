@@ -27,6 +27,15 @@ describe('SearchClient', () => {
     await expect(p).resolves.toEqual(hits)
   })
 
+  it('resolves listTags on {id, tags}', async () => {
+    const { w, client } = make()
+    const p = client.listTags()
+    const sent = w.postMessage.mock.calls.map((c) => c[0]).find((m) => m.kind === 'listTags')
+    const tags = [{ tag: '採購', count: 2 }]
+    w.onmessage?.({ data: { id: sent.id, tags } } as MessageEvent)
+    await expect(p).resolves.toEqual(tags)
+  })
+
   it('rejects on {id, error}', async () => {
     const { w, client } = make()
     const p = client.mentions('t', [])

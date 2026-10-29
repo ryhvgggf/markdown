@@ -197,6 +197,22 @@ html[data-reduce-transparency='true'] :is(.glass, .glass-card, .glass-float, .gl
   }
 }
 
+/* Find bar: fixed to the viewport (not the note card) so it stays put while the note scrolls underneath. */
+.find-bar {
+  position: fixed;
+  top: 20px;
+  right: 34px;
+  z-index: 8;
+  border-radius: 14px;
+  transform-origin: top right;
+  animation: format-in var(--d2) var(--ease-pop);
+}
+@media (max-width: 860px) {
+  .find-bar {
+    right: 14px;
+  }
+}
+
 /* Rail: summoned from the left edge with the pop easing. */
 .rail {
   transform: translate(calc(-120% * var(--shift)), -50%);

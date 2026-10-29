@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NoteTextRow } from '../../adapters/storage/db'
-import { findMentions, searchByTag, searchNotes } from './search'
+import { findMentions, listTags, searchByTag, searchNotes } from './search'
 
 const row = (noteId: string, title: string, text: string, updatedAt = 1): NoteTextRow => ({
   noteId,
@@ -95,6 +95,30 @@ describe('trashed rows', () => {
   it('findMentions skips trashed rows', () => {
     const rows = [{ ...row('t', 'A', 'see target'), trashed: true }, row('l', 'B', 'see target')]
     expect(findMentions('target', rows, new Set()).map((h) => h.noteId)).toEqual(['l'])
+  })
+})
+
+describe('listTags', () => {
+  it('counts each tag across untrashed notes, most-used first, ties alphabetical', () => {
+    const rows = [row('a', 'A', 'x', 1), row('b', 'B', 'x', 2), row('c', 'C', 'x', 3)]
+    const tags = new Map([
+      ['a', ['採購', '財務']],
+      ['b', ['採購']],
+      ['c', ['Zebra', '財務']],
+    ])
+    expect(listTags(rows, tags)).toEqual([
+      { tag: '採購', count: 2 },
+      { tag: '財務', count: 2 },
+      { tag: 'Zebra', count: 1 },
+    ])
+  })
+  it('ignores tags on trashed notes', () => {
+    const rows = [row('a', 'A', 'x', 1), { ...row('b', 'B', 'x', 2), trashed: true }]
+    const tags = new Map([['a', ['採購']], ['b', ['財務']]])
+    expect(listTags(rows, tags)).toEqual([{ tag: '採購', count: 1 }])
+  })
+  it('is empty when nothing is tagged', () => {
+    expect(listTags([row('a', 'A', 'x', 1)], noTags)).toEqual([])
   })
 })
 

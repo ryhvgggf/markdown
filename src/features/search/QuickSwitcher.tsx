@@ -76,6 +76,10 @@ function Panel() {
         const made = vault.asUserAction(() => vault.createNote({ title: row.title }))
         ui.setQuickSwitcher(false)
         ui.openNote(made.id)
+      } else if (row.kind === 'tag') {
+        // Picking a listed tag drills into its notes, rather than opening anything.
+        setQuery(`#${row.tag} `)
+        setActive(0)
       } else {
         ui.setQuickSwitcher(false)
         ui.openNote(row.noteId)
@@ -99,6 +103,7 @@ function Panel() {
   }
 
   const notes = rows.filter((r) => r.kind === 'note')
+  const tags = rows.filter((r) => r.kind === 'tag')
   const create = rows.find((r) => r.kind === 'create')
   const option = (row: Row) => {
     const i = rows.indexOf(row)
@@ -115,6 +120,11 @@ function Panel() {
       >
         {row.kind === 'create' ? (
           <span>新增筆記「{row.title}」</span>
+        ) : row.kind === 'tag' ? (
+          <>
+            <span className="shrink-0 text-fg">#{row.tag}</span>
+            <span className="min-w-0 flex-1 truncate text-right text-xs text-fg-secondary">{row.count} 篇筆記</span>
+          </>
         ) : (
           <>
             <span className="shrink-0 text-fg">{row.match ? <Bold text={row.title} term={query.replace(/^\s*#/, '')} /> : row.title}</span>
@@ -154,6 +164,14 @@ function Panel() {
               筆記
             </div>
             {notes.map(option)}
+          </div>
+        )}
+        {tags.length > 0 && (
+          <div role="group" aria-labelledby="qs-tag-group">
+            <div id="qs-tag-group" className="px-3 pt-1 pb-1 text-xs text-fg-secondary">
+              標籤
+            </div>
+            {tags.map(option)}
           </div>
         )}
         {create && option(create)}

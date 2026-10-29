@@ -22,57 +22,81 @@ function describe(item: TrashItem): { ref: TrashRef; label: string; deletedAt: n
   return { ref: { kind: 'attachment', id: item.attachment.id }, label: item.attachment.filename || '未命名附件', deletedAt: item.attachment.deletedAt }
 }
 
+const CONFIRM_ALL = '__all__'
+
 export function TrashView({
   trashed,
   onRestore,
   onPurge,
+  onPurgeAll,
 }: {
   trashed: VaultSnapshot['trashed']
   onRestore(ref: TrashRef): void
   onPurge(ref: TrashRef): void
+  onPurgeAll(refs: TrashRef[]): void
 }) {
   const [confirming, setConfirming] = useState<string | null>(null)
   const [now] = useState(Date.now)
   const items = trashRoots(trashed)
   if (items.length === 0) return <p className="px-4 py-6 text-center text-[13.5px] text-fg-tertiary">垃圾桶是空的</p>
+  const refs = items.map((item) => describe(item).ref)
   return (
-    <ul className="flex flex-col gap-0.5 px-2 pb-2">
-      {items.map((item) => {
-        const { ref, label, deletedAt } = describe(item)
-        return (
-          <li key={ref.id} data-kind={ref.kind} className="flex flex-col gap-1 rounded-[8px] px-2 py-1.5 hover:bg-fill">
-            <div className="flex items-center gap-1.5 text-[13.5px] text-fg">
-              {ref.kind === 'folder' && <Folder size={14} className="shrink-0 text-fg-tertiary" />}
-              {ref.kind === 'attachment' && <Paperclip size={14} aria-label="附件" className="shrink-0 text-fg-tertiary" />}
-              <span className="min-w-0 flex-1 truncate">{label}</span>
-            </div>
-            <div className="text-xs text-fg-tertiary">{daysLeft(deletedAt ?? now, now)} 天後永久刪除</div>
-            {confirming === ref.id ? (
-              <div className="flex items-center gap-1.5 text-xs">
-                <span className="flex-1 text-fg">
-                  確定永久刪除？{ref.kind === 'attachment' && <AttachmentUseWarning id={ref.id} />}
-                </span>
-                <Button variant="primary" className="!px-2 !py-0.5 text-xs" onClick={() => (setConfirming(null), onPurge(ref))}>
-                  刪除
-                </Button>
-                <Button className="!px-2 !py-0.5 text-xs" onClick={() => setConfirming(null)}>
-                  取消
-                </Button>
+    <div className="flex flex-col gap-1.5 px-2 pb-2">
+      {confirming === CONFIRM_ALL ? (
+        <div className="flex items-center gap-1.5 rounded-[8px] px-2 py-1.5 text-xs">
+          <span className="flex-1 text-fg">確定永久刪除全部 {items.length} 項？此動作無法復原。</span>
+          <Button variant="primary" className="!px-2 !py-0.5 text-xs" onClick={() => (setConfirming(null), onPurgeAll(refs))}>
+            全部刪除
+          </Button>
+          <Button className="!px-2 !py-0.5 text-xs" onClick={() => setConfirming(null)}>
+            取消
+          </Button>
+        </div>
+      ) : (
+        <div className="flex justify-end px-1">
+          <Button variant="ghost" className="!px-2 !py-0.5 text-xs text-fg-secondary" onClick={() => setConfirming(CONFIRM_ALL)}>
+            清空垃圾桶
+          </Button>
+        </div>
+      )}
+      <ul className="flex flex-col gap-0.5">
+        {items.map((item) => {
+          const { ref, label, deletedAt } = describe(item)
+          return (
+            <li key={ref.id} data-kind={ref.kind} className="flex flex-col gap-1 rounded-[8px] px-2 py-1.5 hover:bg-fill">
+              <div className="flex items-center gap-1.5 text-[13.5px] text-fg">
+                {ref.kind === 'folder' && <Folder size={14} className="shrink-0 text-fg-tertiary" />}
+                {ref.kind === 'attachment' && <Paperclip size={14} aria-label="附件" className="shrink-0 text-fg-tertiary" />}
+                <span className="min-w-0 flex-1 truncate">{label}</span>
               </div>
-            ) : (
-              <div className="flex gap-1.5">
-                <Button className="!px-2 !py-0.5 text-xs" onClick={() => onRestore(ref)}>
-                  還原
-                </Button>
-                <Button variant="ghost" className="!px-2 !py-0.5 text-xs text-fg-secondary" onClick={() => setConfirming(ref.id)}>
-                  永久刪除
-                </Button>
-              </div>
-            )}
-          </li>
-        )
-      })}
-    </ul>
+              <div className="text-xs text-fg-tertiary">{daysLeft(deletedAt ?? now, now)} 天後永久刪除</div>
+              {confirming === ref.id ? (
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="flex-1 text-fg">
+                    確定永久刪除？{ref.kind === 'attachment' && <AttachmentUseWarning id={ref.id} />}
+                  </span>
+                  <Button variant="primary" className="!px-2 !py-0.5 text-xs" onClick={() => (setConfirming(null), onPurge(ref))}>
+                    刪除
+                  </Button>
+                  <Button className="!px-2 !py-0.5 text-xs" onClick={() => setConfirming(null)}>
+                    取消
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-1.5">
+                  <Button className="!px-2 !py-0.5 text-xs" onClick={() => onRestore(ref)}>
+                    還原
+                  </Button>
+                  <Button variant="ghost" className="!px-2 !py-0.5 text-xs text-fg-secondary" onClick={() => setConfirming(ref.id)}>
+                    永久刪除
+                  </Button>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }
 
