@@ -171,7 +171,7 @@ src/
 
 1. **3a**（已完成，`v2` @ `4b56cfc`）— `adapters/crypto`：KDF、wrap/unwrap、加解密，純單元測試，不碰網路
 2. **3b**（已完成）— `core/account`：註冊/登入/忘記密碼/復原碼/建新知識庫，用 `MemoryAuth`／`MemoryKeyStore` 假轉接層驗證金鑰模型正確；真正接 Supabase Auth 留到有專案時再做
-3. **3c** — `adapters/sync` + Supabase 資料表/RLS：單裝置把選定筆記上雲、下載回來驗證一致，含雲端結構清單的篩選與重算、取消同步時的雲端刪除（尚未做多裝置即時同步）；**這步需要實際 Supabase 專案**
+3. **3c（第一刀已完成並在真實 Supabase 專案上跑過驗證）** — `adapters/sync` 的 push/pull/snapshot/delete/listDocs，對應 doc_updates/doc_snapshots 資料表與 RLS；**雲端結構清單的篩選與重算、附件的加密上傳下載，還沒做**，排到 3c 第二刀（尚未做多裝置即時同步，那是 3d）
 4. **3d** — `core/sync-engine` 即時同步：Realtime 訂閱、多裝置驗證
 5. **3e** — 錯誤處理與邊角案例：離線佇列、專案暫停提示、兩裝置各有本機資料的合併選擇
 
