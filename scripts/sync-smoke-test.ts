@@ -12,7 +12,8 @@
  * turn it back on afterwards for real use).
  *
  * Exercises: sign-up → vault_keys round trip → unlock with password → push 2 updates + a snapshot for a
- * note → pull and verify byte-for-byte → turn sync off for the note (delete) → confirm it's gone.
+ * note → pull and verify byte-for-byte → turn sync off for the note (delete) → confirm it's gone →
+ * push/pull the cloud structure manifest (design doc §3.1) and confirm it's filtered and encrypted.
  */
 import { createClient } from '@supabase/supabase-js'
 import { signUp, unlockVaultWithPassword } from '../src/core/account/account'
@@ -20,6 +21,8 @@ import { SupabaseAuth } from '../src/adapters/auth/supabase-auth'
 import { SupabaseKeyStore } from '../src/adapters/key-store/supabase-key-store'
 import { SupabaseSync } from '../src/adapters/sync/supabase-sync'
 import { decrypt, encrypt } from '../src/adapters/crypto/webcrypto-crypto'
+import { pullManifest, pushManifest } from '../src/core/sync-engine/manifest-sync'
+import type { FolderMeta, NoteMeta } from '../src/core/vault/types'
 
 try {
   process.loadEnvFile('.env.local') // Node >= 20.6; no dotenv dependency needed
@@ -85,6 +88,24 @@ async function main() {
   await sync.pushUpdate(su.vaultId, otherNoteId, await encrypt(su.kek, enc('x')), deviceId)
   const docs = await sync.listDocs(su.vaultId)
   ok('listDocs reflects deletion and remaining docs', !docs.includes(noteId) && docs.includes(otherNoteId))
+
+  const folders: FolderMeta[] = [{ id: 'f1', name: 'Folder', parentId: null, order: 'a', createdAt: 0, deletedAt: null }]
+  const notes: NoteMeta[] = [
+    { id: 'synced-note', title: 'secret title', folderId: 'f1', order: 'a', createdAt: 0, updatedAt: 0, deletedAt: null, synced: true },
+    { id: 'unsynced-note', title: 'should never leave the device', folderId: 'f1', order: 'b', createdAt: 0, updatedAt: 0, deletedAt: null, synced: false },
+  ]
+  await pushManifest(sync, su.kek, su.vaultId, notes, folders)
+  const manifest = await pullManifest(sync, su.kek, su.vaultId)
+  ok(
+    'pullManifest returns only the synced note and the folder it needs',
+    manifest !== null && manifest.notes.map((n) => n.id).join(',') === 'synced-note' && manifest.folders.map((f) => f.id).join(',') === 'f1',
+  )
+  const [rawManifest] = await sync.pullDoc(su.vaultId, `${su.vaultId}-manifest`)
+  const rawText = Array.from(rawManifest).join(',')
+  ok(
+    'the cloud manifest row is opaque ciphertext — no plaintext note title leaked',
+    !new TextDecoder().decode(rawManifest).includes('secret title') && rawText.length > 0,
+  )
 
   console.log('\nTest account:', email, '(safe to delete from Authentication → Users in the dashboard)')
 }
