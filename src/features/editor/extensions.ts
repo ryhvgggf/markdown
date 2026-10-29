@@ -35,6 +35,7 @@ import { createLinkSuggestion } from './links/link-suggestion'
 import { NoteLink } from './links/note-link'
 import { Tag } from './links/tag'
 import { Media } from './blocks/media'
+import { FindReplace } from './find/find-extension'
 
 export { BLOCK_TYPES }
 
@@ -167,6 +168,7 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     BlockHighlight,
     Media.configure({ ctx }),
     BlockId,
+    FindReplace,
     Collaboration.configure({ document: doc, field: 'content' }),
     titleNavigation(ctx.noteId),
   ]

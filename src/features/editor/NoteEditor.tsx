@@ -10,6 +10,7 @@ import { registerEditor } from './focus-bridge'
 import { FormatToolbar } from './menus/FormatToolbar'
 import { DragHandleMenu } from './menus/DragHandleMenu'
 import { TableMenu } from './menus/TableMenu'
+import { FindBar } from './find/FindBar'
 import { Banner } from '@/ui/components/Banner'
 import { useActiveEditor } from '@/features/panel/active-editor'
 import { useBlockHighlight } from './links/block-highlight'
@@ -127,6 +128,7 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
       <FormatToolbar editor={editor} />
       <DragHandleMenu editor={editor} noteId={noteId} />
       <TableMenu editor={editor} />
+      <FindBar editor={editor} />
     </div>
   )
 }

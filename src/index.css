@@ -88,6 +88,10 @@
 .note-editor .code-block:hover .code-lang,
 .note-editor .code-lang:focus-visible,
 .note-editor .code-lang[data-state='open'] { opacity: 1; background: var(--color-fill); }
+
+/* Find bar matches */
+.note-editor .find-match { background: var(--accent-soft); border-radius: 2px; }
+.note-editor .find-match-current { background: var(--accent); color: #fff; }
 .hljs-comment { color: #6e7781; font-style: italic; }
 .hljs-keyword, .hljs-built_in { color: #a626a4; }
 .hljs-string { color: #0a7d3e; }
