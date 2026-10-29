@@ -28,6 +28,7 @@ function toNote(m: YM): NoteMeta {
     createdAt: (m.get('createdAt') as number) ?? 0,
     updatedAt: (m.get('updatedAt') as number) ?? 0,
     deletedAt: (m.get('deletedAt') as number | null) ?? null,
+    synced: (m.get('synced') as boolean) ?? false, // absent on notes created before phase 3
   }
 }
 function toFolder(m: YM): FolderMeta {
@@ -151,6 +152,7 @@ export class Vault {
       m.set('createdAt', i.createdAt ?? now)
       m.set('updatedAt', i.updatedAt ?? i.createdAt ?? now)
       m.set('deletedAt', null)
+      m.set('synced', false) // opt-in (design doc §5 open decision 4)
     })
     return this.getNote(id)!
   }
@@ -175,6 +177,13 @@ export class Vault {
   touchNote(id: string): void {
     const m = this.note(id)
     this.doc.transact(() => m.set('updatedAt', Date.now()))
+  }
+  /** Phase 3 design doc §8.5: turn cloud sync on/off for one note. Pure local flag — pushing the initial
+   * snapshot, deleting the cloud copy, and recomputing the cloud manifest are `core/sync-engine`'s job
+   * (it observes this field), not the vault's. */
+  setNoteSynced(id: string, synced: boolean): void {
+    const m = this.note(id)
+    this.doc.transact(() => m.set('synced', synced))
   }
   trashNote(id: string): void {
     const m = this.note(id)

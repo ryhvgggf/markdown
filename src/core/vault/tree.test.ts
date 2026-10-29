@@ -5,7 +5,7 @@ import type { FolderMeta, NoteMeta } from './types'
 const f = (id: string, parentId: string | null, order: string, deletedAt: number | null = null): FolderMeta =>
   ({ id, name: id, parentId, order, createdAt: 0, deletedAt })
 const n = (id: string, folderId: string | null, order: string, deletedAt: number | null = null): NoteMeta =>
-  ({ id, title: id, folderId, order, createdAt: 0, updatedAt: 0, deletedAt })
+  ({ id, title: id, folderId, order, createdAt: 0, updatedAt: 0, deletedAt, synced: false })
 
 describe('buildTree', () => {
   it('nests, hides deleted, folders first, sorted by order', () => {

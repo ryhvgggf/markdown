@@ -5,7 +5,7 @@ import { computeMove, dropZone } from './dnd'
 
 const f = (id: string, parentId: string | null, order: string): FolderMeta => ({ id, name: id, parentId, order, createdAt: 0, deletedAt: null })
 const n = (id: string, folderId: string | null, order: string): NoteMeta => ({
-  id, title: id, folderId, order, createdAt: 0, updatedAt: 0, deletedAt: null,
+  id, title: id, folderId, order, createdAt: 0, updatedAt: 0, deletedAt: null, synced: false,
 })
 // root: folders A(a1 > A1), B ; notes n1 n2 ; A contains notes a1 a2
 const tree = buildTree(

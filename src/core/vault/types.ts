@@ -6,6 +6,8 @@ export type NoteMeta = {
   createdAt: number
   updatedAt: number
   deletedAt: number | null
+  /** Phase 3 design doc §3.1: whether this note is pushed to the cloud. New notes default to false (opt-in). */
+  synced: boolean
 }
 export type FolderMeta = {
   id: string

@@ -54,6 +54,18 @@ describe('Vault', () => {
     expect(() => v.renameNote('nope', 'x')).toThrowError(expect.objectContaining({ code: 'not-found' }))
   })
 
+  it('setNoteSynced flips the sync flag and throws not-found for a missing note', async () => {
+    const v = await open()
+    const n = v.createNote({ title: 'n' })
+    expect(v.getNote(n.id)?.synced).toBe(false)
+    v.setNoteSynced(n.id, true)
+    expect(v.getNote(n.id)?.synced).toBe(true)
+    expect(v.listNotes().find((x) => x.id === n.id)?.synced).toBe(true)
+    v.setNoteSynced(n.id, false)
+    expect(v.getNote(n.id)?.synced).toBe(false)
+    expect(() => v.setNoteSynced('nope', true)).toThrowError(expect.objectContaining({ code: 'not-found' }))
+  })
+
   it('trashes and restores folders recursively; orphan restores to root', async () => {
     const v = await open()
     const a = v.createFolder({ name: 'a', parentId: null })
