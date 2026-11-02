@@ -38,7 +38,7 @@ describe('sync status', () => {
     expect(s.get().issues).toEqual([
       { docId: 'n1', kind: 'offline' },
       { docId: 'n2', kind: 'conflict' },
-      { docId: 'n3', kind: 'failed' },
+      { docId: 'n3', kind: 'failed', message: 'boom' },
     ])
     expect(s.get()).toBe(s.get())
   })

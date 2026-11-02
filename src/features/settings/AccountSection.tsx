@@ -420,7 +420,9 @@ function SyncProblems({ account }: { account: AccountService }) {
   }
   const lines = [
     ...(issues.some((i) => i.kind === 'offline') ? ['無法連線，恢復後自動補傳'] : []),
-    ...issues.flatMap((i) => (i.kind === 'offline' ? [] : [`${name(i.docId)}${ISSUE_TEXT[i.kind]}`])),
+    ...issues.flatMap((i) =>
+      i.kind === 'offline' ? [] : [`${name(i.docId)}${ISSUE_TEXT[i.kind]}${i.message ? `（${i.message}）` : ''}`],
+    ),
   ]
   return (
     <div className="flex max-w-md flex-col gap-2 rounded-control bg-amber-50 px-3 py-2">

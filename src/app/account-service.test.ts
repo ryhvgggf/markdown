@@ -6,7 +6,7 @@ import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { Vault } from '@/core/vault/vault'
 import { recoverWithCode } from '@/core/account/account'
 import type { SyncReporter } from './sync-status'
-import { ACCOUNT_KEY, SYNC_VAULT_KEY, createAccountService, type AccountService, type MetaStore, type StoredAccount, type SyncHandle } from './account-service'
+import { createDeferredAccount, ACCOUNT_KEY, SYNC_VAULT_KEY, createAccountService, type AccountService, type MetaStore, type StoredAccount, type SyncHandle } from './account-service'
 
 const channelFactory = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
@@ -282,5 +282,14 @@ describe('account service (3f-2)', () => {
     s.cancelNewRecoveryCode()
     await expect(s.confirmNewRecoveryCode()).rejects.toBeDefined()
     await expect(recoverWithCode(keyStore, vaultId, oldCode, 'hunter2')).resolves.toBeDefined()
+  })
+})
+
+describe('deferred account', () => {
+  it('returns the same state and sync status objects while still loading (useSyncExternalStore needs stable snapshots)', () => {
+    const d = createDeferredAccount(() => new Promise(() => {}))
+    expect(d.getState()).toBe(d.getState())
+    expect(d.getSyncStatus()).toBe(d.getSyncStatus())
+    d.close()
   })
 })

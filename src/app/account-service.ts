@@ -106,6 +106,8 @@ export const SYNC_VAULT_KEY = 'syncVaultId'
 const CHANNEL = 'notes-v2-account'
 
 const OFF_STATUS: SyncStatus = { state: 'off', issues: [] }
+// One object: `useSyncExternalStore` re-renders forever when a snapshot is a new object on every read.
+const LOADING: AccountState = { status: 'loading' }
 
 export function createUnavailableAccount(): AccountService {
   const state: AccountState = { status: 'unavailable' }
@@ -396,7 +398,7 @@ export function createDeferredAccount(load: () => Promise<AccountService>): Acco
     async (...a: A) =>
       pick(await get())(...a)
   return {
-    getState: () => inner?.getState() ?? { status: 'loading' },
+    getState: () => inner?.getState() ?? LOADING,
     subscribe(cb) {
       listeners.add(cb)
       return () => void listeners.delete(cb)
