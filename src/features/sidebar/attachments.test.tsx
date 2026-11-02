@@ -5,6 +5,7 @@ import { createDb, type NotesDb } from '@/adapters/storage/db'
 import { ServicesProvider } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
 import type { AppServices } from '@/app/bootstrap'
+import { createUnavailableAccount } from '@/app/account-service'
 import { INDEX_VERSION, INDEX_VERSION_KEY } from '@/core/maintenance/maintenance'
 import { Vault } from '@/core/vault/vault'
 import { Sidebar } from './Sidebar'
@@ -23,7 +24,7 @@ const fakePrefs = { get: () => DEFAULT_PREFS, observe: () => () => {} }
 
 const mount = () =>
   render(
-    <ServicesProvider services={{ vault, db, storage, maintenance, storageMode: 'persistent', prefs: fakePrefs } as unknown as AppServices}>
+    <ServicesProvider services={{ vault, db, storage, maintenance, storageMode: 'persistent', prefs: fakePrefs, account: createUnavailableAccount() } as unknown as AppServices}>
       <Sidebar />
     </ServicesProvider>,
   )

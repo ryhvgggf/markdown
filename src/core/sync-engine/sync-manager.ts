@@ -122,7 +122,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         conflict.reason === 'id-collision'
           ? 'manifest note id collides with an unrelated local note (different createdAt) — left untouched'
           : 'could not create a note pulled from the manifest (e.g. its title collides with an unrelated local note) — left uncreated'
-      reportError(new SyncError('unknown', message), conflict.noteId)
+      reportError(new SyncError('conflict', message), conflict.noteId)
     }
   }
 

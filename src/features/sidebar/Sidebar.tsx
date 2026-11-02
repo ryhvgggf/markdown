@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { filesFromDrop } from '@/features/transfer/download'
 import { MirrorPausedChip } from '@/features/transfer/MirrorSection'
 import { useServices } from '@/app/services-context'
+import { useAccount, useSyncStatus } from '@/app/use-account'
+import type { SyncStatus } from '@/app/sync-status'
+import { Button } from '@/ui/components/Button'
+import { Dialog } from '@/ui/components/Dialog'
 import { useUi } from '@/app/ui-store'
 import { usePrefs } from '@/app/use-prefs'
 import { sortTree } from '@/core/vault/tree'
@@ -15,7 +19,10 @@ import { useExpanded } from './use-expanded'
 import { trashRoots, useVaultSnapshot } from './use-vault'
 
 export function Sidebar() {
-  const { vault, storageMode } = useServices()
+  const { vault, storageMode, account } = useServices()
+  const signedIn = useAccount(account).status === 'unlocked'
+  const syncStatus = useSyncStatus(account)
+  const [confirmUnsync, setConfirmUnsync] = useState<string | null>(null)
   const { tree: manualTree, trashed, attachments, notes } = useVaultSnapshot()
   const { sidebarSort, sidebarSortDir } = usePrefs()
   const tree = useMemo(() => sortTree(manualTree, { key: sidebarSort, dir: sidebarSortDir }), [manualTree, sidebarSort, sidebarSortDir])
@@ -79,6 +86,8 @@ export function Sidebar() {
                 toggle={toggle}
                 renamingId={renamingId}
                 setRenamingId={setRenamingId}
+                syncable={signedIn}
+                setSynced={(id, on) => (on ? vault.setNoteSynced(id, true) : setConfirmUnsync(id))}
               />
             )}
           </div>
@@ -123,10 +132,48 @@ export function Sidebar() {
             <span aria-hidden="true" className="size-1.5 rounded-full bg-green-500" />
             已儲存在此裝置
             <MirrorPausedChip />
+            {signedIn && (notes.some((n) => n.synced) || syncStatus.issues.length > 0) && <SyncChip status={syncStatus} />}
           </>
         )}
       </p>
+      <Dialog
+        title="停止同步這篇筆記？"
+        open={confirmUnsync !== null}
+        onOpenChange={(open) => !open && setConfirmUnsync(null)}
+      >
+        <p className="text-sm text-fg-secondary">雲端副本會被刪除，其他裝置保留目前的內容但不再更新。這台裝置上的筆記不受影響。</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setConfirmUnsync(null)}>
+            取消
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              if (confirmUnsync && vault.getNote(confirmUnsync)) vault.setNoteSynced(confirmUnsync, false)
+              setConfirmUnsync(null)
+            }}
+          >
+            停止同步
+          </Button>
+        </div>
+      </Dialog>
     </div>
+  )
+}
+
+const SYNC_TEXT: Record<SyncStatus['state'], string> = { off: '', syncing: '同步中…', synced: '已同步', error: '同步有問題' }
+
+/** Cloud sync state after the storage line; opens 設定 · 帳號 for details. */
+function SyncChip({ status }: { status: SyncStatus }) {
+  if (status.state === 'off') return null
+  return (
+    <button
+      type="button"
+      onClick={() => useUi.getState().setSettings(true, 'account')}
+      className={`ml-1 rounded px-1 hover:bg-fill ${status.state === 'error' ? 'text-amber-600' : ''}`}
+    >
+      {SYNC_TEXT[status.state]}
+    </button>
   )
 }
 

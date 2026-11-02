@@ -45,9 +45,13 @@ export interface FolderTreeProps {
   toggle(id: string): void
   renamingId: string | null
   setRenamingId(id: string | null): void
+  /** Signed in: notes get the 同步到雲端 toggle. */
+  syncable?: boolean
+  /** Turning sync on happens at once; off goes through here (it asks first). */
+  setSynced?(id: string, on: boolean): void
 }
 
-export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRenamingId }: FolderTreeProps) {
+export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRenamingId, syncable = false, setSynced }: FolderTreeProps) {
   const openNoteId = useUi((s) => s.openNoteId)
   const rows = useMemo(() => flatten(tree, expanded), [tree, expanded])
   const sensors = useSensors(useSensor(PointerSensor, POINTER_OPTIONS))
@@ -81,6 +85,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
       return node ? actions.rename(nodeRef(node), v) : 'ok'
     },
     renameDone: () => setRenamingId(null),
+    setSynced: (id, on) => setSynced?.(id, on),
   }
   useLayoutEffect(() => {
     latest.current = fresh
@@ -95,6 +100,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
       expand: (id, open) => latest.current!.expand(id, open),
       rename: (id, v) => latest.current!.rename(id, v),
       renameDone: () => latest.current!.renameDone(),
+      setSynced: (id, on) => latest.current!.setSynced(id, on),
     }),
     [],
   )
@@ -132,6 +138,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
           tabbable={ref.id === tabbableId}
           drop={node.kind === 'folder' && drop && drop.over !== ROOT && drop.over.id === ref.id ? drop.zone : null}
           renaming={renamingId === ref.id}
+          syncable={syncable}
           api={api}
         />
       )

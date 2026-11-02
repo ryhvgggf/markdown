@@ -10,6 +10,7 @@ import { createSyncManager } from '@/core/sync-engine/sync-manager'
 import type { Vault } from '@/core/vault/vault'
 import { createAccountService, type AccountService } from './account-service'
 import { runAsSyncLeader } from './sync-leader'
+import { reportingProgress } from './sync-status'
 
 export interface CloudAccountDeps {
   db: NotesDb
@@ -34,19 +35,25 @@ export function createCloudAccount(d: CloudAccountDeps): AccountService {
       put: async (key, value) => void (await d.db.meta.put({ key, value })),
       delete: (key) => d.db.meta.delete(key),
     },
-    startSync: ({ vaultId, kek }) =>
+    startSync: ({ vaultId, kek, report }) =>
       runAsSyncLeader(
         () =>
-          createSyncManager({
-            sync: new SupabaseSync(client),
-            attachmentSync: new SupabaseAttachmentSync(client),
-            storage: d.storage,
-            noteDocs: d.notes,
-            vault: d.vault,
-            vaultId,
-            kek,
-            onError: (e, info) => console.warn('[sync]', info.docId, e),
-          }),
+          reportingProgress(
+            createSyncManager({
+              sync: new SupabaseSync(client),
+              attachmentSync: new SupabaseAttachmentSync(client),
+              storage: d.storage,
+              noteDocs: d.notes,
+              vault: d.vault,
+              vaultId,
+              kek,
+              onError: (e, info) => {
+                console.warn('[sync]', info.docId, e)
+                report.error(e, info.docId)
+              },
+            }),
+            report,
+          ),
         { onError: (e) => console.warn('[sync]', e) },
       ),
   })

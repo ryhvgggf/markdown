@@ -35,7 +35,8 @@ export interface SyncAdapter {
   subscribe(vaultId: string, onChange: (change: RemoteChange) => void): () => void
 }
 
-export type SyncErrorKind = 'not-found' | 'offline' | 'unknown'
+/** `conflict`: a manifest note could not be merged with the local vault (left untouched; 3f-2 shows it). */
+export type SyncErrorKind = 'not-found' | 'offline' | 'conflict' | 'unknown'
 
 export class SyncError extends Error {
   kind: SyncErrorKind

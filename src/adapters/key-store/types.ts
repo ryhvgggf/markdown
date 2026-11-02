@@ -30,6 +30,8 @@ export interface KeyStoreAdapter {
   listVaultsForUser(userId: string): Promise<VaultSummary[]>
   /** Used on password reset + recovery-code recovery: re-wrap the KEK under the new password. */
   updateWrappedKeyPassword(vaultId: string, wrappedKeyPassword: string, kdfParamsPassword: KdfParams): Promise<void>
+  /** Regenerated recovery code (3f-2): replaces the recovery-wrapped KEK; the old code stops working. */
+  updateWrappedKeyRecovery(vaultId: string, wrappedKeyRecovery: string, kdfParamsRecovery: KdfParams): Promise<void>
 }
 
 export type KeyStoreErrorKind = 'not-found' | 'already-exists' | 'unknown'

@@ -4,6 +4,8 @@ import { decrypt, encrypt } from '@/adapters/crypto/webcrypto-crypto'
 import { MemoryKeyStore } from '@/adapters/key-store/memory-key-store'
 import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { Vault } from '@/core/vault/vault'
+import { recoverWithCode } from '@/core/account/account'
+import type { SyncReporter } from './sync-status'
 import { ACCOUNT_KEY, SYNC_VAULT_KEY, createAccountService, type AccountService, type MetaStore, type StoredAccount, type SyncHandle } from './account-service'
 
 const channelFactory = () =>
@@ -23,7 +25,8 @@ let auth: MemoryAuth
 let keyStore: MemoryKeyStore
 let meta: ReturnType<typeof memoryMeta>
 let vault: Vault
-let startSync: ReturnType<typeof vi.fn<(a: { vaultId: string; kek: CryptoKey }) => SyncHandle>>
+type StartSync = (a: { vaultId: string; kek: CryptoKey; report: SyncReporter }) => SyncHandle
+let startSync: ReturnType<typeof vi.fn<StartSync>>
 let stopSync: ReturnType<typeof vi.fn<() => Promise<void>>>
 const services: AccountService[] = []
 
@@ -39,7 +42,7 @@ beforeEach(async () => {
   meta = memoryMeta()
   vault = await Vault.open(new MemoryStorage(), 'v', { channelFactory })
   stopSync = vi.fn(async () => {})
-  startSync = vi.fn<(a: { vaultId: string; kek: CryptoKey }) => SyncHandle>(() => ({ stop: stopSync }))
+  startSync = vi.fn<StartSync>(() => ({ stop: stopSync }))
 })
 afterEach(() => {
   services.splice(0).forEach((s) => s.close())
@@ -84,7 +87,7 @@ describe('account service (3f-1)', () => {
     const stored = meta.map.get(ACCOUNT_KEY) as StoredAccount
     expect(stored.vaultId).toBe(v!.vaultId)
     expect(stored.kek.extractable).toBe(false)
-    expect(startSync).toHaveBeenCalledWith({ vaultId: v!.vaultId, kek: stored.kek })
+    expect(startSync).toHaveBeenCalledWith(expect.objectContaining({ vaultId: v!.vaultId, kek: stored.kek }))
   })
 
   it('a restart with the stored account and a live session is unlocked at once and syncs', async () => {
@@ -234,5 +237,50 @@ describe('account service (3f-1)', () => {
     expect(s.getState()).toEqual({ status: 'signed-out', email: 'a@example.com' })
     await expect(s.confirmRecoveryCode()).rejects.toBeDefined()
     expect(await keyStore.listVaultsForUser((await auth.signIn('a@example.com', 'hunter2')).userId)).toEqual([])
+  })
+})
+
+describe('account service (3f-2)', () => {
+  async function unlocked() {
+    const s = make()
+    await s.init()
+    await signUpAndConfirm(s)
+    const st = s.getState()
+    if (st.status !== 'recovery-code') throw new Error(st.status)
+    await s.confirmRecoveryCode()
+    const vaultId = (s.getState() as { vaultId: string }).vaultId
+    return { s, oldCode: st.recoveryCode, vaultId }
+  }
+
+  it('the sync run reports into the sync status; sign-out turns it off', async () => {
+    const { s } = await unlocked()
+    const report = startSync.mock.calls[0]![0].report
+    report.pending(false)
+    expect(s.getSyncStatus().state).toBe('synced')
+    report.error(Object.assign(new Error('x'), { kind: 'conflict' }), 'n1')
+    expect(s.getSyncStatus().issues).toEqual([{ docId: 'n1', kind: 'conflict' }])
+    s.dismissSyncIssues()
+    expect(s.getSyncStatus().issues).toEqual([])
+    await s.signOut()
+    expect(s.getSyncStatus().state).toBe('off')
+  })
+
+  it('regenerating the recovery code: wrong password changes nothing; confirm replaces the code', async () => {
+    const { s, oldCode, vaultId } = await unlocked()
+    await expect(s.prepareRecoveryCode('wrong')).rejects.toMatchObject({ kind: 'wrong-password' })
+    const code = await s.prepareRecoveryCode('hunter2')
+    await expect(recoverWithCode(keyStore, vaultId, oldCode, 'hunter2')).resolves.toBeDefined()
+    await s.confirmNewRecoveryCode()
+    await expect(recoverWithCode(keyStore, vaultId, oldCode, 'hunter2')).rejects.toMatchObject({ kind: 'wrong-recovery-code' })
+    await expect(recoverWithCode(keyStore, vaultId, code, 'hunter2')).resolves.toBeDefined()
+    await expect(s.confirmNewRecoveryCode()).rejects.toBeDefined() // nothing pending any more
+  })
+
+  it('cancelling a regenerated code keeps the old one', async () => {
+    const { s, oldCode, vaultId } = await unlocked()
+    await s.prepareRecoveryCode('hunter2')
+    s.cancelNewRecoveryCode()
+    await expect(s.confirmNewRecoveryCode()).rejects.toBeDefined()
+    await expect(recoverWithCode(keyStore, vaultId, oldCode, 'hunter2')).resolves.toBeDefined()
   })
 })

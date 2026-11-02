@@ -10,6 +10,21 @@ function Item({ className = '', ...rest }: ComponentPropsWithoutRef<typeof DM.It
   )
 }
 
+/** A toggle item (`menuitemcheckbox`), with a check mark on the right while on. */
+function CheckboxItem({ className = '', children, ...rest }: ComponentPropsWithoutRef<typeof DM.CheckboxItem>) {
+  return (
+    <DM.CheckboxItem
+      className={`flex cursor-default items-center gap-2 rounded-control px-2.5 py-1.5 text-base text-fg outline-none data-[highlighted]:bg-fill data-[disabled]:opacity-50 ${className}`}
+      {...rest}
+    >
+      <span className="flex-1">{children}</span>
+      <DM.ItemIndicator aria-hidden="true" className="text-accent">
+        ✓
+      </DM.ItemIndicator>
+    </DM.CheckboxItem>
+  )
+}
+
 function Separator() {
   return <DM.Separator className="my-1 h-px bg-fill" />
 }
@@ -43,6 +58,7 @@ export function Menu({
 }
 
 Menu.Item = Item
+Menu.CheckboxItem = CheckboxItem
 Menu.Separator = Separator
 
 function Sub({ label, children }: { label: ReactNode; children: ReactNode }) {

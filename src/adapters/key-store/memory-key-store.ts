@@ -28,4 +28,11 @@ export class MemoryKeyStore implements KeyStoreAdapter {
     record.wrappedKeyPassword = wrappedKeyPassword
     record.kdfParamsPassword = kdfParamsPassword
   }
+
+  async updateWrappedKeyRecovery(vaultId: string, wrappedKeyRecovery: string, kdfParamsRecovery: KdfParams): Promise<void> {
+    const record = this.vaults.get(vaultId)
+    if (!record) throw new KeyStoreError('not-found', `vault not found: ${vaultId}`)
+    record.wrappedKeyRecovery = wrappedKeyRecovery
+    record.kdfParamsRecovery = kdfParamsRecovery
+  }
 }

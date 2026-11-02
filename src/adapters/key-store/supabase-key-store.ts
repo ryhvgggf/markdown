@@ -63,6 +63,15 @@ export class SupabaseKeyStore implements KeyStoreAdapter {
     if (error) throw toKeyStoreError(error)
     if (!count) throw new KeyStoreError('not-found', `vault not found: ${vaultId}`)
   }
+
+  async updateWrappedKeyRecovery(vaultId: string, wrappedKeyRecovery: string, kdfParamsRecovery: KdfParams): Promise<void> {
+    const { error, count } = await this.client
+      .from('vault_keys')
+      .update({ wrapped_key_recovery: wrappedKeyRecovery, kdf_params_recovery: kdfParamsRecovery }, { count: 'exact' })
+      .eq('vault_id', vaultId)
+    if (error) throw toKeyStoreError(error)
+    if (!count) throw new KeyStoreError('not-found', `vault not found: ${vaultId}`)
+  }
 }
 
 function toKeyStoreError(e: { message: string; code?: string }): KeyStoreError {

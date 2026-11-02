@@ -9,6 +9,8 @@ export interface RowMenuActions {
   newNote?(): void
   newSubfolder?(): void
   exportMd?(): void
+  /** Notes, while signed in: the 同步到雲端 toggle. */
+  sync?: { on: boolean; set(on: boolean): void }
   trash(): void
 }
 
@@ -73,6 +75,11 @@ export function RowMenu({
         </>
       )}
       {actions.exportMd && <Menu.Item onSelect={pick(actions.exportMd)}>匯出為 Markdown</Menu.Item>}
+      {actions.sync && (
+        <Menu.CheckboxItem checked={actions.sync.on} onCheckedChange={(on) => actions.sync?.set(on)}>
+          同步到雲端
+        </Menu.CheckboxItem>
+      )}
       <Menu.Separator />
       <Menu.Item onSelect={pick(actions.trash)}>移到垃圾桶</Menu.Item>
     </Menu>

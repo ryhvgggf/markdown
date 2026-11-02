@@ -1,7 +1,9 @@
 import { AuthError, type AuthAdapter } from '@/adapters/auth/types'
 import type { KeyStoreAdapter, VaultSummary } from '@/adapters/key-store/types'
 import {
+  commitRecoveryCode,
   commitVault,
+  prepareRecoveryCode,
   prepareVault,
   recoverWithCode,
   registerAccount,
@@ -9,11 +11,13 @@ import {
   resolveVault,
   signInAndResolve,
   toDeviceKek,
+  type PendingRecoveryCode,
   type PendingVault,
   type ResolveResult,
 } from '@/core/account/account'
 import { AccountError } from '@/core/account/types'
 import type { Vault } from '@/core/vault/vault'
+import { createSyncStatus, type SyncReporter, type SyncStatus } from './sync-status'
 
 /**
  * The account state the UI renders (phase 3f-1). One object per tab; tabs tell each other about changes
@@ -59,7 +63,7 @@ export interface AccountServiceDeps {
   meta: MetaStore
   vault: Vault
   /** Starts cloud sync for the unlocked vault (the app runs it in one tab only). */
-  startSync?: (a: { vaultId: string; kek: CryptoKey }) => SyncHandle
+  startSync?: (a: { vaultId: string; kek: CryptoKey; report: SyncReporter }) => SyncHandle
   /** Where confirmation and reset-password links land. */
   redirectTo?: string
   channelFactory?: (name: string) => BroadcastChannel
@@ -83,6 +87,14 @@ export interface AccountService {
   setNewPassword(password: string): Promise<void>
   requestPasswordReset(email: string): Promise<void>
   signOut(): Promise<void>
+  /** `unlocked`: a new recovery code, checked against the password and shown before anything is uploaded. */
+  prepareRecoveryCode(password: string): Promise<string>
+  /** Uploads the code from `prepareRecoveryCode`; the old code stops working. */
+  confirmNewRecoveryCode(): Promise<void>
+  cancelNewRecoveryCode(): void
+  getSyncStatus(): SyncStatus
+  subscribeSync(cb: () => void): () => void
+  dismissSyncIssues(): void
   /** Back from a mid-flow screen to the sign-in form (forgets the password held for the flow). */
   cancel(): Promise<void>
   close(): void
@@ -92,6 +104,8 @@ export const ACCOUNT_KEY = 'account'
 /** The cloud vault this device's `synced` flags belong to (see `finishUnlock`). */
 export const SYNC_VAULT_KEY = 'syncVaultId'
 const CHANNEL = 'notes-v2-account'
+
+const OFF_STATUS: SyncStatus = { state: 'off', issues: [] }
 
 export function createUnavailableAccount(): AccountService {
   const state: AccountState = { status: 'unavailable' }
@@ -104,6 +118,8 @@ export function createUnavailableAccount(): AccountService {
     init: async () => {},
     signUp: fail, signIn: fail, unlock: fail, chooseVault: fail, confirmRecoveryCode: fail, recover: fail,
     abandonVault: fail, setNewPassword: fail, requestPasswordReset: fail, signOut: fail, cancel: fail,
+    prepareRecoveryCode: fail, confirmNewRecoveryCode: fail, cancelNewRecoveryCode: () => {},
+    getSyncStatus: () => OFF_STATUS, subscribeSync: () => () => {}, dismissSyncIssues: () => {},
     close: () => {},
   }
 }
@@ -115,7 +131,9 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
   let flow: { userId: string; email: string; password: string; pending?: PendingVault } | null = null
   let vaultForRecovery: string | null = null
   let sync: SyncHandle | null = null
+  let newCode: PendingRecoveryCode | null = null
   let closed = false
+  const syncStatus = createSyncStatus({ channelFactory: deps.channelFactory })
   // Serialises actions and cross-tab re-reads so two never interleave their reads and writes of the stored account.
   let chain: Promise<unknown> = Promise.resolve()
   const serial = <T>(fn: () => Promise<T>): Promise<T> => {
@@ -147,11 +165,13 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
   const stopSync = async () => {
     const s = sync
     sync = null
+    newCode = null
+    syncStatus.stop()
     await s?.stop()
   }
   const startSync = (vaultId: string, kek: CryptoKey) => {
     if (closed || sync || !deps.startSync) return
-    sync = deps.startSync({ vaultId, kek })
+    sync = deps.startSync({ vaultId, kek, report: syncStatus.start() })
   }
 
   async function readStored(): Promise<StoredAccount | null> {
@@ -311,6 +331,24 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
         set({ status: 'signed-out', email })
         announce()
       }),
+    prepareRecoveryCode: (password) =>
+      serial(async () => {
+        if (state.status !== 'unlocked') throw new AccountError('unknown', 'not unlocked')
+        newCode = await prepareRecoveryCode(deps.keyStore, state.vaultId, password)
+        return newCode.recoveryCode
+      }),
+    confirmNewRecoveryCode: () =>
+      serial(async () => {
+        if (!newCode || state.status !== 'unlocked' || newCode.vaultId !== state.vaultId) throw new AccountError('unknown', 'no new recovery code')
+        await commitRecoveryCode(deps.keyStore, newCode)
+        newCode = null
+      }),
+    cancelNewRecoveryCode() {
+      newCode = null
+    },
+    getSyncStatus: () => syncStatus.get(),
+    subscribeSync: (cb) => syncStatus.subscribe(cb),
+    dismissSyncIssues: () => syncStatus.dismiss(),
     cancel: () =>
       serial(async () => {
         const email = 'email' in state ? state.email : undefined
@@ -329,6 +367,7 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
       channel?.removeEventListener('message', onMessage)
       channel?.close()
       void stopSync()
+      syncStatus.close()
     },
   }
 }
@@ -342,12 +381,14 @@ export function createDeferredAccount(load: () => Promise<AccountService>): Acco
   let loading: Promise<AccountService> | null = null
   let closed = false
   const listeners = new Set<() => void>()
+  const syncListeners = new Set<() => void>()
   const notify = () => listeners.forEach((l) => l())
   const get = () =>
     (loading ??= load().then((s) => {
       if (closed) s.close()
       inner = s
       s.subscribe(notify)
+      s.subscribeSync(() => syncListeners.forEach((l) => l()))
       return s
     }))
   const call =
@@ -376,6 +417,15 @@ export function createDeferredAccount(load: () => Promise<AccountService>): Acco
     requestPasswordReset: call((s) => s.requestPasswordReset),
     signOut: call((s) => s.signOut),
     cancel: call((s) => s.cancel),
+    prepareRecoveryCode: async (password) => (await get()).prepareRecoveryCode(password),
+    confirmNewRecoveryCode: call((s) => s.confirmNewRecoveryCode),
+    cancelNewRecoveryCode: () => inner?.cancelNewRecoveryCode(),
+    getSyncStatus: () => inner?.getSyncStatus() ?? OFF_STATUS,
+    subscribeSync(cb) {
+      syncListeners.add(cb)
+      return () => void syncListeners.delete(cb)
+    },
+    dismissSyncIssues: () => inner?.dismissSyncIssues(),
     close() {
       closed = true
       inner?.close()

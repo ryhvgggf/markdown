@@ -3,7 +3,7 @@ import { useDraggable } from '@dnd-kit/core'
 import type { TreeNode } from '@/core/vault/tree'
 import { displayTitle } from '@/core/vault/titles'
 import { isComposingEvent } from '@/features/editor/ime'
-import { ChevronRight } from '@/ui/icons'
+import { ChevronRight, Cloud } from '@/ui/icons'
 import { nodeRef, type Zone } from './dnd'
 import { RowMenu, type RowMenuActions } from './RowMenu'
 import type { RenameResult } from './use-actions'
@@ -17,6 +17,8 @@ export interface RowApi {
   expand(id: string, open: boolean): void
   rename(id: string, value: string): RenameResult
   renameDone(): void
+  /** 同步到雲端 on/off (off asks first). */
+  setSynced(id: string, on: boolean): void
 }
 
 export interface TreeItemProps {
@@ -27,6 +29,8 @@ export interface TreeItemProps {
   tabbable: boolean
   drop: Zone | null
   renaming: boolean
+  /** Signed in, so notes can be synced (shows the toggle and the cloud mark). */
+  syncable: boolean
   api: RowApi
 }
 
@@ -34,6 +38,8 @@ export interface TreeItemProps {
 export const rowRenders = { count: 0 }
 
 const label = (n: TreeNode) => (n.kind === 'folder' ? n.folder.name || '未命名資料夾' : displayTitle(n.note.title))
+
+const synced = (n: TreeNode) => n.kind === 'note' && n.note.synced
 
 // A row shows only its own name; a new tree snapshot (e.g. one note's updatedAt) must not re-render every row.
 const same = (a: TreeItemProps, b: TreeItemProps) =>
@@ -43,6 +49,8 @@ const same = (a: TreeItemProps, b: TreeItemProps) =>
   a.tabbable === b.tabbable &&
   a.drop === b.drop &&
   a.renaming === b.renaming &&
+  a.syncable === b.syncable &&
+  synced(a.node) === synced(b.node) &&
   a.api === b.api &&
   a.node.kind === b.node.kind &&
   nodeRef(a.node).id === nodeRef(b.node).id &&
@@ -56,9 +64,11 @@ function TreeItemRow(props: TreeItemProps) {
   })
   const { api } = props
   const ref = nodeRef(props.node)
+  const cloud = props.syncable && props.node.kind === 'note'
+  const isSynced = synced(props.node)
   const p = {
     ...props,
-    menu: api.menu(ref.id),
+    menu: cloud ? { ...api.menu(ref.id), sync: { on: isSynced, set: (on: boolean) => api.setSynced(ref.id, on) } } : api.menu(ref.id),
     onActivate: () => api.activate(ref.id),
     onExpand: (open: boolean) => api.expand(ref.id, open),
     onRename: (v: string) => api.rename(ref.id, v),
@@ -128,6 +138,7 @@ function TreeItemRow(props: TreeItemProps) {
       ) : (
         <span className="min-w-0 flex-1 truncate">{name}</span>
       )}
+      {cloud && isSynced && !p.renaming && <Cloud size={13} aria-hidden={false} role="img" aria-label="已同步到雲端" className="shrink-0 text-fg-tertiary" />}
       {!p.renaming && <RowMenu kind={ref.kind} open={menuOpen} onOpenChange={setMenuOpen} actions={p.menu} />}
     </div>
   )

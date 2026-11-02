@@ -1,6 +1,9 @@
-import { useId, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
+import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { useServices } from '@/app/services-context'
 import type { AccountService, AccountState } from '@/app/account-service'
+import { useAccount, useSyncStatus } from '@/app/use-account'
+import type { SyncIssueKind } from '@/app/sync-status'
+import { displayTitle } from '@/core/vault/titles'
 import { Button } from '@/ui/components/Button'
 import { SectionLabel } from './controls'
 
@@ -19,9 +22,6 @@ const ERRORS: Record<string, string> = {
 }
 const errorText = (e: unknown) => ERRORS[(e as { kind?: string }).kind ?? ''] ?? '發生錯誤，請再試一次'
 
-export function useAccount(account: AccountService): AccountState {
-  return useSyncExternalStore(account.subscribe, account.getState)
-}
 
 const inputCls =
   'h-9 w-full rounded-control border border-black/10 bg-white/70 px-3 text-base text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent'
@@ -241,6 +241,10 @@ function SetPassword({ account }: { account: AccountService }) {
 }
 
 function RecoveryCode({ account, code }: { account: AccountService; code: string }) {
+  return <RecoveryCodeView code={code} onConfirm={() => account.confirmRecoveryCode()} onCancel={() => account.cancel()} />
+}
+
+function RecoveryCodeView({ code, onConfirm, onCancel }: { code: string; onConfirm: () => Promise<void>; onCancel: () => Promise<void> | void }) {
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
   const { busy, error, run } = useAction()
@@ -272,10 +276,10 @@ function RecoveryCode({ account, code }: { account: AccountService; code: string
       </label>
       <ErrorLine text={error} />
       <div className="flex gap-2">
-        <Button variant="primary" disabled={!saved || busy} onClick={() => void run(() => account.confirmRecoveryCode())}>
+        <Button variant="primary" disabled={!saved || busy} onClick={() => void run(onConfirm)}>
           完成
         </Button>
-        <Button variant="ghost" onClick={() => void run(() => account.cancel())}>
+        <Button variant="ghost" onClick={() => void run(async () => onCancel())}>
           取消
         </Button>
       </div>
@@ -345,13 +349,89 @@ function NeedsRecovery({ account }: { account: AccountService }) {
 
 function Unlocked({ account, email }: { account: AccountService; email: string }) {
   const { busy, error, run } = useAction()
+  const [regen, setRegen] = useState(false)
+  if (regen) return <RegenerateRecoveryCode account={account} onDone={() => setRegen(false)} />
   return (
-    <div className="flex flex-col gap-2 py-2">
+    <div className="flex flex-col gap-3 py-2">
       <p className="text-base text-fg">已登入 {email}</p>
+      <SyncProblems account={account} />
       <ErrorLine text={error} />
-      <div>
+      <div className="flex flex-wrap gap-2">
         <Button disabled={busy} onClick={() => void run(() => account.signOut())}>
           登出
+        </Button>
+        <Button variant="ghost" onClick={() => setRegen(true)}>
+          重新產生復原碼
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function RegenerateRecoveryCode({ account, onDone }: { account: AccountService; onDone: () => void }) {
+  const [password, setPassword] = useState('')
+  const [code, setCode] = useState<string | null>(null)
+  const { busy, error, run } = useAction()
+  if (code) {
+    return (
+      <RecoveryCodeView
+        code={code}
+        onConfirm={async () => {
+          await account.confirmNewRecoveryCode()
+          onDone()
+        }}
+        onCancel={() => {
+          account.cancelNewRecoveryCode()
+          onDone()
+        }}
+      />
+    )
+  }
+  return (
+    <Form onSubmit={() => void run(async () => setCode(await account.prepareRecoveryCode(password)))}>
+      <Note>輸入密碼產生新的復原碼。按下完成後，舊的復原碼就會失效。</Note>
+      <Field label="密碼" type="password" value={password} onChange={setPassword} autoComplete="current-password" />
+      <ErrorLine text={error} />
+      <div className="flex gap-2">
+        <Button type="submit" variant="primary" disabled={busy || !password}>
+          產生
+        </Button>
+        <Button variant="ghost" onClick={onDone}>
+          取消
+        </Button>
+      </div>
+    </Form>
+  )
+}
+
+const ISSUE_TEXT: Record<Exclude<SyncIssueKind, 'offline'>, string> = {
+  conflict: '和雲端另一篇筆記衝突，未合併',
+  failed: '同步失敗',
+}
+
+/** Sync problems reported by the syncing tab (3f-2); offline is one line however many notes it hit. */
+function SyncProblems({ account }: { account: AccountService }) {
+  const { vault } = useServices()
+  const { issues } = useSyncStatus(account)
+  if (issues.length === 0) return null
+  const name = (docId: string) => {
+    const note = vault.getNote(docId)
+    return note ? `「${displayTitle(note.title)}」` : '筆記清單'
+  }
+  const lines = [
+    ...(issues.some((i) => i.kind === 'offline') ? ['無法連線，恢復後自動補傳'] : []),
+    ...issues.flatMap((i) => (i.kind === 'offline' ? [] : [`${name(i.docId)}${ISSUE_TEXT[i.kind]}`])),
+  ]
+  return (
+    <div className="flex max-w-md flex-col gap-2 rounded-control bg-amber-50 px-3 py-2">
+      <ul aria-label="同步問題" className="flex flex-col gap-1 text-sm text-fg">
+        {lines.map((l) => (
+          <li key={l}>{l}</li>
+        ))}
+      </ul>
+      <div>
+        <Button variant="ghost" onClick={() => account.dismissSyncIssues()}>
+          知道了
         </Button>
       </div>
     </div>

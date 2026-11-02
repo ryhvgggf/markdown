@@ -5,8 +5,10 @@ import { decrypt, encrypt } from '@/adapters/crypto/webcrypto-crypto'
 import { MemoryKeyStore } from '@/adapters/key-store/memory-key-store'
 import { KeyStoreError } from '@/adapters/key-store/types'
 import {
+  commitRecoveryCode,
   commitVault,
   createNewVault,
+  prepareRecoveryCode,
   recoverWithCode,
   registerAccount,
   requestPasswordReset,
@@ -213,5 +215,23 @@ describe('3f: email confirmation, first sign-in prepares the vault (design doc Â
     const plaintext = new TextEncoder().encode('x')
     bytesEqual(await decrypt(device, await encrypt(su.kek, plaintext)), plaintext)
     await expect(crypto.subtle.exportKey('raw', device)).rejects.toBeDefined()
+  })
+})
+
+describe('regenerate recovery code (3f-2)', () => {
+  it('prepare checks the password and changes nothing; commit makes the new code work and the old one fail', async () => {
+    const su = await signUp({ auth, keyStore }, 'a@example.com', 'hunter2')
+    await expect(prepareRecoveryCode(keyStore, su.vaultId, 'wrong')).rejects.toMatchObject({ kind: 'wrong-password' })
+    const pending = await prepareRecoveryCode(keyStore, su.vaultId, 'hunter2')
+    expect(pending.recoveryCode).not.toBe(su.recoveryCode)
+    // nothing uploaded yet: the old code still works
+    await expect(recoverWithCode(keyStore, su.vaultId, su.recoveryCode, 'hunter2')).resolves.toBeDefined()
+
+    await commitRecoveryCode(keyStore, pending)
+    await expect(recoverWithCode(keyStore, su.vaultId, su.recoveryCode, 'hunter2')).rejects.toMatchObject({ kind: 'wrong-recovery-code' })
+    const kek = await recoverWithCode(keyStore, su.vaultId, pending.recoveryCode, 'hunter2')
+    bytesEqual(await decrypt(kek, await encrypt(su.kek, new Uint8Array([1, 2, 3]))), new Uint8Array([1, 2, 3]))
+    // the password still opens the vault
+    await expect(unlockVaultWithPassword(keyStore, su.vaultId, 'hunter2')).resolves.toBeDefined()
   })
 })

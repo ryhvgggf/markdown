@@ -1,4 +1,5 @@
 import type { AuthAdapter } from '@/adapters/auth/types'
+import type { KdfParams } from '@/adapters/crypto/types'
 import { deriveKeyFromSecret, fromB64, generateKek, toB64, unwrapKey, wrapKey } from '@/adapters/crypto/webcrypto-crypto'
 import type { KeyStoreAdapter, VaultKeyRecord, VaultSummary } from '@/adapters/key-store/types'
 import { generateRecoveryCode, normalizeRecoveryCode } from '@/adapters/crypto/recovery-code'
@@ -187,4 +188,27 @@ export async function recoverWithCode(
 /** 設計文件 §9「復原碼遺失且忘記密碼」：放棄舊知識庫，同一帳號下開一把新 KEK 的新知識庫。 */
 export async function createNewVault(keyStore: KeyStoreAdapter, userId: string, password: string): Promise<NewVaultResult> {
   return provisionVault(keyStore, userId, password)
+}
+
+/** A new recovery code, wrapped but not uploaded yet (same show-then-commit pattern as `PendingVault`). */
+export interface PendingRecoveryCode {
+  vaultId: string
+  recoveryCode: string
+  wrappedKeyRecovery: string
+  kdfParamsRecovery: KdfParams
+}
+
+/**
+ * 3f-2「重新產生復原碼」：用密碼解開 KEK，產生新復原碼並包裹。只在本機；`commitRecoveryCode` 才覆蓋雲端，
+ * 舊碼從那一刻起失效。
+ */
+export async function prepareRecoveryCode(keyStore: KeyStoreAdapter, vaultId: string, password: string): Promise<PendingRecoveryCode> {
+  const kek = await unlockVaultWithPassword(keyStore, vaultId, password)
+  const recoveryCode = generateRecoveryCode()
+  const { key, params: kdfParamsRecovery } = await deriveKeyFromSecret(normalizeRecoveryCode(recoveryCode))
+  return { vaultId, recoveryCode, wrappedKeyRecovery: toB64(await wrapKey(kek, key)), kdfParamsRecovery }
+}
+
+export async function commitRecoveryCode(keyStore: KeyStoreAdapter, pending: PendingRecoveryCode): Promise<void> {
+  await keyStore.updateWrappedKeyRecovery(pending.vaultId, pending.wrappedKeyRecovery, pending.kdfParamsRecovery)
 }

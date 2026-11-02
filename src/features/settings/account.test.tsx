@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryAuth } from '@/adapters/auth/memory-auth'
 import { MemoryKeyStore } from '@/adapters/key-store/memory-key-store'
-import { createAccountService, type AccountService } from '@/app/account-service'
+import { createAccountService, type AccountService, type SyncHandle } from '@/app/account-service'
+import type { SyncReporter } from '@/app/sync-status'
+import { recoverWithCode } from '@/core/account/account'
 import { bootstrap } from '@/app/bootstrap'
 import { ServicesProvider } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
@@ -16,7 +18,10 @@ afterEach(() => {
   act(() => useUi.setState({ settingsOpen: false }))
 })
 
+let startSync: ReturnType<typeof vi.fn<(a: { vaultId: string; kek: CryptoKey; report: SyncReporter }) => SyncHandle>> | null = null
+
 async function setup() {
+  startSync = vi.fn(() => ({ stop: async () => {} }))
   const auth = new MemoryAuth({ requireConfirmation: true })
   const keyStore = new MemoryKeyStore()
   const services = await bootstrap({
@@ -28,6 +33,7 @@ async function setup() {
         auth,
         keyStore,
         vault,
+        startSync: startSync!,
         meta: {
           get: async (k) => (await db.meta.get(k))?.value,
           put: async (k, v) => void (await db.meta.put({ key: k, value: v })),
@@ -128,5 +134,54 @@ describe('設定 · 帳號', () => {
     await user.click(d.getByRole('button', { name: '復原碼遺失' }))
     await user.click(d.getByRole('button', { name: '建立新知識庫' }))
     await waitFor(() => expect(d.getByRole('status', { name: '復原碼' })).toBeInTheDocument())
+  })
+
+  it('重新產生復原碼: asks for the password, shows the new code, and replaces the old one on 完成', async () => {
+    const { auth, keyStore, services, user, dialog } = await setup()
+    const d = within(dialog)
+    await services.account.signUp('a@example.com', 'hunter2hunter2')
+    auth.confirmEmail('a@example.com')
+    await auth.signOut()
+    await services.account.signIn('a@example.com', 'hunter2hunter2')
+    const first = services.account.getState()
+    if (first.status !== 'recovery-code') throw new Error(first.status)
+    await services.account.confirmRecoveryCode()
+    const vaultId = (services.account.getState() as { vaultId: string }).vaultId
+
+    await user.click(await d.findByRole('button', { name: '重新產生復原碼' }))
+    await user.type(d.getByLabelText('密碼'), 'wrong-pass')
+    await user.click(d.getByRole('button', { name: '產生' }))
+    expect(await d.findByRole('alert')).toHaveTextContent('密碼不正確')
+    await user.clear(d.getByLabelText('密碼'))
+    await user.type(d.getByLabelText('密碼'), 'hunter2hunter2')
+    await user.click(d.getByRole('button', { name: '產生' }))
+    const code = (await d.findByRole('status', { name: '復原碼' })).textContent!
+    expect(code).not.toBe(first.recoveryCode)
+    await user.click(d.getByLabelText('我已妥善保存復原碼'))
+    await user.click(d.getByRole('button', { name: '完成' }))
+    expect(await d.findByRole('button', { name: '重新產生復原碼' })).toBeInTheDocument()
+    await expect(recoverWithCode(keyStore, vaultId, first.recoveryCode, 'hunter2hunter2')).rejects.toBeDefined()
+    await expect(recoverWithCode(keyStore, vaultId, code, 'hunter2hunter2')).resolves.toBeDefined()
+  })
+
+  it('lists sync problems by note title and clears them with 知道了', async () => {
+    const { auth, services, user, dialog } = await setup()
+    const d = within(dialog)
+    await services.account.signUp('a@example.com', 'hunter2hunter2')
+    auth.confirmEmail('a@example.com')
+    await auth.signOut()
+    await services.account.signIn('a@example.com', 'hunter2hunter2')
+    await services.account.confirmRecoveryCode()
+    const n = services.vault.createNote({ title: 'Alpha' })
+    act(() => {
+      const report = startSync!.mock.calls[0]![0].report
+      report.error(Object.assign(new Error('x'), { kind: 'conflict' }), n.id)
+      report.error(Object.assign(new Error('x'), { kind: 'offline' }), 'gone')
+    })
+    const list = await d.findByRole('list', { name: '同步問題' })
+    expect(list).toHaveTextContent('「Alpha」和雲端另一篇筆記衝突，未合併')
+    expect(list).toHaveTextContent('無法連線，恢復後自動補傳')
+    await user.click(d.getByRole('button', { name: '知道了' }))
+    expect(d.queryByRole('list', { name: '同步問題' })).toBeNull()
   })
 })

@@ -281,8 +281,8 @@ describe('createSyncManager', () => {
 
   it('reports a manifest-merge id collision via onError without touching the local note', async () => {
     const local = vault.createNote({ title: 'Mine', createdAt: 100, updatedAt: 100 })
-    const errors: Array<{ docId: string }> = []
-    await mkManager((_e, info) => errors.push(info)).start()
+    const errors: Array<{ docId: string; kind?: string }> = []
+    await mkManager((e, info) => errors.push({ ...info, kind: (e as { kind?: string }).kind })).start()
     await wait()
 
     // Someone else's manifest claims the same id with a different createdAt — a genuine collision.
@@ -297,7 +297,7 @@ describe('createSyncManager', () => {
     await wait(100)
 
     expect(vault.getNote(local.id)?.title).toBe('Mine')
-    expect(errors.some((e) => e.docId === local.id)).toBe(true)
+    expect(errors.some((e) => e.docId === local.id && e.kind === 'conflict')).toBe(true)
     await manager!.close()
   })
 

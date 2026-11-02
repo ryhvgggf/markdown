@@ -4,6 +4,8 @@ import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { ServicesProvider } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
 import type { AppServices } from '@/app/bootstrap'
+import { createUnavailableAccount, type AccountService, type AccountState } from '@/app/account-service'
+import type { SyncStatus } from '@/app/sync-status'
 import { Vault } from '@/core/vault/vault'
 import { DEFAULT_PREFS } from '@/core/preferences/preferences'
 import { Sidebar } from './Sidebar'
@@ -22,6 +24,27 @@ let vault: Vault
 let metaRows: Map<string, unknown>
 let maintenance: { purge: ReturnType<typeof vi.fn> }
 let mode: 'persistent' | 'memory'
+let account: AccountService
+
+/** An account stub in a fixed state, with a settable sync status. */
+function fakeAccount(state: AccountState, status: SyncStatus = { state: 'synced', issues: [] }) {
+  const listeners = new Set<() => void>()
+  let st = status
+  const a: AccountService & { setSync(s: SyncStatus): void } = {
+    ...createUnavailableAccount(),
+    getState: () => state,
+    getSyncStatus: () => st,
+    subscribeSync: (cb) => {
+      listeners.add(cb)
+      return () => void listeners.delete(cb)
+    },
+    setSync(s) {
+      st = s
+      listeners.forEach((l) => l())
+    },
+  }
+  return a
+}
 
 function fakeDb() {
   return {
@@ -32,7 +55,7 @@ function fakeDb() {
   }
 }
 const mount = () => {
-  const services = { vault, maintenance, db: fakeDb(), storageMode: mode, prefs: fakePrefs } as unknown as AppServices
+  const services = { vault, maintenance, account, db: fakeDb(), storageMode: mode, prefs: fakePrefs } as unknown as AppServices
   return render(
     <ServicesProvider services={services}>
       <Sidebar />
@@ -51,6 +74,7 @@ beforeEach(async () => {
     }),
   }
   mode = 'persistent'
+  account = createUnavailableAccount()
   prefsNow = DEFAULT_PREFS
   focusTitleEnd.mockClear()
   useUi.setState({ openNoteId: null, sidebarView: 'tree' })
@@ -324,5 +348,66 @@ describe('Sidebar sorting', () => {
     prefsNow = { ...DEFAULT_PREFS, sidebarSort: 'name', sidebarSortDir: 'desc' }
     mount()
     expect(await titles()).toEqual(['Beta', 'Alpha'])
+  })
+})
+
+describe('同步到雲端 (3f-2)', () => {
+  const unlocked: AccountState = { status: 'unlocked', email: 'a@example.com', vaultId: 'v1' }
+
+  it('is offered only when signed in', async () => {
+    vault.createNote({ title: 'Alpha' })
+    mount()
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Alpha/ }))
+    await screen.findByRole('menuitem', { name: '重新命名' })
+    expect(screen.queryByRole('menuitemcheckbox', { name: '同步到雲端' })).toBeNull()
+  })
+
+  it('turns sync on at once; turning it off asks first and keeps the note', async () => {
+    account = fakeAccount(unlocked)
+    const n = vault.createNote({ title: 'Alpha' })
+    mount()
+    const row = await screen.findByRole('treeitem', { name: /Alpha/ })
+    expect(within(row).queryByLabelText('已同步到雲端')).toBeNull()
+    fireEvent.contextMenu(row)
+    const item = await screen.findByRole('menuitemcheckbox', { name: '同步到雲端' })
+    expect(item).toHaveAttribute('aria-checked', 'false')
+    fireEvent.click(item)
+    expect(vault.getNote(n.id)!.synced).toBe(true)
+    await waitFor(() => expect(within(screen.getByRole('treeitem', { name: /Alpha/ })).getByLabelText('已同步到雲端')).toBeInTheDocument())
+
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: /Alpha/ }))
+    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: '同步到雲端', checked: true }))
+    const dialog = await screen.findByRole('dialog', { name: '停止同步這篇筆記？' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
+    expect(vault.getNote(n.id)!.synced).toBe(true)
+
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: /Alpha/ }))
+    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: '同步到雲端' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '停止同步' }))
+    expect(vault.getNote(n.id)!.synced).toBe(false)
+    expect(vault.getNote(n.id)).toBeDefined()
+  })
+
+  it('the status line shows sync progress and problems, and opens the account settings', async () => {
+    const a = fakeAccount(unlocked, { state: 'syncing', issues: [] })
+    account = a
+    const n = vault.createNote({ title: 'Alpha' })
+    vault.setNoteSynced(n.id, true)
+    mount()
+    expect(await screen.findByRole('button', { name: '同步中…' })).toBeInTheDocument()
+    act(() => a.setSync({ state: 'synced', issues: [] }))
+    expect(screen.getByRole('button', { name: '已同步' })).toBeInTheDocument()
+    act(() => a.setSync({ state: 'error', issues: [{ docId: n.id, kind: 'conflict' }] }))
+    fireEvent.click(screen.getByRole('button', { name: '同步有問題' }))
+    expect(useUi.getState().settingsOpen).toBe(true)
+    expect(useUi.getState().settingsSection).toBe('account')
+  })
+
+  it('no status when nothing is synced', async () => {
+    account = fakeAccount(unlocked)
+    vault.createNote({ title: 'Alpha' })
+    mount()
+    await screen.findByRole('treeitem', { name: /Alpha/ })
+    expect(screen.queryByRole('button', { name: '已同步' })).toBeNull()
   })
 })
