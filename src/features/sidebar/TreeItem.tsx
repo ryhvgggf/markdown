@@ -41,7 +41,7 @@ export const rowRenders = { count: 0 }
 
 const label = (n: TreeNode) => (n.kind === 'folder' ? n.folder.name || '未命名資料夾' : displayTitle(n.note.title))
 
-const synced = (n: TreeNode) => n.kind === 'note' && n.note.synced
+const synced = (n: TreeNode) => (n.kind === 'note' && n.note.synced) || (n.kind === 'folder' && n.folder.synced === true)
 
 // A row shows only its own name; a new tree snapshot (e.g. one note's updatedAt) must not re-render every row.
 const same = (a: TreeItemProps, b: TreeItemProps) =>
@@ -63,8 +63,14 @@ const same = (a: TreeItemProps, b: TreeItemProps) =>
 export const TreeItem = memo(TreeItemRow, same)
 
 /** Which menu items a row shows: notes have no 重新命名 (the title is the name); 同步到雲端 needs sign-in. */
-function rowMenu(m: RowMenuActions, isNote: boolean, syncable: boolean): RowMenuActions {
-  return { ...m, rename: isNote ? undefined : m.rename, syncSelect: isNote && syncable ? m.syncSelect : undefined }
+function rowMenu(m: RowMenuActions, isNote: boolean, syncable: boolean, folderSynced: boolean): RowMenuActions {
+  return {
+    ...m,
+    rename: isNote ? undefined : m.rename,
+    syncSelect: isNote && syncable ? m.syncSelect : undefined,
+    syncFolder: !isNote && syncable ? m.syncFolder : undefined,
+    folderSynced,
+  }
 }
 
 function TreeItemRow(props: TreeItemProps) {
@@ -74,10 +80,10 @@ function TreeItemRow(props: TreeItemProps) {
   const { api } = props
   const ref = nodeRef(props.node)
   const isNote = props.node.kind === 'note'
-  const cloudMark = props.syncable && isNote && synced(props.node) && !props.selecting
+  const cloudMark = props.syncable && synced(props.node) && !props.selecting
   const p = {
     ...props,
-    menu: rowMenu(api.menu(ref.id), isNote, props.syncable),
+    menu: rowMenu(api.menu(ref.id), isNote, props.syncable, props.node.kind === 'folder' && props.node.folder.synced === true),
     onActivate: () => api.activate(ref.id),
     onExpand: (open: boolean) => api.expand(ref.id, open),
     onRename: (v: string) => api.rename(ref.id, v),
@@ -159,7 +165,9 @@ function TreeItemRow(props: TreeItemProps) {
       ) : (
         <span className="min-w-0 flex-1 truncate">{name}</span>
       )}
-      {cloudMark && !p.renaming && <Cloud size={13} aria-hidden={false} role="img" aria-label="已同步到雲端" className="shrink-0 text-fg-tertiary" />}
+      {cloudMark && !p.renaming && (
+        <Cloud size={13} aria-hidden={false} role="img" aria-label={isNote ? '已同步到雲端' : '資料夾已同步到雲端'} className="shrink-0 text-fg-tertiary" />
+      )}
       {!p.renaming && !p.selecting && <RowMenu kind={ref.kind} open={menuOpen} onOpenChange={setMenuOpen} actions={p.menu} />}
     </div>
   )

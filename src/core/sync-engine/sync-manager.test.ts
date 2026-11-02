@@ -6,6 +6,7 @@ import { MemorySync } from '@/adapters/sync/memory-sync'
 import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { NoteDocCache } from '@/core/note-doc/cache'
 import { Vault } from '@/core/vault/vault'
+import { Preferences } from '@/core/preferences/preferences'
 import { manifestDocId, pullManifest } from './manifest-sync'
 import { createSyncManager, type SyncManager } from './sync-manager'
 
@@ -381,5 +382,27 @@ describe('createSyncManager', () => {
     expect(await sync.listDocs('v1')).toContain(good.id)
     expect(errors.some((e) => e.docId === bad.id)).toBe(true)
     await manager!.close()
+  })
+
+  it('keeps appearance settings in step with the account when given prefs', async () => {
+    const quiet = () => ({ postMessage() {}, addEventListener() {}, removeEventListener() {}, close() {} }) as unknown as BroadcastChannel
+    const prefsA = await Preferences.open(new MemoryStorage(), 'local', { channelFactory: quiet })
+    const prefsB = await Preferences.open(new MemoryStorage(), 'local', { channelFactory: quiet })
+    prefsA.set({ fontSize: 'large' })
+    manager = createSyncManager({ sync, attachmentSync, storage, noteDocs, vault, prefs: prefsA, vaultId: 'v1', kek, deviceId: 'dev1' })
+    await manager.start()
+    for (let i = 0; i < 100 && manager.hasPending(); i++) await wait(10) // A's settings are in the account before B connects
+    const storageB = new MemoryStorage()
+    const vaultB = await Vault.open(storageB, 'v1')
+    const managerB = createSyncManager({ sync, attachmentSync, storage: storageB, noteDocs: new NoteDocCache(storageB), vault: vaultB, prefs: prefsB, vaultId: 'v1', kek, deviceId: 'devB' })
+    await managerB.start()
+    expect(prefsB.get().fontSize).toBe('large')
+    prefsB.set({ lineHeight: 'relaxed' })
+    await wait(100)
+    expect(prefsA.get().lineHeight).toBe('relaxed')
+    await manager.close()
+    await managerB.close()
+    prefsA.close()
+    prefsB.close()
   })
 })

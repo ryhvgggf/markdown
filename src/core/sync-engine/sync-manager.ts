@@ -4,6 +4,8 @@ import type { StorageAdapter } from '@/adapters/storage/types'
 import { extractNote } from '@/core/extract/extract'
 import type { NoteDocCache } from '@/core/note-doc/cache'
 import type { Vault } from '@/core/vault/vault'
+import type { Preferences } from '@/core/preferences/preferences'
+import { bindPrefsSync, type PrefsSyncBinding } from './prefs-sync'
 import { onIdle } from '../idle'
 import { pullAttachment, pushAttachment } from './attachment-sync'
 import { bindCloudDoc, pushInitialSnapshot, type CloudDocBinding } from './cloud-doc'
@@ -19,6 +21,8 @@ export interface SyncManagerDeps {
   storage: StorageAdapter
   noteDocs: NoteDocCache
   vault: Vault
+  /** Appearance settings to keep in step with the account (3f-4); left out → not synced. */
+  prefs?: Preferences
   vaultId: string
   kek: CryptoKey
   deviceId?: string
@@ -69,13 +73,22 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let manifestMergeIdle: (() => void) | null = null
   let manifestMergeChain: Promise<void> = Promise.resolve()
   let closed = false
+  let prefsBinding: PrefsSyncBinding | null = null
 
   // Ids this device has deliberately told the cloud to delete this session (an explicit `setNoteSynced`
   // toggle-off, or a `Vault.onNotePurged` permanent delete — see `turnOff`). The ONLY ids a manifest push
   // is allowed to drop relative to what the cloud already has: a note missing from the local vault for any
   // other reason (a bug, corrupted storage, a bad undo — exactly today's incident) must not look like a
   // delete just because a live scan of the local vault no longer finds it.
-  const deliberatelyRemoved = new Set<string>()
+  const deliberatelyRemoved = new Map<string, number>() // id → when; also becomes the manifest's removal mark
+  // Notes the user turned sync back on this session: a removal mark another device left for them is stale.
+  const resynced = new Set<string>()
+  // Notes another device removed from the cloud and the merge just unsynced here: closed without touching the cloud.
+  const remotelyRemoved = new Set<string>()
+  // Removal marks this device saw reach the cloud. Once the cloud manifest loses one of them, someone synced
+  // that note again, so this device's own removal is over and must not be re-marked.
+  const confirmedMarks = new Set<string>()
+  let merging = false // true while a pulled manifest is being applied: vault changes then are not the user's
 
   const reportError = (e: unknown, docId: string) => {
     deps.onError?.(e instanceof SyncError ? e : new SyncError('unknown', String(e), { cause: e }), { docId })
@@ -92,8 +105,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // overwritten with this device's older title.
   async function pushMergedManifest(): Promise<void> {
     const cloud = await pullManifest(deps.sync, deps.kek, deps.vaultId).catch(() => null)
-    const c = combineManifests(localView(), cloud, deliberatelyRemoved)
-    await pushManifest(deps.sync, deps.kek, deps.vaultId, c.notes, c.folders, c.attachments)
+    const c = combineManifests(localView(), cloud, { removed: deliberatelyRemoved, resynced, now: Date.now() })
+    await pushManifest(deps.sync, deps.kek, deps.vaultId, c.notes, c.folders, c.attachments, c.removed)
+    for (const r of c.removed) if (deliberatelyRemoved.has(r.id)) confirmedMarks.add(r.id)
   }
 
   /** This device's contribution to the manifest: its notes and folders, and the metadata of attachments its synced notes use in the cloud. */
@@ -122,9 +136,23 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // doc comment above and `manifest-merge.ts`'s own). A collision (same id, unrelated note) is reported
   // through the same `onError` channel as any other per-doc sync problem, keyed by the note's own id.
   async function pullAndMergeManifest(): Promise<void> {
+    const confirmedBefore = [...confirmedMarks] // a mark confirmed while this pull was in flight can't be judged by it
     const manifest = await pullManifest(deps.sync, deps.kek, deps.vaultId)
     if (!manifest) return
-    const { conflicts } = mergeManifestIntoVault(deps.vault, manifest)
+    merging = true
+    let conflicts
+    try {
+      ;({ conflicts } = mergeManifestIntoVault(deps.vault, manifest, { resynced, onRemotelyRemoved: (id) => remotelyRemoved.add(id) }))
+    } finally {
+      merging = false
+    }
+    const marked = new Set((manifest.removed ?? []).map((r) => r.id))
+    for (const id of [...resynced]) if (!marked.has(id)) resynced.delete(id) // the mark is gone: no longer needs overriding
+    for (const id of confirmedBefore) {
+      if (marked.has(id)) continue
+      confirmedMarks.delete(id) // the note was synced again elsewhere: our removal is over
+      deliberatelyRemoved.delete(id)
+    }
     for (const conflict of conflicts) {
       const message =
         conflict.reason === 'id-collision'
@@ -136,7 +164,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // Another device's push may have raced ours and dropped something this device contributed: push again.
     const view = localView()
     const derived = { ...deriveManifest(view.notes, view.folders), attachments: view.attachments }
-    if (!closed && cloudIsBehind(derived, manifest)) scheduleManifestPush()
+    if (!closed && cloudIsBehind(derived, manifest, deliberatelyRemoved.keys())) scheduleManifestPush()
   }
 
   // Attachments other devices synced (3f-3): the bytes are downloaded and stored before the metadata is
@@ -219,7 +247,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   /** A deliberate stop: closes the binding (if any) and tells the cloud to delete this note's content —
    * for an explicit `setNoteSynced(false)` toggle or a `Vault.onNotePurged` permanent delete only. */
   async function turnOff(noteId: string): Promise<void> {
-    deliberatelyRemoved.add(noteId)
+    deliberatelyRemoved.set(noteId, Date.now())
+    resynced.delete(noteId)
+    scheduleManifestPush() // the removal mark goes up with the next manifest
     const nb = noteBindings.get(noteId)
     noteBindings.delete(noteId)
     try {
@@ -286,13 +316,27 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     }
     const shouldSync = note.synced === true
     if (shouldSync && !isBound) await turnOn(noteId)
-    else if (!shouldSync && isBound) await turnOff(noteId) // explicit setNoteSynced(false)
+    else if (!shouldSync && isBound) {
+      // Another device removed it: stop here too, but never touch the cloud (it is already gone, or re-synced since).
+      if (remotelyRemoved.delete(noteId)) await detachOnly(noteId)
+      else await turnOff(noteId) // explicit setNoteSynced(false)
+    } else remotelyRemoved.delete(noteId)
   }
 
   function onVaultChange(): void {
     const syncedIds = new Set(deps.vault.listNotes().filter((n) => n.synced).map((n) => n.id))
     const changed = new Set<string>()
-    for (const id of syncedIds) if (!prevSyncedIds.has(id)) changed.add(id)
+    for (const id of syncedIds) {
+      if (prevSyncedIds.has(id)) continue
+      changed.add(id)
+      remotelyRemoved.delete(id)
+      if (!merging) {
+        // The user synced this note (again) on this device: any removal mark, ours or another device's, is stale.
+        deliberatelyRemoved.delete(id)
+        confirmedMarks.delete(id)
+        resynced.add(id)
+      }
+    }
     for (const id of prevSyncedIds) if (!syncedIds.has(id)) changed.add(id)
     for (const id of changed) enqueue(id, () => reconcile(id))
     prevSyncedIds = syncedIds
@@ -311,15 +355,19 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       // don't race `onVaultChange` — `prevSyncedIds` is computed fresh right after and already covers
       // whatever this pass just merged in, same as it covers notes synced on this device in a past session.
       await pullAndMergeManifest()
+      remotelyRemoved.clear() // nothing is bound yet, so nothing needs the detach-only treatment
 
       prevSyncedIds = new Set(deps.vault.listNotes().filter((n) => n.synced).map((n) => n.id))
       for (const id of prevSyncedIds) await turnOn(id)
 
-      // Preferences (design doc §5 open decision 5: always synced once enabled, no per-note on/off) isn't
-      // wired in here — this manager takes a `Vault`, not a `Preferences` instance. A caller that has both
-      // can bind the preferences doc itself with `bindCloudDoc(prefsDoc, { ...cloudDeps, docId:
-      // \`${vaultId}-prefs\` })` directly; no initial-snapshot gate needed since there's no user toggle to
-      // wait for, it can just start accumulating updates like any other live binding.
+      // Appearance settings (design doc §5 open decision 5: always synced once signed in, no per-note on/off).
+      if (deps.prefs) {
+        try {
+          prefsBinding = await bindPrefsSync(deps.prefs, { sync: deps.sync, vaultId: deps.vaultId, kek: deps.kek, deviceId, onError: (e) => reportError(e, `${deps.vaultId}-prefs`) })
+        } catch (e) {
+          reportError(e, `${deps.vaultId}-prefs`) // never blocks the notes from syncing
+        }
+      }
 
       unobserve = deps.vault.observe(onVaultChange)
       unwatchContent = deps.noteDocs.onChange((noteId) => onNoteContentChange(noteId))
@@ -340,6 +388,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
     hasPending() {
       if (manifestIdle !== null || manifestMergeIdle !== null || downloading.size > 0) return true
+      if (prefsBinding?.hasPending()) return true
       for (const nb of noteBindings.values()) if (nb.binding.hasPending()) return true
       return false
     },
@@ -389,6 +438,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       )
       noteBindings.clear()
       await downloadChain
+      await prefsBinding?.close()
+      prefsBinding = null
     },
   }
 }

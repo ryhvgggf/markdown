@@ -267,30 +267,44 @@ describe('Maintenance.purge (I5)', () => {
     expect(await storage.loadDoc(n.id)).toHaveLength(0)
     expect(await db.noteText.get(n.id)).toBeUndefined()
     expect((await db.meta.get(PENDING_PURGE_KEY))?.value ?? []).toEqual([])
-    // attachments are only marked: another note's undo history may still bring them back
-    expect(vault.getAttachment(own)).toBeDefined()
-    expect(await storage.getBlob(own)).toBeDefined()
-    const marks = (await db.meta.get(ATTACHMENT_DELETE_AFTER_KEY))?.value as Record<string, number>
-    expect(Object.keys(marks).sort()).toEqual([own, shared].sort())
-    // a day later the GC deletes the marked ones that are still unreferenced
-    const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
-    await later.runStartup()
+    // "delete forever" means forever: the attachment nothing else uses goes at once, the shared one stays
     expect(vault.getAttachment(own)).toBeUndefined()
     expect(await storage.getBlob(own)).toBeUndefined()
     expect(vault.getAttachment(shared)).toBeDefined()
+    expect(await storage.getBlob(shared)).toBeDefined()
     expect((await db.meta.get(ATTACHMENT_DELETE_AFTER_KEY))?.value ?? {}).toEqual({})
   })
 
-  it('keeps a marked attachment that is referenced again before the grace period ends', async () => {
-    const own = await attachment(0)
-    const n = await noteWith('Doomed', ['x', media(own)])
+  it('keeps an attachment a live note uses, and one sitting in the trash itself', async () => {
+    const used = await attachment(0)
+    const trashed = await attachment(0)
+    const n = await noteWith('Doomed', ['x', media(used), media(trashed)])
+    await noteWith('Live', ['y', media(used)])
+    vault.trashAttachment(trashed)
     vault.trashNote(n.id)
     await m.purge({ kind: 'note', id: n.id })
-    await noteWith('Undo brought it back', ['y', media(own)])
-    const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
-    await later.runStartup()
-    expect(vault.getAttachment(own)).toBeDefined()
-    expect(await storage.getBlob(own)).toBeDefined()
+    expect(vault.getAttachment(used)).toBeDefined()
+    expect(vault.getAttachment(trashed)).toBeDefined() // waits for its own trash expiry
+  })
+
+  it('purgeAll deletes every entry and scans attachment references once', async () => {
+    const a1 = await attachment(0)
+    const a2 = await attachment(0)
+    const n1 = await noteWith('One', ['x', media(a1)])
+    const n2 = await noteWith('Two', ['y', media(a2)])
+    const att = await attachment(0)
+    vault.trashNote(n1.id)
+    vault.trashNote(n2.id)
+    vault.trashAttachment(att)
+    const spy = vi.spyOn(indexer, 'referencedAttachmentIds')
+    await expect(m.purgeAll([{ kind: 'note', id: n1.id }, { kind: 'note', id: n2.id }, { kind: 'attachment', id: att }])).resolves.toBe(true)
+    expect(spy).toHaveBeenCalledTimes(1)
+    for (const id of [a1, a2, att]) {
+      expect(vault.getAttachment(id)).toBeUndefined()
+      expect(await storage.getBlob(id)).toBeUndefined()
+    }
+    expect(vault.getNote(n1.id)).toBeUndefined()
+    expect(vault.getNote(n2.id)).toBeUndefined()
   })
 
   it('purges every note of a folder subtree', async () => {
@@ -312,13 +326,15 @@ describe('Maintenance.purge (I5)', () => {
     expect((await db.meta.get(PENDING_PURGE_KEY))?.value).toEqual([n.id])
   })
 
-  it('keeps an attachment when some note cannot be read', async () => {
+  it('keeps an attachment when some note cannot be read: it is only marked for the daily GC', async () => {
     const own = await attachment(0)
     const n = await noteWith('Doomed', ['x', media(own)])
     const bad = vault.createNote({ title: 'Bad' })
     await corrupt(bad.id)
     vault.trashNote(n.id)
     await m.purge({ kind: 'note', id: n.id })
+    expect(vault.getAttachment(own)).toBeDefined()
+    expect(Object.keys(((await db.meta.get(ATTACHMENT_DELETE_AFTER_KEY))?.value ?? {}) as object)).toEqual([own])
     const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
     await later.runStartup()
     expect(vault.getAttachment(own)).toBeDefined()
@@ -424,24 +440,26 @@ describe('Maintenance round 3', () => {
     expect(await storage.loadDoc(n.id)).toHaveLength(0)
   })
 
-  it('keeps the mark of an attachment whose deletion failed', async () => {
+  it('an attachment whose immediate deletion failed is marked, and the next day\'s GC finishes it', async () => {
     const own = await attachment(0)
     const n = await noteWith('Doomed', ['x', media(own)])
     vault.trashNote(n.id)
-    await m.purge({ kind: 'note', id: n.id })
     vi.spyOn(storage, 'deleteBlob').mockRejectedValueOnce(new StorageError('quota', 'full'))
-    const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
-    await later.runStartup()
+    await m.purge({ kind: 'note', id: n.id })
     expect(vault.getAttachment(own)).toBeDefined()
     expect(Object.keys(((await db.meta.get(ATTACHMENT_DELETE_AFTER_KEY))?.value ?? {}) as object)).toEqual([own])
+    const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
+    await later.runStartup()
+    expect(vault.getAttachment(own)).toBeUndefined()
+    expect(await storage.getBlob(own)).toBeUndefined()
   })
 
   it('an aborted scan (unreadable note) is not repeated on every start', async () => {
     const own = await attachment(0)
     const n = await noteWith('Doomed', ['x', media(own)])
+    await corrupt(vault.createNote({ title: 'Bad' }).id)
     vault.trashNote(n.id)
     await m.purge({ kind: 'note', id: n.id })
-    await corrupt(vault.createNote({ title: 'Bad' }).id)
     const later = new Maintenance({ db, storage, vault, notes, indexer, onError, now: () => Date.now() + DAY + 1000 })
     const spy = vi.spyOn(indexer, 'referencedAttachmentIds')
     await later.runStartup()

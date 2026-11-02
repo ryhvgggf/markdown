@@ -9,6 +9,7 @@ import type { StorageAdapter } from '@/adapters/storage/types'
 import type { NotesDb } from '@/adapters/storage/db'
 import type { NoteDocCache } from '@/core/note-doc/cache'
 import { createSyncManager } from '@/core/sync-engine/sync-manager'
+import type { Preferences } from '@/core/preferences/preferences'
 import type { Vault } from '@/core/vault/vault'
 import { createAccountService, type AccountService } from './account-service'
 import { runAsSyncLeader } from './sync-leader'
@@ -19,6 +20,7 @@ export interface CloudAccountDeps {
   storage: StorageAdapter
   vault: Vault
   notes: NoteDocCache
+  prefs: Preferences
   /** The page was opened from a reset-password link (read before Supabase consumes the URL). */
   recoveryUrl: boolean
 }
@@ -49,6 +51,7 @@ export function createCloudAccount(d: CloudAccountDeps): AccountService {
               storage: d.storage,
               noteDocs: d.notes,
               vault: d.vault,
+              prefs: d.prefs,
               vaultId,
               kek,
               onError: (e, info) => {

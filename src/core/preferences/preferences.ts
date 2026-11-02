@@ -71,6 +71,21 @@ function valid(key: keyof Prefs, v: unknown): boolean {
   return typeof v === 'string' && v !== ''
 }
 
+/**
+ * Appearance settings that follow the account (3f-4). Left on this device on purpose: the note background
+ * image and its opacity (the image itself never leaves the device), the sidebar/panel widths (they depend
+ * on this screen), and reduce motion/transparency (they override this device's OS accessibility setting).
+ */
+export const SYNCED_PREF_KEYS: ReadonlyArray<keyof Prefs> = [
+  'accent',
+  'fontSize',
+  'lineHeight',
+  'editorWidth',
+  'railMode',
+  'sidebarSort',
+  'sidebarSortDir',
+]
+
 function canonicalAccent(v: unknown): string | null {
   if (typeof v !== 'string') return null
   return ACCENTS.find((a) => a.hex.toLowerCase() === v.toLowerCase())?.hex ?? null
@@ -129,6 +144,23 @@ export class Preferences {
         this.map.set(key, v)
       }
     })
+  }
+
+  /** Only the values that were explicitly set (valid ones), without the defaults `get()` fills in. */
+  explicit(): Partial<Prefs> {
+    const out: Record<string, unknown> = {}
+    for (const key of Object.keys(DEFAULT_PREFS) as Array<keyof Prefs>) {
+      const v = this.map.get(key)
+      if (v !== undefined && valid(key, v)) out[key] = v
+    }
+    return out as Partial<Prefs>
+  }
+
+  /** Applies values that came from the account: synced keys only, invalid ones ignored. Same as `set` otherwise. */
+  applyRemote(values: Record<string, unknown>): void {
+    const patch: Record<string, unknown> = {}
+    for (const key of SYNCED_PREF_KEYS) if (key in values && valid(key, values[key])) patch[key] = values[key]
+    if (Object.keys(patch).length > 0) this.set(patch as Partial<Prefs>)
   }
 
   observe(cb: (p: Prefs) => void): () => void {

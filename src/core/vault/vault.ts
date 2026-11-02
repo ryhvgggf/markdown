@@ -48,6 +48,7 @@ function toFolder(m: YM): FolderMeta {
     deletedAt: (m.get('deletedAt') as number | null) ?? null,
     ...stamp(m, 'nameAt'),
     ...stamp(m, 'placeAt'),
+    ...(m.get('synced') === true ? { synced: true } : {}),
   }
 }
 function toAttachment(id: string, m: YM): AttachmentMeta {
@@ -156,6 +157,7 @@ export class Vault {
     const id = i.id ?? newId()
     const now = Date.now()
     const order = this.noteOrder(folderId, i.index ?? Number.MAX_SAFE_INTEGER)
+    const synced = this.inSyncedFolder(folderId) // a synced folder syncs what is created in it; otherwise opt-in
     this.doc.transact(() => {
       const m: YM = new Y.Map()
       this.notes.set(id, m)
@@ -166,7 +168,7 @@ export class Vault {
       m.set('createdAt', i.createdAt ?? now)
       m.set('updatedAt', i.updatedAt ?? i.createdAt ?? now)
       m.set('deletedAt', null)
-      m.set('synced', false) // opt-in (design doc §5 open decision 4)
+      m.set('synced', synced) // default false: opt-in (design doc §5 open decision 4)
     })
     return this.getNote(id)!
   }
@@ -185,10 +187,16 @@ export class Vault {
     const m = this.note(id)
     if (to.folderId !== null) this.folder(to.folderId)
     const order = this.noteOrder(to.folderId, to.index, id)
+    const from = (m.get('folderId') as string | null) ?? null
+    const wasIn = this.inSyncedFolder(from)
+    const nowIn = this.inSyncedFolder(to.folderId)
     this.doc.transact(() => {
       m.set('folderId', to.folderId)
       m.set('order', order)
       m.set('placeAt', Date.now())
+      // Moved into a synced folder → synced; out of one → no longer. Reordering or moving between two synced folders changes nothing.
+      if (!wasIn && nowIn) m.set('synced', true)
+      else if (wasIn && !nowIn) m.set('synced', false)
     })
   }
   /**
@@ -281,10 +289,62 @@ export class Vault {
       }
     }
     const order = this.folderOrder(to.parentId, to.index, id)
+    const subtree = this.subtreeIds(id)
+    const inside = [...this.notes.values()].filter((n) => n.get('deletedAt') === null && subtree.has((n.get('folderId') as string | null) ?? ''))
+    const before = inside.map((n) => this.inSyncedFolder((n.get('folderId') as string | null) ?? null))
     this.doc.transact(() => {
       m.set('parentId', to.parentId)
       m.set('order', order)
       m.set('placeAt', Date.now())
+      // The notes inside follow the same rule as a single moved note, judged by the folder they now sit under.
+      inside.forEach((n, i) => {
+        const now = this.inSyncedFolder((n.get('folderId') as string | null) ?? null)
+        if (!before[i] && now) n.set('synced', true)
+        else if (before[i] && !now) n.set('synced', false)
+      })
+    })
+  }
+  /**
+   * Marks a folder (and everything under it) as synced, or not (3f-4). On: every note in it is synced now,
+   * and notes put or created there later are too. Off: notes that no longer sit under any synced folder stop
+   * being synced. The engine (`core/sync-engine`) reacts to the notes' `synced` flags; nothing else is deleted.
+   */
+  setFolderSynced(id: string, synced: boolean): void {
+    const m = this.folder(id)
+    const subtree = this.subtreeIds(id)
+    this.doc.transact(() => {
+      if (synced) m.set('synced', true)
+      else m.delete('synced')
+      for (const n of this.notes.values()) {
+        if (n.get('deletedAt') !== null) continue
+        const f = (n.get('folderId') as string | null) ?? null
+        if (f === null || !subtree.has(f)) continue
+        if (synced) n.set('synced', true)
+        else if (!this.inSyncedFolder(f)) n.set('synced', false)
+      }
+    })
+  }
+  /** Ids of the synced notes that would stop syncing if this folder's rule were turned off (for the confirmation). */
+  notesStoppedByUnsyncingFolder(id: string): string[] {
+    const subtree = this.subtreeIds(id)
+    const covered = (folderId: string | null): boolean => {
+      for (let p = folderId, guard = 0; p !== null && guard < 10000; guard++) {
+        const f = this.folders.get(p)
+        if (!f) return false
+        if (p !== id && f.get('synced') === true) return true
+        p = (f.get('parentId') as string | null) ?? null
+      }
+      return false
+    }
+    return [...this.notes.entries()]
+      .filter(([, n]) => n.get('deletedAt') === null && n.get('synced') === true && subtree.has((n.get('folderId') as string | null) ?? ''))
+      .filter(([, n]) => !covered((n.get('folderId') as string | null) ?? null))
+      .map(([noteId]) => noteId)
+  }
+  /** Clears every folder's sync rule without touching notes (another account's vault is being unlocked). */
+  clearFolderSyncRules(): void {
+    this.doc.transact(() => {
+      for (const f of this.folders.values()) if (f.get('synced') === true) f.delete('synced')
     })
   }
   /** Folder counterpart of `applyRemoteNote`. A placement under a missing/trashed parent, or one that would make a cycle, is skipped. */
@@ -560,6 +620,16 @@ export class Vault {
       m.set('title', dedupeTitle(title, taken))
     }
     m.set('deletedAt', null)
+  }
+  /** Whether `folderId` or any folder above it is marked synced. */
+  private inSyncedFolder(folderId: string | null): boolean {
+    for (let p = folderId, guard = 0; p !== null && guard < 10000; guard++) {
+      const f = this.folders.get(p)
+      if (!f) return false
+      if (f.get('synced') === true) return true
+      p = (f.get('parentId') as string | null) ?? null
+    }
+    return false
   }
   private subtreeIds(rootId: string): Set<string> {
     const ids = new Set([rootId])

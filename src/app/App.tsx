@@ -1,20 +1,22 @@
-import { useEffect, useState } from 'react'
-import { NoteEditor } from '@/features/editor/NoteEditor'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { TitleBlock } from '@/features/editor/TitleBlock'
 import { BacklinksLayer } from '@/features/panel/BacklinksPanel'
 import { OutlineTicks } from '@/features/panel/OutlineTicks'
-import { QuickSwitcher } from '@/features/search/QuickSwitcher'
-import { ImportDialog } from '@/features/transfer/ImportDialog'
 import { Sidebar } from '@/features/sidebar/Sidebar'
 import { AppearanceEffects } from '@/features/settings/AppearanceEffects'
-import { DataDialog } from '@/features/settings/DataDialog'
-import { SettingsDialog } from '@/features/settings/SettingsDialog'
 import { Shell } from '@/features/shell/Shell'
 import { StorageBanner } from '@/features/shell/StorageBanner'
 import { bootstrap, type AppServices } from './bootstrap'
 import { startPageLifecycle } from './lifecycle'
 import { ServicesProvider, useServices } from './services-context'
 import { setPersistLastNote, useUi } from './ui-store'
+
+// Loaded when first needed, so the first screen doesn't wait for the editor and the dialogs (they are most of the bundle).
+const NoteEditor = lazy(() => import('@/features/editor/NoteEditor').then((m) => ({ default: m.NoteEditor })))
+const QuickSwitcher = lazy(() => import('@/features/search/QuickSwitcher').then((m) => ({ default: m.QuickSwitcher })))
+const ImportDialog = lazy(() => import('@/features/transfer/ImportDialog').then((m) => ({ default: m.ImportDialog })))
+const DataDialog = lazy(() => import('@/features/settings/DataDialog').then((m) => ({ default: m.DataDialog })))
+const SettingsDialog = lazy(() => import('@/features/settings/SettingsDialog').then((m) => ({ default: m.SettingsDialog })))
 
 type State =
   | { status: 'loading' }
@@ -85,10 +87,12 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
         main={<MainNote />}
         overlay={<NoteOverlay />}
       />
-      <QuickSwitcher />
-      <SettingsDialog />
-      <DataDialog />
-      <ImportDialog />
+      <Suspense fallback={null}>
+        <QuickSwitcher />
+        <SettingsDialog />
+        <DataDialog />
+        <ImportDialog />
+      </Suspense>
     </ServicesProvider>
   )
 }
@@ -108,7 +112,9 @@ function MainNote() {
   return (
     <div key={openNoteId} data-note-page className="note-page" data-entering={switched ? 'true' : undefined}>
       <TitleBlock noteId={openNoteId} />
-      <NoteEditor noteId={openNoteId} />
+      <Suspense fallback={null}>
+        <NoteEditor noteId={openNoteId} />
+      </Suspense>
     </div>
   )
 }

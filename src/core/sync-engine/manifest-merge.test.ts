@@ -3,7 +3,7 @@ import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { Vault } from '@/core/vault/vault'
 import type { StructureManifest } from './manifest'
 import type { NoteMeta } from '@/core/vault/types'
-import { cloudIsBehind, combineManifests, mergeManifestIntoVault } from './manifest-merge'
+import { cloudIsBehind, combineManifests, mergeManifestIntoVault, type CombineOptions } from './manifest-merge'
 
 let storage: MemoryStorage
 let vault: Vault
@@ -176,11 +176,13 @@ const note = (id: string, o: Partial<NoteMeta> = {}): NoteMeta => ({
   id, title: id, folderId: null, order: 'a', createdAt: 1, updatedAt: 1, deletedAt: null, synced: true, ...o,
 })
 
+const opts = (o: Partial<CombineOptions> = {}): CombineOptions => ({ removed: new Map(), resynced: new Set(), now: 1000, ...o })
+
 describe('combineManifests', () => {
   it('takes each field from whichever side has the newer stamp; a tie keeps the cloud value', () => {
     const local = { notes: [note('a', { title: 'local', titleAt: 5, folderId: 'L', placeAt: 1 }), note('b', { title: 'b local' })], folders: [], attachments: [] }
     const cloud = manifest({ notes: [note('a', { title: 'cloud', titleAt: 3, folderId: 'C', placeAt: 9 }), note('b', { title: 'b cloud' })] })
-    const c = combineManifests(local, cloud, new Set())
+    const c = combineManifests(local, cloud, opts())
     const a = c.notes.find((n) => n.id === 'a')!
     expect(a.title).toBe('local')
     expect(a.folderId).toBe('C')
@@ -189,9 +191,55 @@ describe('combineManifests', () => {
 
   it('keeps cloud-only notes unless deliberately removed, and cloud-only attachments', () => {
     const cloud = manifest({ notes: [note('x'), note('gone')], attachments: [{ id: 'att', filename: 'a.png', mimeType: 'image/png', size: 1, createdAt: 1, deletedAt: null }] })
-    const c = combineManifests({ notes: [], folders: [], attachments: [] }, cloud, new Set(['gone']))
+    const c = combineManifests({ notes: [], folders: [], attachments: [] }, cloud, opts({ removed: new Map([['gone', 5]]) }))
     expect(c.notes.map((n) => n.id)).toEqual(['x'])
     expect(c.attachments.map((a) => a.id)).toEqual(['att'])
+  })
+})
+
+describe('removal marks', () => {
+  it('merge: a note removed elsewhere is unsynced here with its content kept, not created, not flagged as a conflict', () => {
+    const mine = vault.createNote({ title: 'Mine', createdAt: 100, updatedAt: 100 })
+    vault.setNoteSynced(mine.id, true)
+    const seen: string[] = []
+    const r = mergeManifestIntoVault(vault, manifest({ removed: [{ id: mine.id, at: 5 }, { id: 'never-here', at: 5 }], notes: [note('also', { createdAt: 1 })] }), {
+      onRemotelyRemoved: (id) => seen.push(id),
+    })
+    expect(r.unsynced).toEqual([mine.id])
+    expect(seen).toEqual([mine.id])
+    expect(vault.getNote(mine.id)).toMatchObject({ title: 'Mine', synced: false, deletedAt: null })
+    expect(vault.getNote('never-here')).toBeUndefined()
+    expect(r.conflicts).toEqual([])
+  })
+
+  it('merge: a note re-synced here this session ignores the mark; a note listed live and removed is not created', () => {
+    const mine = vault.createNote({ title: 'Mine', createdAt: 100, updatedAt: 100 })
+    vault.setNoteSynced(mine.id, true)
+    const r = mergeManifestIntoVault(vault, manifest({ removed: [{ id: mine.id, at: 5 }, { id: 'raced', at: 5 }], notes: [note('raced', { createdAt: 1 })] }), { resynced: new Set([mine.id]) })
+    expect(r.unsynced).toEqual([])
+    expect(vault.getNote(mine.id)?.synced).toBe(true)
+    expect(vault.getNote('raced')).toBeUndefined()
+  })
+
+  it('combine: marks from the cloud and from this device are kept; a mark drops a stale local copy and a cloud copy', () => {
+    const local = { notes: [note('stale')], folders: [], attachments: [] }
+    const cloud = manifest({ notes: [note('stale'), note('cloud-copy'), note('keep')], removed: [{ id: 'cloud-copy', at: 10 }] })
+    const c = combineManifests(local, cloud, opts({ removed: new Map([['stale', 20]]) }))
+    expect(c.notes.map((n) => n.id)).toEqual(['keep'])
+    expect(c.removed.sort((a, b) => a.id.localeCompare(b.id))).toEqual([{ id: 'cloud-copy', at: 10 }, { id: 'stale', at: 20 }])
+  })
+
+  it('combine: a note re-synced here loses its mark and is included again; old marks are dropped', () => {
+    const local = { notes: [note('back')], folders: [], attachments: [] }
+    const cloud = manifest({ removed: [{ id: 'back', at: 10 }, { id: 'ancient', at: 1 }] })
+    const c = combineManifests(local, cloud, opts({ resynced: new Set(['back']), now: 1 + 181 * 24 * 60 * 60 * 1000 }))
+    expect(c.notes.map((n) => n.id)).toEqual(['back'])
+    expect(c.removed).toEqual([])
+  })
+
+  it('cloudIsBehind: true when this device\'s own removal mark is not in the cloud yet', () => {
+    expect(cloudIsBehind(manifest(), manifest(), ['x'])).toBe(true)
+    expect(cloudIsBehind(manifest(), manifest({ removed: [{ id: 'x', at: 1 }] }), ['x'])).toBe(false)
   })
 })
 

@@ -6,7 +6,14 @@ export interface StructureManifest {
   /** Metadata (name, type, size) of attachments synced notes use, so another device can show them (3f-3).
    *  The bytes travel separately (`attachment-sync.ts`). Absent in manifests pushed before 3f-3. */
   attachments?: AttachmentMeta[]
+  /** Notes someone deliberately took out of the cloud (permanent delete, or sync turned off), with when.
+   *  A device that still has such a note marked synced stops syncing it (keeping its content) instead of
+   *  uploading it again. Kept for `TOMBSTONE_TTL_MS`. Absent in manifests pushed before 3f-4. */
+  removed?: Array<{ id: string; at: number }>
 }
+
+/** How long a removal mark stays in the manifest — a device offline longer than this may re-upload a note removed elsewhere. */
+export const TOMBSTONE_TTL_MS = 180 * 24 * 60 * 60 * 1000
 
 /**
  * Phase 3 design doc §3.1: derive the cloud-safe structure manifest from the local structure doc.
@@ -31,6 +38,13 @@ export function deriveManifest(notes: readonly NoteMeta[], folders: readonly Fol
   }
   return {
     notes: syncedNotes,
-    folders: folders.filter((f) => neededFolderIds.has(f.id)),
+    // A folder's own sync rule stays on this device, so it isn't part of what the cloud sees.
+    folders: folders.filter((f) => neededFolderIds.has(f.id)).map((f) => withoutSyncRule(f)),
   }
+}
+
+function withoutSyncRule(f: FolderMeta): FolderMeta {
+  const out = { ...f }
+  delete out.synced
+  return out
 }

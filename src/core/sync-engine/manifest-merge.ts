@@ -1,6 +1,6 @@
 import type { Vault } from '@/core/vault/vault'
 import type { AttachmentMeta, FolderMeta, NoteMeta } from '@/core/vault/types'
-import type { StructureManifest } from './manifest'
+import { TOMBSTONE_TTL_MS, type StructureManifest } from './manifest'
 
 export interface ManifestConflict {
   noteId: string
@@ -13,6 +13,15 @@ export interface ManifestConflict {
 export interface ManifestMergeResult {
   /** Manifest notes left untouched; see `ManifestConflict.reason` for why each one was skipped. */
   conflicts: ManifestConflict[]
+  /** Notes this device had synced that another device removed from the cloud; now unsynced here, content kept. */
+  unsynced: string[]
+}
+
+export interface ManifestMergeOptions {
+  /** Notes the user deliberately re-synced on this device this session: a removal mark for them is stale. */
+  resynced?: ReadonlySet<string>
+  /** Called just before a remotely removed note's `synced` flag is cleared (so the caller can tell it from the user's own toggle). */
+  onRemotelyRemoved?: (noteId: string) => void
 }
 
 const at = (v: number | undefined) => v ?? 0
@@ -31,9 +40,21 @@ const at = (v: number | undefined) => v ?? 0
  * - A title that collides with another local note is kept with a ` (n)` suffix on this device (see
  *   `Vault.applyRemoteNote`), instead of the note not appearing at all.
  * - Trash state is not merged: trashing stays a per-device action (out of 3f-3's scope).
+ * - A note the manifest lists as removed (permanent delete or sync turned off on another device) is never
+ *   created, and one this device still has synced stops being synced here — its content and place stay, so
+ *   the user can delete it or sync it again. Unless the user re-synced it on this device this session.
  */
-export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest): ManifestMergeResult {
+export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest, opts: ManifestMergeOptions = {}): ManifestMergeResult {
   const conflicts: ManifestConflict[] = []
+  const unsynced: string[] = []
+  const removed = new Set((manifest.removed ?? []).map((r) => r.id).filter((id) => !opts.resynced?.has(id)))
+  for (const id of removed) {
+    const n = vault.getNote(id)
+    if (!n?.synced) continue
+    opts.onRemotelyRemoved?.(id)
+    vault.setNoteSynced(id, false)
+    unsynced.push(id)
+  }
 
   const localFolders = new Map(vault.listFolders({ includeTrashed: true }).map((f) => [f.id, f]))
   const missingFolders = manifest.folders.filter((f) => !localFolders.has(f.id))
@@ -63,6 +84,7 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
   }
 
   for (const note of manifest.notes) {
+    if (removed.has(note.id)) continue // listed both ways (two devices raced): the removal wins
     const local = vault.getNote(note.id)
     if (local) {
       if (local.createdAt !== note.createdAt) {
@@ -85,7 +107,7 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
     }
   }
 
-  return { conflicts }
+  return { conflicts, unsynced }
 }
 
 function notePatch(local: NoteMeta, remote: NoteMeta): Parameters<Vault['applyRemoteNote']>[1] | null {
@@ -100,11 +122,22 @@ export function missingAttachments(vault: Vault, manifest: StructureManifest): A
   return (manifest.attachments ?? []).filter((a) => !vault.getAttachment(a.id))
 }
 
+export interface CombineOptions {
+  /** Notes this device deliberately took out of the cloud this session (id → when). */
+  removed: ReadonlyMap<string, number>
+  /** Notes the user deliberately re-synced this session: any removal mark for them is dropped. */
+  resynced: ReadonlySet<string>
+  now: number
+}
+
 /**
  * What this device pushes as the new cloud manifest: its own local view, combined with the cloud's current one
  * so nothing is lost by a read-modify-write.
- * - Cloud entries this device doesn't have locally are kept, unless deliberately removed here (`removedNoteIds`)
- *   — a note merely missing locally (a bug, data loss) must not delete its cloud copy (3e).
+ * - Cloud entries this device doesn't have locally are kept — a note merely missing locally (a bug, data
+ *   loss) must not delete its cloud copy (3e) — unless it is marked removed.
+ * - Removal marks: the cloud's, plus this device's own deliberate removals, minus notes the user re-synced
+ *   here, minus ones older than `TOMBSTONE_TTL_MS`. A marked note is left out even if this device still has
+ *   it synced (it hasn't pulled the mark yet), so a stale copy can't bring a removed note back.
  * - For entries both sides have, each field group takes whichever side's stamp is newer; a tie keeps the
  *   cloud's value, so a local-only adjustment (a ` (n)` title suffix from `applyRemoteNote`) never spreads.
  * Notes that aren't `synced` locally stay local-only — `deriveManifest` filters them out afterwards.
@@ -112,22 +145,30 @@ export function missingAttachments(vault: Vault, manifest: StructureManifest): A
 export function combineManifests(
   local: { notes: readonly NoteMeta[]; folders: readonly FolderMeta[]; attachments: readonly AttachmentMeta[] },
   cloud: StructureManifest | null,
-  removedNoteIds: ReadonlySet<string>,
-): { notes: NoteMeta[]; folders: FolderMeta[]; attachments: AttachmentMeta[] } {
+  opts: CombineOptions,
+): { notes: NoteMeta[]; folders: FolderMeta[]; attachments: AttachmentMeta[]; removed: Array<{ id: string; at: number }> } {
+  const marks = new Map<string, number>()
+  for (const r of cloud?.removed ?? []) marks.set(r.id, r.at)
+  for (const [id, at] of opts.removed) marks.set(id, Math.max(at, marks.get(id) ?? 0))
+  for (const id of opts.resynced) marks.delete(id)
+  for (const [id, at] of marks) if (opts.now - at > TOMBSTONE_TTL_MS) marks.delete(id)
+
   const cloudNotes = new Map((cloud?.notes ?? []).map((n) => [n.id, n]))
   const cloudFolders = new Map((cloud?.folders ?? []).map((f) => [f.id, f]))
   const localNoteIds = new Set(local.notes.map((n) => n.id))
   const localFolderIds = new Set(local.folders.map((f) => f.id))
 
-  const notes = local.notes.map((n) => {
-    const c = cloudNotes.get(n.id)
-    if (!c || c.createdAt !== n.createdAt) return n
-    const out = { ...n }
-    if (at(c.titleAt) >= at(n.titleAt)) Object.assign(out, { title: c.title, titleAt: c.titleAt })
-    if (at(c.placeAt) >= at(n.placeAt)) Object.assign(out, { folderId: c.folderId, order: c.order, placeAt: c.placeAt })
-    return dropUndefined(out)
-  })
-  for (const c of cloudNotes.values()) if (!localNoteIds.has(c.id) && !removedNoteIds.has(c.id)) notes.push(c)
+  const notes = local.notes
+    .filter((n) => !marks.has(n.id))
+    .map((n) => {
+      const c = cloudNotes.get(n.id)
+      if (!c || c.createdAt !== n.createdAt) return n
+      const out = { ...n }
+      if (at(c.titleAt) >= at(n.titleAt)) Object.assign(out, { title: c.title, titleAt: c.titleAt })
+      if (at(c.placeAt) >= at(n.placeAt)) Object.assign(out, { folderId: c.folderId, order: c.order, placeAt: c.placeAt })
+      return dropUndefined(out)
+    })
+  for (const c of cloudNotes.values()) if (!localNoteIds.has(c.id) && !marks.has(c.id)) notes.push(c)
 
   const folders = local.folders.map((f) => {
     const c = cloudFolders.get(f.id)
@@ -142,7 +183,7 @@ export function combineManifests(
   const localAttachmentIds = new Set(local.attachments.map((a) => a.id))
   const attachments = [...local.attachments, ...(cloud?.attachments ?? []).filter((a) => !localAttachmentIds.has(a.id))]
 
-  return { notes, folders, attachments }
+  return { notes, folders, attachments, removed: [...marks].map(([id, at]) => ({ id, at })) }
 }
 
 /** Yjs maps can't hold `undefined`; drop keys a cloud entry without stamps would have set to it. */
@@ -156,7 +197,9 @@ function dropUndefined<T extends object>(o: T): T {
  * note or folder it lacks, or a field this device changed more recently. Lets a device whose push lost a
  * read-modify-write race (two devices pushing at once) notice on the next pull and push again.
  */
-export function cloudIsBehind(derived: StructureManifest, cloud: StructureManifest): boolean {
+export function cloudIsBehind(derived: StructureManifest, cloud: StructureManifest, removedHere: Iterable<string> = []): boolean {
+  const marked = new Set((cloud.removed ?? []).map((r) => r.id))
+  for (const id of removedHere) if (!marked.has(id)) return true // this device's removal mark never made it up
   const cloudNotes = new Map(cloud.notes.map((n) => [n.id, n]))
   const cloudFolders = new Map(cloud.folders.map((f) => [f.id, f]))
   for (const n of derived.notes) {

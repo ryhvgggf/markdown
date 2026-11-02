@@ -17,6 +17,6 @@ describe('manifest codec', () => {
 
   it('round-trips an empty manifest', () => {
     const decoded = decodeManifest(encodeManifest({ notes: [], folders: [] }))
-    expect(decoded).toEqual({ notes: [], folders: [], attachments: [] })
+    expect(decoded).toEqual({ notes: [], folders: [], attachments: [], removed: [] })
   })
 })

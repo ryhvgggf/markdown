@@ -24,6 +24,9 @@ export type FolderMeta = {
   nameAt?: number
   /** When `parentId`/`order` were last set by a move (absent = never). */
   placeAt?: number
+  /** 3f-4: notes in this folder (and its subfolders) follow cloud sync — they are synced when put or created here
+   *  and unsynced when moved out. A rule of this device only: never sent to the cloud or other devices. */
+  synced?: boolean
 }
 export type AttachmentMeta = {
   id: string

@@ -57,7 +57,7 @@ export interface BootstrapOptions {
   /** Seed the 「功能導覽」 notes into a brand-new vault (default true; off for the bench and e2e runs). */
   seedGuide?: boolean
   /** Replaces the account service (tests). */
-  createAccount?: (s: { db: NotesDb; storage: StorageAdapter; vault: Vault; notes: NoteDocCache }) => AccountService
+  createAccount?: (s: { db: NotesDb; storage: StorageAdapter; vault: Vault; notes: NoteDocCache; prefs: Preferences }) => AccountService
 }
 
 // Read when this module loads, before the Supabase client (loaded later) consumes the reset link's URL.
@@ -65,7 +65,7 @@ const RECOVERY_URL = typeof location !== 'undefined' && /(^|[#&])type=recovery(&
 
 const supabaseConfigured = () => !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
 
-function defaultAccount(s: { db: NotesDb; storage: StorageAdapter; vault: Vault; notes: NoteDocCache }, mode: 'persistent' | 'memory'): AccountService {
+function defaultAccount(s: { db: NotesDb; storage: StorageAdapter; vault: Vault; notes: NoteDocCache; prefs: Preferences }, mode: 'persistent' | 'memory'): AccountService {
   // Memory mode (private window without IndexedDB, tests) keeps no key between sessions: local-only.
   if (mode !== 'persistent' || !supabaseConfigured()) return createUnavailableAccount()
   return createDeferredAccount(async () => (await import('./cloud-account')).createCloudAccount({ ...s, recoveryUrl: RECOVERY_URL }))
@@ -222,7 +222,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
     else initialNoteId = [...live].sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null
   }
 
-  const account = (opts.createAccount ?? ((x) => defaultAccount(x, mode)))({ db, storage, vault, notes })
+  const account = (opts.createAccount ?? ((x) => defaultAccount(x, mode)))({ db, storage, vault, notes, prefs })
 
   return {
     storage, db, vault, notes, indexer, search, prefs, persistence,

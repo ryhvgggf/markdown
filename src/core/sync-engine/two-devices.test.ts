@@ -219,3 +219,92 @@ describe('structure changes both ways', () => {
     expect(a.vault.getNote(n.id)?.title).toBe('Guide')
   })
 })
+
+describe('removal elsewhere (3f-4)', () => {
+  async function pair() {
+    const a = await device('A')
+    const n = a.vault.createNote({ title: 'Shared' })
+    a.vault.setNoteSynced(n.id, true)
+    const doc = await a.notes.acquire(n.id)
+    const p = new Y.XmlElement('paragraph')
+    p.insert(0, [new Y.XmlText('kept text')])
+    doc.getXmlFragment('content').insert(0, [p])
+    a.notes.release(n.id)
+    await a.manager.start()
+    const b = await device('B')
+    await b.manager.start()
+    await until(() => !!b.vault.getNote(n.id))
+    await until(() => !a.manager.hasPending() && !b.manager.hasPending())
+    return { a, b, n }
+  }
+  const cloudDocs = () => sync.listDocs('v1')
+
+  it('a permanent delete on one device unsyncs the note on the other, keeps its content, and it does not come back', async () => {
+    const { a, b, n } = await pair()
+    a.vault.purgeNote(n.id)
+    await until(() => b.vault.getNote(n.id)?.synced === false)
+    expect(b.vault.getNote(n.id)).toMatchObject({ title: 'Shared', deletedAt: null })
+    const docB = await b.notes.acquire(n.id)
+    expect(text(docB)).toContain('kept text')
+    // editing it on B must not put it back in the cloud
+    const p = new Y.XmlElement('paragraph')
+    p.insert(0, [new Y.XmlText('more')])
+    docB.getXmlFragment('content').insert(0, [p])
+    b.notes.release(n.id)
+    await wait(300)
+    expect(await cloudDocs()).not.toContain(n.id)
+    expect(a.vault.getNote(n.id)).toBeUndefined()
+    const manifest = await pullManifest(sync, kek, 'v1')
+    expect(manifest?.notes.map((x) => x.id)).not.toContain(n.id)
+    expect(manifest?.removed?.map((x) => x.id)).toContain(n.id)
+  })
+
+  it('turning sync off on one device does the same on the other (A keeps its own copy)', async () => {
+    const { a, b, n } = await pair()
+    a.vault.setNoteSynced(n.id, false)
+    await until(() => b.vault.getNote(n.id)?.synced === false)
+    await wait(300)
+    expect(await cloudDocs()).not.toContain(n.id)
+    expect(a.vault.getNote(n.id)?.synced).toBe(false)
+    expect(b.errors).toEqual([])
+  })
+
+  it('a device that was closed during the removal unsyncs the note when it comes back, and does not upload it again', async () => {
+    const { a, b, n } = await pair()
+    await b.manager.close()
+    a.vault.purgeNote(n.id)
+    await until(async () => !(await cloudDocs()).includes(n.id))
+    await until(async () => ((await pullManifest(sync, kek, 'v1'))?.removed ?? []).length === 1)
+
+    const again = createSyncManager({ sync, attachmentSync, storage: b.storage, noteDocs: b.notes, vault: b.vault, vaultId: 'v1', kek, deviceId: 'B' })
+    await again.start()
+    await wait(300)
+    expect(b.vault.getNote(n.id)?.synced).toBe(false)
+    expect(await cloudDocs()).not.toContain(n.id)
+    await again.close()
+  })
+
+  it('syncing the note again from the other device (a mistaken delete) brings it back everywhere', async () => {
+    const { a, b, n } = await pair()
+    a.vault.purgeNote(n.id)
+    await until(() => b.vault.getNote(n.id)?.synced === false)
+    await until(async () => ((await pullManifest(sync, kek, 'v1'))?.removed ?? []).length === 1)
+
+    b.vault.setNoteSynced(n.id, true)
+    await until(() => !!a.vault.getNote(n.id))
+    expect(a.vault.getNote(n.id)?.synced).toBe(true)
+    await until(async () => (await cloudDocs()).includes(n.id))
+    const docA = await a.notes.acquire(n.id)
+    await until(() => text(docA).includes('kept text'))
+    a.notes.release(n.id)
+    await until(async () => ((await pullManifest(sync, kek, 'v1'))?.removed ?? []).length === 0)
+    expect(b.vault.getNote(n.id)?.synced).toBe(true) // the stale mark did not unsync it again
+  })
+
+  it('a note that was never removed is left alone when the manifest has no marks', async () => {
+    const { a, b, n } = await pair()
+    await wait(200)
+    expect(b.vault.getNote(n.id)?.synced).toBe(true)
+    expect(a.vault.getNote(n.id)?.synced).toBe(true)
+  })
+})

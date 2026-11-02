@@ -12,6 +12,10 @@ export interface RowMenuActions {
   exportMd?(): void
   /** Notes, while signed in: opens the 同步到雲端 selection. */
   syncSelect?(): void
+  /** Folders, while signed in: turns the folder's cloud sync on or off. */
+  syncFolder?(): void
+  /** Whether the folder is synced now (decides the item's wording). */
+  folderSynced?: boolean
   trash(): void
 }
 
@@ -77,6 +81,7 @@ export function RowMenu({
       )}
       {actions.exportMd && <Menu.Item onSelect={pick(actions.exportMd)}>{kind === 'folder' ? '下載此資料夾' : '下載此筆記'}</Menu.Item>}
       {actions.syncSelect && <Menu.Item onSelect={pick(actions.syncSelect)}>同步到雲端</Menu.Item>}
+      {actions.syncFolder && <Menu.Item onSelect={pick(actions.syncFolder)}>{actions.folderSynced ? '停止同步此資料夾' : '同步此資料夾'}</Menu.Item>}
       <Menu.Separator />
       <Menu.Item onSelect={pick(actions.trash)}>移到垃圾桶</Menu.Item>
     </Menu>

@@ -135,11 +135,46 @@ export class Maintenance {
   /**
    * Permanent delete from the trash. Crash-safe: the ids are recorded first, the vault entry goes next
    * (the note disappears at once), then doc and index rows; startup finishes an interrupted run.
-   * The note's attachments are not deleted now (another note's undo history may still reference them):
-   * they are marked, and the GC deletes them after a grace period if nothing references them then.
+   * The note's attachments that no remaining note references are deleted right away too — the trash was
+   * the safety net, "delete forever" means forever. (Undoing in another note can then bring back a
+   * reference to a deleted file; that note shows it as missing.) If some note cannot be read it may
+   * reference any of them, so they are only marked and the daily GC decides after a grace period.
    * Never rejects: failures are reported through `onError`; returns whether everything was removed.
    */
   async purge(ref: { kind: 'note' | 'folder'; id: string }): Promise<boolean> {
+    return this.purgeAll([ref])
+  }
+
+  /**
+   * Permanently deletes several trash entries (notes, folders, attachments), one at a time, then cleans up
+   * the attachments of the deleted notes in a single pass (the reference scan reads every note, so it must
+   * not run once per entry). Returns whether everything was removed.
+   */
+  async purgeAll(refs: Array<{ kind: 'note' | 'folder' | 'attachment'; id: string }>): Promise<boolean> {
+    let ok = true
+    const candidates = new Set<string>()
+    for (const ref of refs) {
+      if (ref.kind === 'attachment') {
+        ok = (await this.purgeAttachment(ref.id)) && ok
+        continue
+      }
+      const c = await this.purgeNoteOrFolder(ref as { kind: 'note' | 'folder'; id: string })
+      if (c === null) ok = false
+      else for (const id of c) candidates.add(id)
+    }
+    if (candidates.size) {
+      try {
+        await this.deleteUnreferenced(candidates)
+      } catch (e) {
+        this.report(e)
+        ok = false
+      }
+    }
+    return ok
+  }
+
+  /** The attachment ids the purged notes used, or `null` when the purge failed. */
+  private async purgeNoteOrFolder(ref: { kind: 'note' | 'folder'; id: string }): Promise<Set<string> | null> {
     const { vault } = this.d
     try {
       const noteIds = ref.kind === 'note' ? [ref.id] : vault.folderNoteIds(ref.id)
@@ -149,16 +184,36 @@ export class Maintenance {
       if (ref.kind === 'note') vault.purgeNote(ref.id)
       else vault.purgeFolder(ref.id)
       await this.finishPurge(noteIds)
-      if (candidates.size) {
-        const after = this.now() + ATTACHMENT_GRACE_MS
-        await this.updateMarks((m) => {
-          for (const id of candidates) m[id] = Math.max(m[id] ?? 0, after)
-        })
-      }
-      return true
+      return candidates
     } catch (e) {
       this.report(e)
-      return false
+      return null
+    }
+  }
+
+  /** Deletes the candidates no note references and that are not in the trash themselves (a trashed one waits for its own expiry). */
+  private async deleteUnreferenced(candidates: Set<string>): Promise<void> {
+    const { vault, indexer } = this.d
+    const refs = await indexer.referencedAttachmentIds()
+    if (!refs) {
+      const after = this.now() + ATTACHMENT_GRACE_MS // an unreadable note may use any of them: leave it to the GC
+      await this.updateMarks((m) => {
+        for (const id of candidates) m[id] = Math.max(m[id] ?? 0, after)
+      })
+      return
+    }
+    const ids = [...candidates].filter((id) => {
+      const a = vault.getAttachment(id)
+      return a && a.deletedAt === null && !refs.has(id)
+    })
+    const deleted = new Set(await this.deleteAttachments(ids))
+    const failed = ids.filter((id) => !deleted.has(id))
+    if (failed.length) {
+      // Reported by deleteAttachments; the daily GC retries these after the grace period.
+      const after = this.now() + ATTACHMENT_GRACE_MS
+      await this.updateMarks((m) => {
+        for (const id of failed) m[id] = Math.max(m[id] ?? 0, after)
+      })
     }
   }
 

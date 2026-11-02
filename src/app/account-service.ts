@@ -269,6 +269,7 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
     const previousVault = await deps.meta.get(SYNC_VAULT_KEY)
     if (previousVault !== vaultId) {
       for (const n of deps.vault.listNotes({ includeTrashed: true })) if (n.synced) deps.vault.setNoteSynced(n.id, false)
+      deps.vault.clearFolderSyncRules()
       await deps.vault.flushWrites()
       await deps.meta.put(SYNC_VAULT_KEY, vaultId)
     }

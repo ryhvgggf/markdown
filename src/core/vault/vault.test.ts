@@ -433,3 +433,76 @@ describe('Vault — per-field stamps and remote apply (3f-3)', () => {
     expect(v.canUndo()).toBe(false) // not a user action
   })
 })
+
+describe('Vault — synced folders (3f-4)', () => {
+  it('turning a folder on syncs the notes in it and below; notes created or moved in follow it', async () => {
+    const v = await open()
+    const f = v.createFolder({ name: 'F', parentId: null })
+    const sub = v.createFolder({ name: 'Sub', parentId: f.id })
+    const a = v.createNote({ title: 'a', folderId: f.id })
+    const b = v.createNote({ title: 'b', folderId: sub.id })
+    const outside = v.createNote({ title: 'out' })
+    const trashed = v.createNote({ title: 'gone', folderId: f.id })
+    v.trashNote(trashed.id)
+    v.setFolderSynced(f.id, true)
+    expect(v.listNotes().filter((n) => n.synced).map((n) => n.title).sort()).toEqual(['a', 'b'])
+    expect(v.getNote(trashed.id)?.synced).toBe(false)
+    expect(v.listFolders().find((x) => x.id === f.id)?.synced).toBe(true)
+
+    expect(v.createNote({ title: 'new', folderId: sub.id }).synced).toBe(true) // created in a subfolder
+    expect(v.createNote({ title: 'root' }).synced).toBe(false)
+    v.moveNote(outside.id, { folderId: f.id, index: 0 })
+    expect(v.getNote(outside.id)?.synced).toBe(true)
+    v.moveNote(a.id, { folderId: null, index: 0 })
+    expect(v.getNote(a.id)?.synced).toBe(false) // moved out → stops
+    v.moveNote(b.id, { folderId: f.id, index: 0 })
+    expect(v.getNote(b.id)?.synced).toBe(true) // between two folders under the rule: unchanged
+  })
+
+  it('reordering inside a synced folder does not re-sync a note the user switched off', async () => {
+    const v = await open()
+    const f = v.createFolder({ name: 'F', parentId: null })
+    v.setFolderSynced(f.id, true)
+    const n = v.createNote({ title: 'n', folderId: f.id })
+    v.createNote({ title: 'm', folderId: f.id })
+    v.setNoteSynced(n.id, false)
+    v.moveNote(n.id, { folderId: f.id, index: 1 })
+    expect(v.getNote(n.id)?.synced).toBe(false)
+  })
+
+  it('turning it off unsyncs what no longer sits under a synced folder, but keeps notes under another synced one', async () => {
+    const v = await open()
+    const f = v.createFolder({ name: 'F', parentId: null })
+    const sub = v.createFolder({ name: 'Sub', parentId: f.id })
+    const a = v.createNote({ title: 'a', folderId: f.id })
+    const b = v.createNote({ title: 'b', folderId: sub.id })
+    v.setFolderSynced(f.id, true)
+    v.setFolderSynced(sub.id, true)
+    v.setFolderSynced(f.id, false)
+    expect(v.getNote(a.id)?.synced).toBe(false)
+    expect(v.getNote(b.id)?.synced).toBe(true) // still under Sub, which is synced
+    expect(v.listFolders().find((x) => x.id === f.id)?.synced).toBeUndefined()
+  })
+
+  it('moving a folder in or out of a synced folder moves the notes inside with the rule', async () => {
+    const v = await open()
+    const syncedDir = v.createFolder({ name: 'Synced', parentId: null })
+    v.setFolderSynced(syncedDir.id, true)
+    const plain = v.createFolder({ name: 'Plain', parentId: null })
+    const n = v.createNote({ title: 'n', folderId: plain.id })
+    v.moveFolder(plain.id, { parentId: syncedDir.id, index: 0 })
+    expect(v.getNote(n.id)?.synced).toBe(true)
+    v.moveFolder(plain.id, { parentId: null, index: 0 })
+    expect(v.getNote(n.id)?.synced).toBe(false)
+  })
+
+  it('clearFolderSyncRules drops the rules and leaves the notes alone', async () => {
+    const v = await open()
+    const f = v.createFolder({ name: 'F', parentId: null })
+    const n = v.createNote({ title: 'n', folderId: f.id })
+    v.setFolderSynced(f.id, true)
+    v.clearFolderSyncRules()
+    expect(v.listFolders()[0].synced).toBeUndefined()
+    expect(v.getNote(n.id)?.synced).toBe(true)
+  })
+})

@@ -36,6 +36,16 @@ export function Sidebar() {
   // 同步到雲端 selection: the notes whose box was clicked, with the state they should end up in.
   const [picks, setPicks] = useState<Map<string, boolean> | null>(null)
   const [confirmUnsync, setConfirmUnsync] = useState(false)
+  // A folder's sync rule being turned off with synced notes inside: waits for the confirmation.
+  const [stopFolder, setStopFolder] = useState<{ id: string; name: string; count: number } | null>(null)
+  const syncFolder = (id: string) => {
+    const folder = vault.listFolders().find((f) => f.id === id)
+    if (!folder) return
+    if (folder.synced !== true) return vault.setFolderSynced(id, true)
+    const count = vault.notesStoppedByUnsyncingFolder(id).length
+    if (count === 0) vault.setFolderSynced(id, false)
+    else setStopFolder({ id, name: folder.name || '未命名資料夾', count })
+  }
   const selecting = picks !== null && signedIn && view === 'tree'
   const isSynced = (id: string) => vault.getNote(id)?.synced === true
   const selection = selecting
@@ -122,6 +132,7 @@ export function Sidebar() {
                 setRenamingId={setRenamingId}
                 syncable={signedIn}
                 onSyncSelect={() => setPicks(new Map())}
+                onSyncFolder={syncFolder}
                 selection={selection}
               />
             )}
@@ -171,6 +182,25 @@ export function Sidebar() {
           </>
         )}
       </p>
+      <Dialog title={`停止同步資料夾「${stopFolder?.name ?? ''}」？`} open={stopFolder !== null} onOpenChange={(o) => !o && setStopFolder(null)}>
+        <p className="text-sm text-fg-secondary">
+          {stopFolder?.count} 篇筆記的雲端副本會被刪除，其他裝置保留目前的內容但不再更新。這台裝置上的筆記不受影響。
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setStopFolder(null)}>
+            取消
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              if (stopFolder) vault.setFolderSynced(stopFolder.id, false)
+              setStopFolder(null)
+            }}
+          >
+            停止同步
+          </Button>
+        </div>
+      </Dialog>
       <Dialog title={`停止同步 ${unsyncCount} 篇筆記？`} open={selecting && confirmUnsync} onOpenChange={setConfirmUnsync}>
         <p className="text-sm text-fg-secondary">雲端副本會被刪除，其他裝置保留目前的內容但不再更新。這台裝置上的筆記不受影響。</p>
         <div className="mt-4 flex justify-end gap-2">

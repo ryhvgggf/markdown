@@ -22,7 +22,7 @@ const channelFactory = () =>
 
 let vault: Vault
 let metaRows: Map<string, unknown>
-let maintenance: { purge: ReturnType<typeof vi.fn> }
+let maintenance: { purge: ReturnType<typeof vi.fn>; purgeAll: ReturnType<typeof vi.fn> }
 let mode: 'persistent' | 'memory'
 let account: AccountService
 
@@ -70,6 +70,13 @@ beforeEach(async () => {
     purge: vi.fn(async (ref: { kind: string; id: string }) => {
       if (ref.kind === 'note') vault.purgeNote(ref.id)
       else vault.purgeFolder(ref.id)
+      return true
+    }),
+    purgeAll: vi.fn(async (refs: Array<{ kind: string; id: string }>) => {
+      for (const ref of refs) {
+        if (ref.kind === 'note') vault.purgeNote(ref.id)
+        else if (ref.kind === 'folder') vault.purgeFolder(ref.id)
+      }
       return true
     }),
   }
@@ -293,8 +300,7 @@ describe('Trash', () => {
     await act(async () => void fireEvent.click(screen.getByRole('button', { name: '全部刪除' })))
     expect(vault.getNote(a.id)).toBeUndefined()
     expect(vault.getNote(b.id)).toBeUndefined()
-    expect(maintenance.purge).toHaveBeenCalledWith({ kind: 'note', id: a.id })
-    expect(maintenance.purge).toHaveBeenCalledWith({ kind: 'note', id: b.id })
+    expect(maintenance.purgeAll).toHaveBeenCalledWith(expect.arrayContaining([{ kind: 'note', id: a.id }, { kind: 'note', id: b.id }]))
     expect(screen.getByText('垃圾桶是空的')).toBeInTheDocument()
   })
 })
@@ -408,6 +414,39 @@ describe('同步到雲端 (3f-2)', () => {
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
     expect(vault.getNote(a.id)!.synced).toBe(true)
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('資料夾 can be synced: 同步此資料夾 syncs what is inside and what is put there; 停止同步 asks first', async () => {
+    account = fakeAccount(unlocked)
+    const f = vault.createFolder({ name: 'Work', parentId: null })
+    const inside = vault.createNote({ title: 'Inside', folderId: f.id })
+    mount()
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Work/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '同步此資料夾' }))
+    expect(vault.getNote(inside.id)!.synced).toBe(true)
+    expect(vault.createNote({ title: 'Later', folderId: f.id }).synced).toBe(true)
+    expect(within(await screen.findByRole('treeitem', { name: /Work/ })).getByLabelText('資料夾已同步到雲端')).toBeInTheDocument()
+
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: /Work/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '停止同步此資料夾' }))
+    const dialog = await screen.findByRole('dialog', { name: '停止同步資料夾「Work」？' })
+    expect(dialog).toHaveTextContent('2 篇筆記的雲端副本會被刪除')
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
+    expect(vault.getNote(inside.id)!.synced).toBe(true)
+
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: /Work/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '停止同步此資料夾' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '停止同步' }))
+    expect(vault.getNote(inside.id)!.synced).toBe(false)
+    expect(screen.queryByLabelText('資料夾已同步到雲端')).toBeNull()
+  })
+
+  it('the folder item is offered only when signed in', async () => {
+    vault.createFolder({ name: 'Work', parentId: null })
+    mount()
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Work/ }))
+    await screen.findByRole('menuitem', { name: '下載此資料夾' })
+    expect(screen.queryByRole('menuitem', { name: '同步此資料夾' })).toBeNull()
   })
 
   it('the status line shows sync progress and problems, and opens the account settings', async () => {

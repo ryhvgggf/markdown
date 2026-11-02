@@ -49,11 +49,13 @@ export interface FolderTreeProps {
   syncable?: boolean
   /** Opens the 同步到雲端 selection. */
   onSyncSelect?(): void
+  /** A folder's 同步此資料夾 / 停止同步此資料夾 menu item. */
+  onSyncFolder?(id: string): void
   /** While selecting notes to sync: what each checkbox shows, and a click on a note ticks it. */
   selection?: { has(id: string): boolean; toggle(id: string): void } | null
 }
 
-export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRenamingId, syncable = false, onSyncSelect, selection = null }: FolderTreeProps) {
+export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRenamingId, syncable = false, onSyncSelect, onSyncFolder, selection = null }: FolderTreeProps) {
   const openNoteId = useUi((s) => s.openNoteId)
   const rows = useMemo(() => flatten(tree, expanded), [tree, expanded])
   const sensors = useSensors(useSensor(PointerSensor, POINTER_OPTIONS))
@@ -72,6 +74,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
         newSubfolder: () => setRenamingId(actions.createFolder(id)),
         exportMd: () => node && void actions.exportMarkdown(nodeRef(node)),
         syncSelect: isNote && syncable && onSyncSelect ? onSyncSelect : undefined,
+        syncFolder: node?.kind === 'folder' && syncable && onSyncFolder ? () => onSyncFolder(id) : undefined,
         trash: () => node && actions.trash(node),
       }
     },
@@ -104,6 +107,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
           newSubfolder: () => m().newSubfolder?.(),
           exportMd: () => m().exportMd?.(),
           syncSelect: () => m().syncSelect?.(),
+          syncFolder: () => m().syncFolder?.(),
           trash: () => m().trash(),
         }
       },
