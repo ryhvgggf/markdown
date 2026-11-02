@@ -98,3 +98,6 @@ export function localStamp(t: number): string {
   const d = new Date(t)
   return `${localDate(t)} ${pad(d.getHours())}${pad(d.getMinutes())}`
 }
+
+/** Folder name (in exports and the mirror) that holds attachments. */
+export const ATTACHMENT_DIR = '附件'

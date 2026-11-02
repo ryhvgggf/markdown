@@ -5,6 +5,7 @@ import type { FileEntry } from '@/core/markdown/types'
 import type { NoteDocCache } from '@/core/note-doc/cache'
 import type { ExportOptions, ExportScope } from '@/core/transfer/export'
 import type { RestoreMode } from '@/core/transfer/restore'
+import { handleDir } from '@/adapters/fs/handle-dir'
 import { createTransferClient, type TransferClient } from '@/core/transfer/transfer-client'
 import type { DocIO, ImportChoices, ImportDeps, ImportPlan, ImportReport, ImportSource } from '@/core/transfer/types'
 import type { Vault } from '@/core/vault/vault'
@@ -78,7 +79,7 @@ export function createTransferServices(deps: {
       const picker = (window as unknown as { showDirectoryPicker?(o?: object): Promise<FileSystemDirectoryHandle> }).showDirectoryPicker
       if (!picker) return null
       try {
-        const [{ sourceFromDir }, { handleDir }] = await Promise.all([import('@/core/transfer/restore'), import('@/adapters/fs/handle-dir')])
+        const { sourceFromDir } = await import('@/core/transfer/restore')
         return await sourceFromDir(handleDir(await picker.call(window, { id: 'notes-v2-mirror' })))
       } catch (e) {
         if ((e as { name?: string })?.name === 'AbortError') return null

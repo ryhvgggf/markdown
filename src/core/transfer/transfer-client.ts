@@ -1,5 +1,5 @@
 import type { ParseResult } from '@/core/markdown/types'
-import { parseFiles, serializeItems, type ParseFile, type SerializeItem, type SharedContext, type TransferReply } from './transfer-ops'
+import type { ParseFile, SerializeItem, SharedContext, TransferReply } from './transfer-ops'
 
 /** Markdown conversion off the main thread (inline where Worker is unavailable, e.g. tests). */
 export type TransferClient = {
@@ -9,8 +9,9 @@ export type TransferClient = {
 
 export function inlineTransferClient(): TransferClient {
   return {
-    serialize: async (items, shared) => serializeItems(items, shared),
-    parse: async (files) => parseFiles(files),
+    // Loaded on first use: the Markdown converter is large and the worker normally does this work.
+    serialize: async (items, shared) => (await import('./transfer-ops')).serializeItems(items, shared),
+    parse: async (files) => (await import('./transfer-ops')).parseFiles(files),
   }
 }
 

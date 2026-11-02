@@ -1,6 +1,8 @@
 import type { StorageAdapter } from '@/adapters/storage/types'
 import { onIdle } from '@/core/idle'
-import { hashText, localDate, noteFilePath, safeFileName, uniqueName } from '@/core/markdown/paths'
+import { ATTACHMENT_DIR, hashText, localDate, noteFilePath, safeFileName, uniqueName } from '@/core/markdown/paths'
+
+export { ATTACHMENT_DIR }
 import type { FileEntry, PMNode } from '@/core/markdown/types'
 import type { FolderMeta, NoteMeta } from '@/core/vault/types'
 import type { Vault } from '@/core/vault/vault'
@@ -18,7 +20,6 @@ export type ExportOptions = {
 export type ExportDeps = { vault: Vault; storage: StorageAdapter; docs: DocIO; client: Pick<TransferClient, 'serialize'> }
 
 export const VAULT_NAME = '我的知識庫'
-export const ATTACHMENT_DIR = '附件'
 const READ_YIELD = 20
 const SERIALIZE_BATCH = 50
 
