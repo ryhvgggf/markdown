@@ -85,6 +85,10 @@ export function toAuthError(e: { message: string; status?: number; code?: string
   if (code === 'weak_password') return new AuthError('weak-password', e.message, { cause: e })
   if (code === 'invalid_credentials') return new AuthError('invalid-credentials', e.message, { cause: e })
   if (code.startsWith('over_') || e.status === 429) return new AuthError('rate-limited', e.message, { cause: e })
+  // The server answered but could not send the email (SMTP settings wrong, sender not allowed, provider limit).
+  if (/sending (confirmation|recovery|magic link|email)/i.test(e.message) || code === 'unexpected_failure' && /email/i.test(e.message)) {
+    return new AuthError('email-send-failed', e.message, { cause: e })
+  }
   if (e.name === 'AuthRetryableFetchError' || e.status === 0) return new AuthError('offline', e.message, { cause: e })
   if (!code && e.status === 400) return new AuthError('invalid-credentials', e.message, { cause: e })
   return new AuthError('unknown', e.message, { cause: e })

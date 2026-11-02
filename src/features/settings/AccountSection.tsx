@@ -13,6 +13,7 @@ const ERRORS: Record<string, string> = {
   'weak-password': '密碼太簡單，換一組',
   'rate-limited': '嘗試太多次，請稍後再試',
   offline: '無法連線，請檢查網路',
+  'email-send-failed': '寄不出信，請稍後再試；持續發生請檢查寄信設定',
   'wrong-password': '密碼不正確',
   'wrong-recovery-code': '復原碼不正確',
 }

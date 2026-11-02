@@ -9,6 +9,8 @@ describe('toAuthError', () => {
     [{ message: 'x', status: 422, code: 'user_already_exists' }, 'email-taken'],
     [{ message: 'x', status: 429, code: 'over_email_send_rate_limit' }, 'rate-limited'],
     [{ message: 'x', status: 0, name: 'AuthRetryableFetchError' }, 'offline'],
+    [{ message: 'Error sending confirmation email', status: 500, code: 'unexpected_failure', name: 'AuthRetryableFetchError' }, 'email-send-failed'],
+    [{ message: 'Error sending recovery email', status: 500, code: 'unexpected_failure' }, 'email-send-failed'],
     [{ message: 'x', status: 500, code: 'unexpected_failure' }, 'unknown'],
   ])('%o → %s', (e, kind) => {
     expect(toAuthError(e).kind).toBe(kind)

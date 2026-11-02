@@ -34,6 +34,7 @@ export type AuthErrorKind =
   | 'weak-password'
   | 'rate-limited'
   | 'offline'
+  | 'email-send-failed'
   | 'not-authenticated'
   | 'unknown'
 
