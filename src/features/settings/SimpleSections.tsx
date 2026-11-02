@@ -64,6 +64,10 @@ export function LayoutSection() {
       <SectionLabel>版面配置</SectionLabel>
       <Segmented<Prefs['railMode']> label="工具列" value={p.railMode} onChange={(v) => prefs.set({ railMode: v })}
         options={[{ value: 'hover', label: '滑鼠移到左緣時顯示' }, { value: 'pinned', label: '固定顯示' }]} />
+      <Segmented<Prefs['sidebarSort']> label="側欄排序" value={p.sidebarSort} onChange={(v) => prefs.set({ sidebarSort: v })}
+        options={[{ value: 'name', label: '名稱' }, { value: 'modified', label: '修改時間' }]} />
+      <Segmented<Prefs['sidebarSortDir']> label="排序方向" value={p.sidebarSortDir} onChange={(v) => prefs.set({ sidebarSortDir: v })}
+        options={[{ value: 'asc', label: p.sidebarSort === 'modified' ? '舊到新' : '由小到大' }, { value: 'desc', label: p.sidebarSort === 'modified' ? '新到舊' : '由大到小' }]} />
       <SliderRow label="側欄寬度" value={p.sidebarWidth} min={220} max={360} step={4} display={`${p.sidebarWidth} px`}
         onChange={(v) => prefs.set({ sidebarWidth: v })} />
     </section>

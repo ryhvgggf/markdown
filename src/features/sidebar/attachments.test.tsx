@@ -9,6 +9,7 @@ import { INDEX_VERSION, INDEX_VERSION_KEY } from '@/core/maintenance/maintenance
 import { Vault } from '@/core/vault/vault'
 import { Sidebar } from './Sidebar'
 import { formatBytes } from './AttachmentsView'
+import { DEFAULT_PREFS } from '@/core/preferences/preferences'
 
 const channelFactory = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
@@ -18,9 +19,11 @@ let db: NotesDb
 let storage: MemoryStorage
 let maintenance: { purge: ReturnType<typeof vi.fn>; purgeAttachment: ReturnType<typeof vi.fn> }
 
+const fakePrefs = { get: () => DEFAULT_PREFS, observe: () => () => {} }
+
 const mount = () =>
   render(
-    <ServicesProvider services={{ vault, db, storage, maintenance, storageMode: 'persistent' } as unknown as AppServices}>
+    <ServicesProvider services={{ vault, db, storage, maintenance, storageMode: 'persistent', prefs: fakePrefs } as unknown as AppServices}>
       <Sidebar />
     </ServicesProvider>,
   )

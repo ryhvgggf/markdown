@@ -3,6 +3,8 @@ import { filesFromDrop } from '@/features/transfer/download'
 import { MirrorPausedChip } from '@/features/transfer/MirrorSection'
 import { useServices } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
+import { usePrefs } from '@/app/use-prefs'
+import { sortTree } from '@/core/vault/tree'
 import { IconButton } from '@/ui/components/IconButton'
 import { ChevronRight, FolderPlus, Plus, Trash } from '@/ui/icons'
 import { FolderTree } from './FolderTree'
@@ -14,7 +16,9 @@ import { trashRoots, useVaultSnapshot } from './use-vault'
 
 export function Sidebar() {
   const { vault, storageMode } = useServices()
-  const { tree, trashed, attachments, notes } = useVaultSnapshot()
+  const { tree: manualTree, trashed, attachments, notes } = useVaultSnapshot()
+  const { sidebarSort, sidebarSortDir } = usePrefs()
+  const tree = useMemo(() => sortTree(manualTree, { key: sidebarSort, dir: sidebarSortDir }), [manualTree, sidebarSort, sidebarSortDir])
   const allNotes = useMemo(() => [...notes, ...trashed.notes], [notes, trashed.notes])
   const { expanded, loaded, toggle, expand } = useExpanded()
   const actions = useActions(tree, expand)

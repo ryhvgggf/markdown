@@ -33,38 +33,42 @@ async function newFolder(page: Page, name: string) {
   await expect(item(page, name)).toBeVisible()
 }
 
-test('資料夾樹：拖曳移入資料夾、同層排序，重新整理後保持', async ({ page }) => {
+// Where Chinese titles sort relative to Latin ones depends on the browser's locale data: leave the welcome note out.
+const lv = async (page: Page) => (await levels(page)).filter((x) => !x.endsWith(':歡迎使用'))
+
+test('資料夾樹：自動排序（名稱），拖曳只能移入資料夾，重新整理後保持', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByLabel('筆記標題')).toHaveValue('歡迎使用')
-  await newFolder(page, '專案')
-  await newFolder(page, '封存')
-  await newNote(page, '乙')
-  await newNote(page, '丙')
-  expect(await levels(page)).toEqual(['1:專案', '1:封存', '1:歡迎使用', '1:乙', '1:丙'])
+  await newFolder(page, 'Projects')
+  await newFolder(page, 'Archive')
+  await newNote(page, 'C')
+  await newNote(page, 'B')
+  // folders first, then notes, each by name — not by creation order
+  await expect.poll(() => lv(page)).toEqual(['1:Archive', '1:Projects', '1:B', '1:C'])
 
   // note → into folder
-  await drag(page, '乙', '專案', 'middle')
-  await expect(item(page, '專案')).toHaveAttribute('aria-expanded', 'true')
-  await expect.poll(() => levels(page)).toEqual(['1:專案', '2:乙', '1:封存', '1:歡迎使用', '1:丙'])
+  await drag(page, 'B', 'Projects', 'middle')
+  await expect(item(page, 'Projects')).toHaveAttribute('aria-expanded', 'true')
+  await expect.poll(() => lv(page)).toEqual(['1:Archive', '1:Projects', '2:B', '1:C'])
 
-  // reorder among siblings: 丙 above 歡迎使用
-  await drag(page, '丙', '歡迎使用', 'top')
-  await expect.poll(() => levels(page)).toEqual(['1:專案', '2:乙', '1:封存', '1:丙', '1:歡迎使用'])
+  // dropping beside a sibling does not reorder
+  await drag(page, 'C', '歡迎使用', 'top')
+  await expect.poll(() => lv(page)).toEqual(['1:Archive', '1:Projects', '2:B', '1:C'])
 
   // folder → into folder, and a cycle attempt is ignored
-  await drag(page, '封存', '專案', 'middle')
-  await expect.poll(() => levels(page)).toEqual(['1:專案', '2:封存', '2:乙', '1:丙', '1:歡迎使用'])
-  await drag(page, '專案', '封存', 'middle')
-  await expect.poll(() => levels(page)).toEqual(['1:專案', '2:封存', '2:乙', '1:丙', '1:歡迎使用'])
+  await drag(page, 'Archive', 'Projects', 'middle')
+  await expect.poll(() => lv(page)).toEqual(['1:Projects', '2:Archive', '2:B', '1:C'])
+  await drag(page, 'Projects', 'Archive', 'middle')
+  await expect.poll(() => lv(page)).toEqual(['1:Projects', '2:Archive', '2:B', '1:C'])
 
   if (process.env.TREE_SHOT) await page.screenshot({ path: process.env.TREE_SHOT })
 
   // survives a reload (persistence is async: retry)
-  const expected = ['1:專案', '2:封存', '2:乙', '1:丙', '1:歡迎使用']
+  const expected = ['1:Projects', '2:Archive', '2:B', '1:C']
   await expect(async () => {
     await page.reload()
     await expect(page.getByRole('tree')).toBeVisible()
-    expect(await levels(page)).toEqual(expected)
+    expect(await lv(page)).toEqual(expected)
   }).toPass({ timeout: 10000 })
 })
 

@@ -5,10 +5,13 @@ import { ServicesProvider } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
 import type { AppServices } from '@/app/bootstrap'
 import { Vault } from '@/core/vault/vault'
+import { DEFAULT_PREFS } from '@/core/preferences/preferences'
 import { Sidebar } from './Sidebar'
 import { TRASH_DAY_MS } from './TrashView'
 import { rowRenders } from './TreeItem'
 
+let prefsNow = DEFAULT_PREFS
+const fakePrefs = { get: () => prefsNow, observe: () => () => {} }
 const focusTitleEnd = vi.hoisted(() => vi.fn(() => true))
 vi.mock('@/features/editor/focus-bridge', () => ({ focusTitleEnd }))
 
@@ -29,7 +32,7 @@ function fakeDb() {
   }
 }
 const mount = () => {
-  const services = { vault, maintenance, db: fakeDb(), storageMode: mode } as unknown as AppServices
+  const services = { vault, maintenance, db: fakeDb(), storageMode: mode, prefs: fakePrefs } as unknown as AppServices
   return render(
     <ServicesProvider services={services}>
       <Sidebar />
@@ -48,6 +51,7 @@ beforeEach(async () => {
     }),
   }
   mode = 'persistent'
+  prefsNow = DEFAULT_PREFS
   focusTitleEnd.mockClear()
   useUi.setState({ openNoteId: null, sidebarView: 'tree' })
 })
@@ -303,5 +307,22 @@ describe('row menus (typing cost)', () => {
     const r = await screen.findByRole('treeitem', { name: /Solo/ })
     fireEvent.pointerDown(within(r).getByRole('button', { name: '更多操作', hidden: true }), { button: 0, pointerType: 'mouse' })
     expect(await screen.findByRole('menuitem', { name: '重新命名' })).toBeInTheDocument()
+  })
+})
+
+describe('Sidebar sorting', () => {
+  const titles = async () => (await screen.findAllByRole('treeitem')).map((el) => el.textContent)
+  it('lists notes by name ascending by default, regardless of creation order', async () => {
+    vault.createNote({ title: 'Beta', folderId: null })
+    vault.createNote({ title: 'Alpha', folderId: null })
+    mount()
+    expect(await titles()).toEqual(['Alpha', 'Beta'])
+  })
+  it('follows the sortable preferences (name, descending)', async () => {
+    vault.createNote({ title: 'Beta', folderId: null })
+    vault.createNote({ title: 'Alpha', folderId: null })
+    prefsNow = { ...DEFAULT_PREFS, sidebarSort: 'name', sidebarSortDir: 'desc' }
+    mount()
+    expect(await titles()).toEqual(['Beta', 'Alpha'])
   })
 })

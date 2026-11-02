@@ -130,7 +130,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
           expanded={folderOpen}
           current={node.kind === 'note' && node.note.id === openNoteId}
           tabbable={ref.id === tabbableId}
-          drop={drop && drop.over !== ROOT && drop.over.id === ref.id ? drop.zone : null}
+          drop={node.kind === 'folder' && drop && drop.over !== ROOT && drop.over.id === ref.id ? drop.zone : null}
           renaming={renamingId === ref.id}
           api={api}
         />

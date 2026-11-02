@@ -15,6 +15,8 @@ export type Prefs = {
   lineHeight: 'compact' | 'standard' | 'relaxed'
   editorWidth: 'narrow' | 'standard' | 'wide'
   railMode: 'hover' | 'pinned'
+  sidebarSort: 'name' | 'modified'
+  sidebarSortDir: 'asc' | 'desc'
   sidebarWidth: number
   panelWidth: number
   reduceMotion: Tri
@@ -29,6 +31,8 @@ export const DEFAULT_PREFS: Prefs = {
   lineHeight: 'standard',
   editorWidth: 'standard',
   railMode: 'hover',
+  sidebarSort: 'name',
+  sidebarSortDir: 'asc',
   sidebarWidth: 256,
   panelWidth: 300,
   reduceMotion: 'system',
@@ -51,6 +55,8 @@ const ENUMS: Partial<Record<keyof Prefs, readonly string[]>> = {
   lineHeight: ['compact', 'standard', 'relaxed'],
   editorWidth: ['narrow', 'standard', 'wide'],
   railMode: ['hover', 'pinned'],
+  sidebarSort: ['name', 'modified'],
+  sidebarSortDir: ['asc', 'desc'],
   reduceMotion: ['system', 'on', 'off'],
   reduceTransparency: ['system', 'on', 'off'],
 }

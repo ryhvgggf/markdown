@@ -14,38 +14,40 @@ const tree = buildTree(
 )
 
 describe('dropZone', () => {
-  it('splits folder rows into before / into / after and note rows in halves', () => {
+  it('folder rows are always "into"; note rows split in halves (beside the note)', () => {
     const rect = { top: 100, height: 30 }
-    expect(dropZone('folder', 101, rect)).toBe('before')
-    expect(dropZone('folder', 115, rect)).toBe('into')
-    expect(dropZone('folder', 129, rect)).toBe('after')
+    expect(dropZone('folder', 101, rect)).toBe('into')
+    expect(dropZone('folder', 129, rect)).toBe('into')
     expect(dropZone('note', 105, rect)).toBe('before')
     expect(dropZone('note', 125, rect)).toBe('after')
   })
 })
 
 describe('computeMove', () => {
-  it('drops a note into a folder, appended after its notes', () => {
-    expect(computeMove(tree, { kind: 'note', id: 'n1' }, { kind: 'folder', id: 'A' }, 'into')).toEqual({ parentId: 'A', index: 2 })
+  const NOTE = (id: string) => ({ kind: 'note' as const, id })
+  const FOLDER = (id: string) => ({ kind: 'folder' as const, id })
+  it('drops a note into a folder', () => {
+    expect(computeMove(tree, NOTE('n1'), FOLDER('A'), 'into')).toMatchObject({ parentId: 'A' })
   })
-  it('reorders among sibling notes (before / after, dragged item excluded)', () => {
-    expect(computeMove(tree, { kind: 'note', id: 'n2' }, { kind: 'note', id: 'n1' }, 'before')).toEqual({ parentId: null, index: 0 })
-    expect(computeMove(tree, { kind: 'note', id: 'n1' }, { kind: 'note', id: 'n2' }, 'after')).toEqual({ parentId: null, index: 1 })
+  it('does nothing when the item is already in that folder', () => {
+    expect(computeMove(tree, NOTE('a1'), FOLDER('A'), 'into')).toBeNull()
   })
-  it('moves a note out to the parent of a row it is dropped next to', () => {
-    expect(computeMove(tree, { kind: 'note', id: 'n1' }, { kind: 'note', id: 'a2' }, 'after')).toEqual({ parentId: 'A', index: 2 })
+  it('does nothing for a drop beside a sibling (no manual ordering)', () => {
+    expect(computeMove(tree, NOTE('n2'), NOTE('n1'), 'before')).toBeNull()
+    expect(computeMove(tree, FOLDER('B'), FOLDER('A'), 'before')).toBeNull()
   })
-  it('keeps folders before notes: note beside a folder goes first, folder beside a note goes last among folders', () => {
-    expect(computeMove(tree, { kind: 'note', id: 'a1' }, { kind: 'folder', id: 'B' }, 'after')).toEqual({ parentId: null, index: 0 })
-    expect(computeMove(tree, { kind: 'folder', id: 'A1' }, { kind: 'note', id: 'n1' }, 'before')).toEqual({ parentId: null, index: 2 })
+  it('moves a note to the folder of a note it is dropped beside', () => {
+    expect(computeMove(tree, NOTE('n1'), NOTE('a2'), 'after')).toMatchObject({ parentId: 'A' })
   })
-  it('reorders folders', () => {
-    expect(computeMove(tree, { kind: 'folder', id: 'B' }, { kind: 'folder', id: 'A' }, 'before')).toEqual({ parentId: null, index: 0 })
+  it('moves a nested item out when dropped beside a root note', () => {
+    expect(computeMove(tree, NOTE('a1'), NOTE('n1'), 'before')).toMatchObject({ parentId: null })
+    expect(computeMove(tree, FOLDER('A1'), NOTE('n1'), 'before')).toMatchObject({ parentId: null })
   })
-  it('drops onto the root area appended', () => {
-    expect(computeMove(tree, { kind: 'note', id: 'a1' }, 'root', 'into')).toEqual({ parentId: null, index: 2 })
+  it('drops onto the root area', () => {
+    expect(computeMove(tree, NOTE('a1'), 'root', 'into')).toMatchObject({ parentId: null })
+    expect(computeMove(tree, NOTE('n1'), 'root', 'into')).toBeNull()
   })
   it('ignores dropping an item on itself', () => {
-    expect(computeMove(tree, { kind: 'folder', id: 'A' }, { kind: 'folder', id: 'A' }, 'into')).toBeNull()
+    expect(computeMove(tree, FOLDER('A'), FOLDER('A'), 'into')).toBeNull()
   })
 })
