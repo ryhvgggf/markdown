@@ -17,7 +17,7 @@ async function importZip(page: Page, path: string) {
   await settings.getByRole('button', { name: '匯入…' }).click()
   const dialog = page.getByRole('dialog', { name: '匯入' })
   const chooser = page.waitForEvent('filechooser')
-  await dialog.getByRole('button', { name: '選擇 ZIP' }).click()
+  await dialog.getByRole('button', { name: '選擇檔案' }).click()
   await (await chooser).setFiles(path)
   return dialog
 }

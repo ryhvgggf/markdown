@@ -63,11 +63,10 @@ function ImportFlow({ initial }: { initial: File[] }) {
   if (step.kind === 'pick') {
     return (
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-fg-secondary">支援 Markdown 檔（.md）、整個資料夾、ZIP（本 App 或 v1 匯出的備份也可以）。也可以直接把檔案拖進側欄。</p>
+        <p className="text-sm text-fg-secondary">支援 .md、ZIP（含 v1 備份）和整個資料夾，也可以直接拖進側欄。</p>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => pickInput({ accept: '.md,.markdown', multiple: true }, (f) => read(f))}>選擇 Markdown 檔</Button>
+          <Button onClick={() => pickInput({ accept: '.md,.markdown,.zip', multiple: true }, (f) => read(f))}>選擇檔案</Button>
           <Button onClick={() => pickInput({ folder: true }, (f) => read(f))}>選擇資料夾</Button>
-          <Button onClick={() => pickInput({ accept: '.zip' }, (f) => read(f))}>選擇 ZIP</Button>
         </div>
       </div>
     )
@@ -119,8 +118,13 @@ function Preview({ plan, onImport }: { plan: ImportPlan; onImport(c: Parameters<
   const [dest, setDest] = useState<'new-dated' | 'root'>('new-dated')
   const [onExisting, setOnExisting] = useState<'overwrite' | 'copy' | null>(null)
   const [today] = useState(() => localDate(Date.now()))
-  const renamed = plan.notes.filter((n) => n.renamedFrom && !n.existing)
-  const skipped = plan.attachments.filter((a) => a.skipped)
+  const renamed = plan.notes.filter((n) => n.renamedFrom && !n.existing).length
+  const skipped = plan.attachments.filter((a) => a.skipped).length
+  const notes = [
+    renamed > 0 && `${renamed} 篇標題重複，會加上 (2)`,
+    plan.unresolved.length > 0 && `${plan.unresolved.length} 個連結找不到對應筆記，保留為文字`,
+    skipped > 0 && `${skipped} 個檔案超過 100 MB，會略過`,
+  ].filter(Boolean)
   const needsChoice = plan.existingCount > 0
   return (
     <form
@@ -131,16 +135,9 @@ function Preview({ plan, onImport }: { plan: ImportPlan; onImport(c: Parameters<
       }}
     >
       <p className="text-base text-fg">
-        將匯入 {plan.notes.length} 篇筆記、{plan.folders.length} 個資料夾、{plan.attachments.length - skipped.length} 個附件。
+        將匯入 {plan.notes.length} 篇筆記、{plan.folders.length} 個資料夾、{plan.attachments.length - skipped} 個附件。
       </p>
-      {renamed.length > 0 && (
-        <p className="text-fg-secondary">
-          {renamed.length} 篇標題和現有筆記重複，會加上 (2)：{renamed.slice(0, 3).map((n) => n.renamedFrom).join('、')}
-          {renamed.length > 3 && '…'}
-        </p>
-      )}
-      {plan.unresolved.length > 0 && <p className="text-fg-secondary">{plan.unresolved.length} 個連結找不到對應的筆記，會保留為文字。</p>}
-      {skipped.length > 0 && <p className="text-fg-secondary">{skipped.length} 個檔案超過 100 MB，會略過。</p>}
+      {notes.length > 0 && <p className="text-fg-secondary">{notes.join('；')}。</p>}
 
       <fieldset className="flex flex-col gap-1">
         <legend className="mb-1 font-medium text-fg">放到哪裡</legend>
