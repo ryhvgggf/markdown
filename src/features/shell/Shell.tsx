@@ -8,6 +8,7 @@ import { Background, BakedGlass } from './Background'
 import { NoteCardBackground } from './NoteCardBackground'
 import { ResizeHandle } from './ResizeHandle'
 import { useLayoutMode } from './layout-mode'
+import { useEnsureOpenNote } from './use-ensure-open-note'
 import { useGlobalUndo } from './use-global-undo'
 
 export interface ShellProps {
@@ -26,6 +27,7 @@ export function Shell({ sidebar, main, overlay }: ShellProps) {
 
   useEffect(() => installTypingWatch(), [])
   useGlobalUndo(vault)
+  useEnsureOpenNote(vault)
   const scroller = useRef<HTMLDivElement>(null)
   const ghosts = useRef<HTMLDivElement>(null)
   useEffect(() => noteSwitchFade(scroller, ghosts), [])
