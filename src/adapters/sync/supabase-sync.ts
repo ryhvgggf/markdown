@@ -11,6 +11,9 @@ const MAX_PULL_CONSISTENCY_RETRIES = 5
  * and decoded coming out — see `bytesToPgHex`/`pgHexToBytes`.
  */
 export class SupabaseSync implements SyncAdapter {
+  /** One Realtime channel per vault, shared by every `subscribe` caller (supabase-js allows one per topic). */
+  private channels = new Map<string, { channel: RealtimeChannel; listeners: Set<(change: RemoteChange) => void> }>()
+
   constructor(private client: SupabaseClient) {}
 
   /**
@@ -103,36 +106,45 @@ export class SupabaseSync implements SyncAdapter {
   }
 
   /**
-   * One Realtime channel per vault, fanning out to every caller that subscribed to it (cheap: this class
-   * is usually constructed once per vault, but nothing stops two callers subscribing to the same one).
+   * One Realtime channel per vault, fanning out to every caller that subscribed to it: the manifest and each
+   * synced note all subscribe to the same vault. supabase-js hands back the already-subscribed channel for a
+   * topic it has seen, and adding callbacks to that one throws — so the channel is created once and shared.
    * `doc_snapshots` rows carry no `device_id` (3c's schema — a snapshot is either an initial full upload or
    * a server-observed compaction, never something one device "pushes" the way an update is), so those
    * notifications report `deviceId: ''`, which never matches a real device id and so never gets filtered
    * out by a caller's self-echo check — see `MemorySync.pushSnapshot`'s matching note.
    */
   subscribe(vaultId: string, onChange: (change: RemoteChange) => void): () => void {
-    let channel: RealtimeChannel | null = this.client
-      .channel(`sync:${vaultId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'doc_updates', filter: `vault_id=eq.${vaultId}` },
-        (payload: { new: { doc_id: string; device_id: string } }) =>
-          onChange({ docId: payload.new.doc_id, deviceId: payload.new.device_id }),
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'doc_snapshots', filter: `vault_id=eq.${vaultId}` },
-        (payload: { new: { doc_id?: string }; old: { doc_id?: string } }) => {
-          const docId = payload.new.doc_id ?? payload.old.doc_id
-          if (docId) onChange({ docId, deviceId: '' })
-        },
-      )
-      .subscribe()
+    let shared = this.channels.get(vaultId)
+    if (!shared) {
+      const listeners = new Set<(change: RemoteChange) => void>()
+      const fan = (change: RemoteChange) => [...listeners].forEach((l) => l(change))
+      const channel = this.client
+        .channel(`sync:${vaultId}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'doc_updates', filter: `vault_id=eq.${vaultId}` },
+          (payload: { new: { doc_id: string; device_id: string } }) => fan({ docId: payload.new.doc_id, deviceId: payload.new.device_id }),
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'doc_snapshots', filter: `vault_id=eq.${vaultId}` },
+          (payload: { new: { doc_id?: string }; old: { doc_id?: string } }) => {
+            const docId = payload.new.doc_id ?? payload.old.doc_id
+            if (docId) fan({ docId, deviceId: '' })
+          },
+        )
+        .subscribe()
+      shared = { channel, listeners }
+      this.channels.set(vaultId, shared)
+    }
+    const entry = shared
+    const listener = (change: RemoteChange) => onChange(change)
+    entry.listeners.add(listener)
     return () => {
-      if (channel) {
-        void this.client.removeChannel(channel)
-        channel = null
-      }
+      if (!entry.listeners.delete(listener) || entry.listeners.size > 0) return
+      if (this.channels.get(vaultId) === entry) this.channels.delete(vaultId)
+      void this.client.removeChannel(entry.channel)
     }
   }
 
