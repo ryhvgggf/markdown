@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useUi } from '@/app/ui-store'
 import { Dialog } from '@/ui/components/Dialog'
+import { AccountSection } from './AccountSection'
 import { BackgroundSection } from './BackgroundSection'
 import { ColorSection, LayoutSection, MotionSection, TextSection } from './SimpleSections'
 
@@ -10,6 +11,7 @@ const SECTIONS: ReadonlyArray<{ id: string; label: string; body: () => ReactNode
   { id: 'text', label: '文字', body: () => <TextSection /> },
   { id: 'layout', label: '版面', body: () => <LayoutSection /> },
   { id: 'motion', label: '動態', body: () => <MotionSection /> },
+  { id: 'account', label: '帳號', body: () => <AccountSection /> },
 ]
 
 export function SettingsDialog() {
@@ -23,6 +25,10 @@ export function SettingsDialog() {
       useUi.subscribe((state, prev) => {
         if (state.settingsOpen && !prev.settingsOpen && document.activeElement instanceof HTMLElement) {
           opener.current = document.activeElement
+        }
+        if (state.settingsSection && state.settingsSection !== prev.settingsSection) {
+          setActive(state.settingsSection)
+          useUi.setState({ settingsSection: null })
         }
       }),
     [],

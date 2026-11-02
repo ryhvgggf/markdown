@@ -4,7 +4,19 @@ import { MemoryAuth } from '@/adapters/auth/memory-auth'
 import { decrypt, encrypt } from '@/adapters/crypto/webcrypto-crypto'
 import { MemoryKeyStore } from '@/adapters/key-store/memory-key-store'
 import { KeyStoreError } from '@/adapters/key-store/types'
-import { createNewVault, recoverWithCode, requestPasswordReset, signIn, signUp, unlockVaultWithPassword } from './account'
+import {
+  commitVault,
+  createNewVault,
+  recoverWithCode,
+  registerAccount,
+  requestPasswordReset,
+  resolveVault,
+  signIn,
+  signInAndResolve,
+  signUp,
+  toDeviceKek,
+  unlockVaultWithPassword,
+} from './account'
 import { AccountError } from './types'
 
 const bytesEqual = (a: Uint8Array, b: Uint8Array) => expect(Array.from(a)).toEqual(Array.from(b))
@@ -148,5 +160,58 @@ describe('MemoryKeyStore', () => {
     const su = await signUp({ auth, keyStore }, 'a@example.com', 'hunter2')
     const record = await keyStore.getVaultKeys(su.vaultId)
     await expect(keyStore.createVault(record!)).rejects.toBeInstanceOf(KeyStoreError)
+  })
+})
+
+describe('3f: email confirmation, first sign-in prepares the vault (design doc §2, §8)', () => {
+  it('registerAccount with confirmation on creates no vault and needs the email confirmed before sign-in', async () => {
+    const confirming = new MemoryAuth({ requireConfirmation: true })
+    const r = await registerAccount(confirming, 'a@example.com', 'hunter2')
+    expect(r.needsConfirmation).toBe(true)
+    expect(await keyStore.listVaultsForUser(r.userId)).toEqual([])
+    await expect(signInAndResolve({ auth: confirming, keyStore }, 'a@example.com', 'hunter2')).rejects.toMatchObject({
+      kind: 'email-not-confirmed',
+    })
+  })
+
+  it('first sign-in after confirming prepares a vault locally; nothing is stored until commitVault', async () => {
+    const confirming = new MemoryAuth({ requireConfirmation: true })
+    const { userId } = await registerAccount(confirming, 'a@example.com', 'hunter2')
+    confirming.confirmEmail('a@example.com')
+    const r = await signInAndResolve({ auth: confirming, keyStore }, 'a@example.com', 'hunter2')
+    if (r.kind !== 'new-vault') throw new Error(r.kind)
+    expect(r.pending.recoveryCode).toMatch(/^([A-Z0-9]{4}-){7}[A-Z0-9]{4}$/)
+    expect(await keyStore.listVaultsForUser(userId)).toEqual([])
+
+    await commitVault(keyStore, r.pending)
+    const again = await signInAndResolve({ auth: confirming, keyStore }, 'a@example.com', 'hunter2')
+    expect(again).toMatchObject({ kind: 'unlocked', vaultId: r.pending.vaultId })
+    // and the recovery code shown really opens it
+    await expect(recoverWithCode(keyStore, r.pending.vaultId, r.pending.recoveryCode, 'hunter2')).resolves.toBeDefined()
+  })
+
+  it('after an email password reset the new password resolves to needs-recovery', async () => {
+    const su = await signUp({ auth, keyStore }, 'a@example.com', 'hunter2')
+    await auth.setPassword('new-password')
+    const r = await signInAndResolve({ auth, keyStore }, 'a@example.com', 'new-password')
+    expect(r).toMatchObject({ kind: 'needs-recovery', vaultId: su.vaultId })
+  })
+
+  it('several vaults ask the caller to choose; choosing one unlocks it', async () => {
+    const su = await signUp({ auth, keyStore }, 'a@example.com', 'hunter2')
+    const nv = await createNewVault(keyStore, su.userId, 'hunter2')
+    const r = await resolveVault(keyStore, su.userId, 'hunter2')
+    expect(r.kind).toBe('choose-vault')
+    expect(await resolveVault(keyStore, su.userId, 'hunter2', nv.vaultId)).toMatchObject({ kind: 'unlocked', vaultId: nv.vaultId })
+    await expect(resolveVault(keyStore, su.userId, 'hunter2', 'someone-elses')).rejects.toMatchObject({ kind: 'not-found' })
+  })
+
+  it('toDeviceKek keeps the key usable but not exportable', async () => {
+    const su = await signUp({ auth, keyStore }, 'a@example.com', 'hunter2')
+    const device = await toDeviceKek(su.kek)
+    expect(device.extractable).toBe(false)
+    const plaintext = new TextEncoder().encode('x')
+    bytesEqual(await decrypt(device, await encrypt(su.kek, plaintext)), plaintext)
+    await expect(crypto.subtle.exportKey('raw', device)).rejects.toBeDefined()
   })
 })

@@ -11,6 +11,7 @@ function fake(failing = false) {
     indexer: { flushPending: vi.fn(async () => {}) },
     notes: { flushAll: vi.fn(async () => {}), retryAll: vi.fn(), hasFailedWrites: () => failing, hasUnsaved: () => failing },
     clearOwnStash: vi.fn(),
+    account: { init: vi.fn(async () => {}) },
     stashUnsaved: vi.fn(),
     vault: { flushWrites: vi.fn(async () => {}), retryWrites: vi.fn(), hasFailedWrites: () => false, hasPendingWrites: () => false },
   }

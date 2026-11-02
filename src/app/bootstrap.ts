@@ -1,3 +1,4 @@
+import { createDeferredAccount, createUnavailableAccount, type AccountService } from './account-service'
 import { createMirrorService, type MirrorService } from './mirror-service'
 import { createTransferServices, type TransferServices } from './transfer-services'
 import * as Y from 'yjs'
@@ -38,6 +39,8 @@ export type AppServices = {
   mirror: MirrorService
   /** Note to open on startup (live note from meta.lastNoteId, else most recent, else null). */
   initialNoteId: string | null
+  /** Sign-in and cloud sync (phase 3f). `unavailable` when no Supabase project is configured. */
+  account: AccountService
   /** Persists meta.lastNoteId. */
   setLastNoteId(id: string): void
   /** Synchronously stashes every not-yet-stored update (pagehide); recovered on the next start. */
@@ -53,6 +56,19 @@ export interface BootstrapOptions {
   forceMemory?: boolean
   /** Seed the 「功能導覽」 notes into a brand-new vault (default true; off for the bench and e2e runs). */
   seedGuide?: boolean
+  /** Replaces the account service (tests). */
+  createAccount?: (s: { db: NotesDb; storage: StorageAdapter; vault: Vault; notes: NoteDocCache }) => AccountService
+}
+
+// Read when this module loads, before the Supabase client (loaded later) consumes the reset link's URL.
+const RECOVERY_URL = typeof location !== 'undefined' && /(^|[#&])type=recovery(&|$)/.test(location.hash)
+
+const supabaseConfigured = () => !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+
+function defaultAccount(s: { db: NotesDb; storage: StorageAdapter; vault: Vault; notes: NoteDocCache }, mode: 'persistent' | 'memory'): AccountService {
+  // Memory mode (private window without IndexedDB, tests) keeps no key between sessions: local-only.
+  if (mode !== 'persistent' || !supabaseConfigured()) return createUnavailableAccount()
+  return createDeferredAccount(async () => (await import('./cloud-account')).createCloudAccount({ ...s, recoveryUrl: RECOVERY_URL }))
 }
 
 const VAULT_ID = 'default-vault'
@@ -206,9 +222,12 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
     else initialNoteId = [...live].sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null
   }
 
+  const account = (opts.createAccount ?? ((x) => defaultAccount(x, mode)))({ db, storage, vault, notes })
+
   return {
     storage, db, vault, notes, indexer, search, prefs, persistence,
     storageMode: mode, storageErrors: { subscribe: errors.subscribe }, maintenance, transfer, mirror, initialNoteId, setLastNoteId,
+    account,
     stashUnsaved() {
       if (mode !== 'persistent') return
       vault.stashUnsaved(stashUpdate)

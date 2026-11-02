@@ -50,6 +50,16 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
 
   const services = state.status === 'ready' ? state.services : null
   useEffect(() => (services ? startPageLifecycle(services) : undefined), [services])
+  // A reset-password link lands here: open the account settings so the new password can be set.
+  useEffect(() => {
+    if (!services) return
+    const { account } = services
+    const check = () => {
+      if (account.getState().status === 'set-password') useUi.getState().setSettings(true, 'account')
+    }
+    check()
+    return account.subscribe(check)
+  }, [services])
 
   if (state.status === 'loading') {
     return <div className="grid min-h-screen place-items-center">正在開啟筆記…</div>

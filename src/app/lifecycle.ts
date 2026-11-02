@@ -19,6 +19,7 @@ export const MAINTENANCE_DELAY_MS = 5000
  */
 export function startPageLifecycle(s: AppServices, win: Win = window, doc: Document = document): () => void {
   applyTitleDrafts(s.vault) // titles typed right before the last close/reload
+  void s.account.init().catch((e) => console.warn('[account]', e))
   // Not urgent: start a little after the first render so it does not compete with opening the note.
   let idle: number | null = null
   const delay = setTimeout(() => {

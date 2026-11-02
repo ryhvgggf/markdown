@@ -16,6 +16,8 @@ export interface UiState {
   /** What the sidebar card shows: the folder tree, the trash, or the attachments list. */
   sidebarView: SidebarView
   settingsOpen: boolean
+  /** The settings tab to show when the window opens (null: keep the last one). */
+  settingsSection: string | null
   /** The 資料 window (export, import, folder sync, restore, maintenance). */
   dataOpen: boolean
   /** The import dialog: null closed; [] open at the file picker; files: open with those files. */
@@ -30,7 +32,7 @@ export interface UiState {
   setQuickSwitcher(v: boolean, seed?: string): void
   setSidebarOverlay(v: boolean): void
   setSidebarView(v: SidebarView): void
-  setSettings(v: boolean): void
+  setSettings(v: boolean, section?: string): void
   setData(v: boolean): void
   openImport(files?: File[]): void
   closeImport(): void
@@ -48,6 +50,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     sidebarOverlayOpen: false,
     sidebarView: 'tree',
     settingsOpen: false,
+    settingsSection: null,
     dataOpen: false,
     importFiles: null,
     highlightBlockId: null,
@@ -63,7 +66,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     setQuickSwitcher: (quickSwitcherOpen, seed = '') => set({ quickSwitcherOpen, quickSwitcherSeed: seed }),
     setSidebarOverlay: (sidebarOverlayOpen) => set({ sidebarOverlayOpen }),
     setSidebarView: (sidebarView) => set({ sidebarView }),
-    setSettings: (settingsOpen) => set({ settingsOpen }),
+    setSettings: (settingsOpen, section) => set(section ? { settingsOpen, settingsSection: section } : { settingsOpen }),
     setData: (dataOpen) => set({ dataOpen }),
     openImport: (files = []) => set({ importFiles: files }),
     closeImport: () => set({ importFiles: null }),
