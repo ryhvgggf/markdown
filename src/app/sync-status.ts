@@ -10,8 +10,6 @@ export type SyncIssueKind = 'offline' | 'conflict' | 'failed'
 export interface SyncIssue {
   docId: string
   kind: SyncIssueKind
-  /** The error's own message (failed only), so the cause can be read without the console. */
-  message?: string
 }
 export interface SyncStatus {
   state: 'off' | 'syncing' | 'synced' | 'error'
@@ -111,8 +109,7 @@ export function createSyncStatus(opts: { channelFactory?: (name: string) => Broa
         error(e, docId) {
           if (!live()) return
           const kind = kindOf(e)
-          const issue: SyncIssue = kind === 'failed' ? { docId, kind, message: e instanceof Error ? e.message : String(e) } : { docId, kind }
-          const issues = status.issues.some((i) => i.docId === docId && i.kind === kind) ? status.issues : [...status.issues, issue]
+          const issues = status.issues.some((i) => i.docId === docId && i.kind === kind) ? status.issues : [...status.issues, { docId, kind }]
           set(derive(issues), true)
         },
       }

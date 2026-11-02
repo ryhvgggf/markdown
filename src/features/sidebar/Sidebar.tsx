@@ -22,7 +22,6 @@ export function Sidebar() {
   const { vault, storageMode, account } = useServices()
   const signedIn = useAccount(account).status === 'unlocked'
   const syncStatus = useSyncStatus(account)
-  const [confirmUnsync, setConfirmUnsync] = useState<string | null>(null)
   const { tree: manualTree, trashed, attachments, notes } = useVaultSnapshot()
   const { sidebarSort, sidebarSortDir } = usePrefs()
   const tree = useMemo(() => sortTree(manualTree, { key: sidebarSort, dir: sidebarSortDir }), [manualTree, sidebarSort, sidebarSortDir])
@@ -34,6 +33,29 @@ export function Sidebar() {
   const setView = useUi((s) => s.setSidebarView)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const trashCount = trashRoots(trashed).length
+  // 同步到雲端 selection: the notes whose box was clicked, with the state they should end up in.
+  const [picks, setPicks] = useState<Map<string, boolean> | null>(null)
+  const [confirmUnsync, setConfirmUnsync] = useState(false)
+  const selecting = picks !== null && signedIn && view === 'tree'
+  const isSynced = (id: string) => vault.getNote(id)?.synced === true
+  const selection = selecting
+    ? {
+        has: (id: string) => picks.get(id) ?? isSynced(id),
+        toggle: (id: string) =>
+          setPicks((m) => {
+            const next = new Map(m)
+            next.set(id, !(m?.get(id) ?? isSynced(id)))
+            return next
+          }),
+      }
+    : null
+  const changes = [...(picks ?? [])].filter(([id, on]) => vault.getNote(id) && on !== isSynced(id))
+  const unsyncCount = changes.filter(([, on]) => !on).length
+  const applyPicks = () => {
+    for (const [id, on] of changes) vault.setNoteSynced(id, on)
+    setPicks(null)
+    setConfirmUnsync(false)
+  }
 
   // Reveal the open note: expand its ancestors when it changes.
   useEffect(() => {
@@ -68,15 +90,27 @@ export function Sidebar() {
     >
       {view === 'tree' ? (
         <>
-          <div className="flex items-center gap-1 px-4 pt-3 pb-2">
-            <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-wide text-fg-secondary">我的知識庫</h2>
-            <IconButton label="新增筆記" tooltip onClick={() => actions.createNote()}>
-              <Plus size={16} />
-            </IconButton>
-            <IconButton label="新增資料夾" tooltip onClick={() => setRenamingId(actions.createFolder(null))}>
-              <FolderPlus size={16} />
-            </IconButton>
-          </div>
+          {selecting ? (
+            <div className="flex items-center gap-1 px-3 pt-2.5 pb-1.5">
+              <h2 className="min-w-0 flex-1 truncate pl-1 text-[13px] font-semibold text-fg-secondary">點選要同步的筆記</h2>
+              <Button variant="ghost" onClick={() => setPicks(null)}>
+                取消
+              </Button>
+              <Button variant="primary" onClick={() => (unsyncCount > 0 ? setConfirmUnsync(true) : applyPicks())}>
+                完成
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 px-4 pt-3 pb-2">
+              <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-wide text-fg-secondary">我的知識庫</h2>
+              <IconButton label="新增筆記" tooltip onClick={() => actions.createNote()}>
+                <Plus size={16} />
+              </IconButton>
+              <IconButton label="新增資料夾" tooltip onClick={() => setRenamingId(actions.createFolder(null))}>
+                <FolderPlus size={16} />
+              </IconButton>
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-auto">
             {loaded && (
               <FolderTree
@@ -87,7 +121,8 @@ export function Sidebar() {
                 renamingId={renamingId}
                 setRenamingId={setRenamingId}
                 syncable={signedIn}
-                setSynced={(id, on) => (on ? vault.setNoteSynced(id, true) : setConfirmUnsync(id))}
+                onSyncSelect={() => setPicks(new Map())}
+                selection={selection}
               />
             )}
           </div>
@@ -136,23 +171,13 @@ export function Sidebar() {
           </>
         )}
       </p>
-      <Dialog
-        title="停止同步這篇筆記？"
-        open={confirmUnsync !== null}
-        onOpenChange={(open) => !open && setConfirmUnsync(null)}
-      >
+      <Dialog title={`停止同步 ${unsyncCount} 篇筆記？`} open={selecting && confirmUnsync} onOpenChange={setConfirmUnsync}>
         <p className="text-sm text-fg-secondary">雲端副本會被刪除，其他裝置保留目前的內容但不再更新。這台裝置上的筆記不受影響。</p>
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setConfirmUnsync(null)}>
+          <Button variant="ghost" onClick={() => setConfirmUnsync(false)}>
             取消
           </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              if (confirmUnsync && vault.getNote(confirmUnsync)) vault.setNoteSynced(confirmUnsync, false)
-              setConfirmUnsync(null)
-            }}
-          >
+          <Button variant="primary" onClick={applyPicks}>
             停止同步
           </Button>
         </div>

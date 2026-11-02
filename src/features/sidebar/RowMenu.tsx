@@ -5,12 +5,13 @@ import { More } from '@/ui/icons'
 import type { Kind } from './dnd'
 
 export interface RowMenuActions {
-  rename(): void
+  /** Folders only: a note's title is its name, edited in the note itself. */
+  rename?(): void
   newNote?(): void
   newSubfolder?(): void
   exportMd?(): void
-  /** Notes, while signed in: the 同步到雲端 toggle. */
-  sync?: { on: boolean; set(on: boolean): void }
+  /** Notes, while signed in: opens the 同步到雲端 selection. */
+  syncSelect?(): void
   trash(): void
 }
 
@@ -67,19 +68,15 @@ export function RowMenu({
       }}
       trigger={trigger({})}
     >
-      <Menu.Item onSelect={pick(actions.rename, true)}>重新命名</Menu.Item>
+      {actions.rename && <Menu.Item onSelect={pick(actions.rename, true)}>重新命名</Menu.Item>}
       {kind === 'folder' && (
         <>
           <Menu.Item onSelect={pick(actions.newNote, false)}>新增筆記</Menu.Item>
           <Menu.Item onSelect={pick(actions.newSubfolder, true)}>新增子資料夾</Menu.Item>
         </>
       )}
-      {actions.exportMd && <Menu.Item onSelect={pick(actions.exportMd)}>匯出為 Markdown</Menu.Item>}
-      {actions.sync && (
-        <Menu.CheckboxItem checked={actions.sync.on} onCheckedChange={(on) => actions.sync?.set(on)}>
-          同步到雲端
-        </Menu.CheckboxItem>
-      )}
+      {actions.exportMd && <Menu.Item onSelect={pick(actions.exportMd)}>{kind === 'folder' ? '下載此資料夾' : '下載此筆記'}</Menu.Item>}
+      {actions.syncSelect && <Menu.Item onSelect={pick(actions.syncSelect)}>同步到雲端</Menu.Item>}
       <Menu.Separator />
       <Menu.Item onSelect={pick(actions.trash)}>移到垃圾桶</Menu.Item>
     </Menu>

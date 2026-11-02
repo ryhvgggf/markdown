@@ -17,8 +17,6 @@ export interface RowApi {
   expand(id: string, open: boolean): void
   rename(id: string, value: string): RenameResult
   renameDone(): void
-  /** 同步到雲端 on/off (off asks first). */
-  setSynced(id: string, on: boolean): void
 }
 
 export interface TreeItemProps {
@@ -29,8 +27,12 @@ export interface TreeItemProps {
   tabbable: boolean
   drop: Zone | null
   renaming: boolean
-  /** Signed in, so notes can be synced (shows the toggle and the cloud mark). */
+  /** Signed in, so notes can be synced (shows the cloud mark). */
   syncable: boolean
+  /** 同步到雲端 selection: note rows show a checkbox and a click ticks it. */
+  selecting: boolean
+  /** The checkbox, while selecting. */
+  checked: boolean
   api: RowApi
 }
 
@@ -50,6 +52,8 @@ const same = (a: TreeItemProps, b: TreeItemProps) =>
   a.drop === b.drop &&
   a.renaming === b.renaming &&
   a.syncable === b.syncable &&
+  a.selecting === b.selecting &&
+  a.checked === b.checked &&
   synced(a.node) === synced(b.node) &&
   a.api === b.api &&
   a.node.kind === b.node.kind &&
@@ -58,17 +62,22 @@ const same = (a: TreeItemProps, b: TreeItemProps) =>
 
 export const TreeItem = memo(TreeItemRow, same)
 
+/** Which menu items a row shows: notes have no 重新命名 (the title is the name); 同步到雲端 needs sign-in. */
+function rowMenu(m: RowMenuActions, isNote: boolean, syncable: boolean): RowMenuActions {
+  return { ...m, rename: isNote ? undefined : m.rename, syncSelect: isNote && syncable ? m.syncSelect : undefined }
+}
+
 function TreeItemRow(props: TreeItemProps) {
   useEffect(() => {
     rowRenders.count++ // after every render
   })
   const { api } = props
   const ref = nodeRef(props.node)
-  const cloud = props.syncable && props.node.kind === 'note'
-  const isSynced = synced(props.node)
+  const isNote = props.node.kind === 'note'
+  const cloudMark = props.syncable && isNote && synced(props.node) && !props.selecting
   const p = {
     ...props,
-    menu: cloud ? { ...api.menu(ref.id), sync: { on: isSynced, set: (on: boolean) => api.setSynced(ref.id, on) } } : api.menu(ref.id),
+    menu: rowMenu(api.menu(ref.id), isNote, props.syncable),
     onActivate: () => api.activate(ref.id),
     onExpand: (open: boolean) => api.expand(ref.id, open),
     onRename: (v: string) => api.rename(ref.id, v),
@@ -76,7 +85,7 @@ function TreeItemRow(props: TreeItemProps) {
   }
   const name = label(p.node)
   const [menuOpen, setMenuOpen] = useState(false)
-  const drag = useDraggable({ id: ref.id, data: ref, disabled: p.renaming })
+  const drag = useDraggable({ id: ref.id, data: ref, disabled: p.renaming || p.selecting })
 
   // React events bubble out of the menu portal into this row; ignore those.
   const inside = (e: { currentTarget: Element; target: EventTarget }) => e.currentTarget.contains(e.target as Node)
@@ -85,7 +94,7 @@ function TreeItemRow(props: TreeItemProps) {
     if (e.target !== e.currentTarget) return
     const isFolder = p.node.kind === 'folder'
     if (e.key === 'Enter' || e.key === ' ') p.onActivate()
-    else if (e.key === 'F2') p.menu.rename()
+    else if (e.key === 'F2') p.menu.rename?.()
     else if (e.key === 'ArrowRight' && isFolder) p.onExpand(true)
     else if (e.key === 'ArrowLeft' && isFolder) p.onExpand(false)
     else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -118,7 +127,7 @@ function TreeItemRow(props: TreeItemProps) {
       onContextMenu={(e) => {
         if (!inside(e)) return
         e.preventDefault()
-        setMenuOpen(true)
+        if (!p.selecting) setMenuOpen(true)
       }}
       onKeyDown={onKeyDown}
       onPointerDown={(e) => inside(e) && !p.renaming && drag.listeners?.onPointerDown?.(e)}
@@ -133,13 +142,25 @@ function TreeItemRow(props: TreeItemProps) {
           />
         )}
       </span>
+      {p.selecting && isNote && (
+        <span
+          role="checkbox"
+          aria-checked={p.checked}
+          aria-label={name}
+          className={`grid size-4 shrink-0 place-items-center rounded-[4px] text-[11px] leading-none text-white ${
+            p.checked ? 'bg-accent' : 'shadow-[inset_0_0_0_1.5px_rgba(0,0,0,0.25)]'
+          }`}
+        >
+          {p.checked ? '✓' : ''}
+        </span>
+      )}
       {p.renaming ? (
         <RenameInput initial={p.node.kind === 'folder' ? p.node.folder.name : p.node.note.title} onCommit={p.onRename} onDone={p.onRenameDone} />
       ) : (
         <span className="min-w-0 flex-1 truncate">{name}</span>
       )}
-      {cloud && isSynced && !p.renaming && <Cloud size={13} aria-hidden={false} role="img" aria-label="已同步到雲端" className="shrink-0 text-fg-tertiary" />}
-      {!p.renaming && <RowMenu kind={ref.kind} open={menuOpen} onOpenChange={setMenuOpen} actions={p.menu} />}
+      {cloudMark && !p.renaming && <Cloud size={13} aria-hidden={false} role="img" aria-label="已同步到雲端" className="shrink-0 text-fg-tertiary" />}
+      {!p.renaming && !p.selecting && <RowMenu kind={ref.kind} open={menuOpen} onOpenChange={setMenuOpen} actions={p.menu} />}
     </div>
   )
 }

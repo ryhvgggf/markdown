@@ -45,13 +45,15 @@ export interface FolderTreeProps {
   toggle(id: string): void
   renamingId: string | null
   setRenamingId(id: string | null): void
-  /** Signed in: notes get the 同步到雲端 toggle. */
+  /** Signed in: notes get the 同步到雲端 menu item and the cloud mark. */
   syncable?: boolean
-  /** Turning sync on happens at once; off goes through here (it asks first). */
-  setSynced?(id: string, on: boolean): void
+  /** Opens the 同步到雲端 selection. */
+  onSyncSelect?(): void
+  /** While selecting notes to sync: what each checkbox shows, and a click on a note ticks it. */
+  selection?: { has(id: string): boolean; toggle(id: string): void } | null
 }
 
-export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRenamingId, syncable = false, setSynced }: FolderTreeProps) {
+export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRenamingId, syncable = false, onSyncSelect, selection = null }: FolderTreeProps) {
   const openNoteId = useUi((s) => s.openNoteId)
   const rows = useMemo(() => flatten(tree, expanded), [tree, expanded])
   const sensors = useSensors(useSensor(PointerSensor, POINTER_OPTIONS))
@@ -63,11 +65,13 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
   const fresh: RowApi = {
     menu: (id) => {
       const node = byId.get(id)?.node
+      const isNote = node?.kind === 'note'
       return {
-        rename: () => setRenamingId(id),
+        rename: isNote ? undefined : () => setRenamingId(id),
         newNote: () => actions.createNote(id),
         newSubfolder: () => setRenamingId(actions.createFolder(id)),
         exportMd: () => node && void actions.exportMarkdown(nodeRef(node)),
+        syncSelect: isNote && syncable && onSyncSelect ? onSyncSelect : undefined,
         trash: () => node && actions.trash(node),
       }
     },
@@ -75,6 +79,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
       const node = byId.get(id)?.node
       if (!node) return
       if (node.kind === 'folder') toggle(id)
+      else if (selection) selection.toggle(id)
       else actions.openNote(id)
     },
     expand: (id, open) => {
@@ -85,7 +90,6 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
       return node ? actions.rename(nodeRef(node), v) : 'ok'
     },
     renameDone: () => setRenamingId(null),
-    setSynced: (id, on) => setSynced?.(id, on),
   }
   useLayoutEffect(() => {
     latest.current = fresh
@@ -94,13 +98,19 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
     () => ({
       menu: (id) => {
         const m = () => latest.current!.menu(id)
-        return { rename: () => m().rename(), newNote: () => m().newNote?.(), newSubfolder: () => m().newSubfolder?.(), exportMd: () => m().exportMd?.(), trash: () => m().trash() }
+        return {
+          rename: () => m().rename?.(),
+          newNote: () => m().newNote?.(),
+          newSubfolder: () => m().newSubfolder?.(),
+          exportMd: () => m().exportMd?.(),
+          syncSelect: () => m().syncSelect?.(),
+          trash: () => m().trash(),
+        }
       },
       activate: (id) => latest.current!.activate(id),
       expand: (id, open) => latest.current!.expand(id, open),
       rename: (id, v) => latest.current!.rename(id, v),
       renameDone: () => latest.current!.renameDone(),
-      setSynced: (id, on) => latest.current!.setSynced(id, on),
     }),
     [],
   )
@@ -139,6 +149,8 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
           drop={node.kind === 'folder' && drop && drop.over !== ROOT && drop.over.id === ref.id ? drop.zone : null}
           renaming={renamingId === ref.id}
           syncable={syncable}
+          selecting={selection !== null}
+          checked={node.kind === 'note' && selection !== null && selection.has(node.note.id)}
           api={api}
         />
       )

@@ -347,6 +347,9 @@ function NeedsRecovery({ account }: { account: AccountService }) {
   )
 }
 
+/** 「重新產生復原碼」暫時隱藏（功能完整，需要時改成 true）。 */
+const SHOW_REGENERATE_RECOVERY_CODE = false
+
 function Unlocked({ account, email }: { account: AccountService; email: string }) {
   const { busy, error, run } = useAction()
   const [regen, setRegen] = useState(false)
@@ -360,9 +363,11 @@ function Unlocked({ account, email }: { account: AccountService; email: string }
         <Button disabled={busy} onClick={() => void run(() => account.signOut())}>
           登出
         </Button>
-        <Button variant="ghost" onClick={() => setRegen(true)}>
-          重新產生復原碼
-        </Button>
+        {SHOW_REGENERATE_RECOVERY_CODE && (
+          <Button variant="ghost" onClick={() => setRegen(true)}>
+            重新產生復原碼
+          </Button>
+        )}
       </div>
     </div>
   )
@@ -420,9 +425,7 @@ function SyncProblems({ account }: { account: AccountService }) {
   }
   const lines = [
     ...(issues.some((i) => i.kind === 'offline') ? ['無法連線，恢復後自動補傳'] : []),
-    ...issues.flatMap((i) =>
-      i.kind === 'offline' ? [] : [`${name(i.docId)}${ISSUE_TEXT[i.kind]}${i.message ? `（${i.message}）` : ''}`],
-    ),
+    ...issues.flatMap((i) => (i.kind === 'offline' ? [] : [`${name(i.docId)}${ISSUE_TEXT[i.kind]}`])),
   ]
   return (
     <div className="flex max-w-md flex-col gap-2 rounded-control bg-amber-50 px-3 py-2">

@@ -163,33 +163,29 @@ describe('Sidebar actions', () => {
     expect(screen.queryByRole('textbox', { name: '重新命名' })).toBeNull()
   })
 
-  it('context menu renames a note, rejecting duplicates with 已有同名筆記', async () => {
+  it('a note menu has no 重新命名 (the title is its name) and offers 下載此筆記; F2 does nothing on a note', async () => {
     vault.createNote({ title: 'Alpha' })
-    const b = vault.createNote({ title: 'Beta' })
     mount()
-    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Beta/ }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '重新命名' }))
-    const input = await screen.findByRole('textbox', { name: '重新命名' })
-    fireEvent.change(input, { target: { value: 'alpha' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(screen.getByText('已有同名筆記')).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: '重新命名' })).toBeInTheDocument()
-    expect(vault.getNote(b.id)?.title).toBe('Beta')
-    fireEvent.change(input, { target: { value: 'Gamma' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(vault.getNote(b.id)?.title).toBe('Gamma')
+    const row = await screen.findByRole('treeitem', { name: /Alpha/ })
+    fireEvent.contextMenu(row)
+    expect(await screen.findByRole('menuitem', { name: '下載此筆記' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '重新命名' })).toBeNull()
+    fireEvent.keyDown(row, { key: 'Escape' })
+    fireEvent.keyDown(row, { key: 'F2' })
+    expect(screen.queryByRole('textbox', { name: '重新命名' })).toBeNull()
   })
 
-  it('Escape cancels a rename', async () => {
-    const a = vault.createNote({ title: 'Alpha' })
+  it('a folder renames from its menu; Escape cancels', async () => {
+    const f = vault.createFolder({ name: '專案', parentId: null })
     mount()
-    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Alpha/ }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '重新命名' }))
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /專案/ }))
+    expect(await screen.findByRole('menuitem', { name: '下載此資料夾' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: '重新命名' }))
     const input = await screen.findByRole('textbox', { name: '重新命名' })
     fireEvent.change(input, { target: { value: 'Zed' } })
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(screen.queryByRole('textbox', { name: '重新命名' })).toBeNull()
-    expect(vault.getNote(a.id)?.title).toBe('Alpha')
+    expect(vault.listFolders().find((x) => x.id === f.id)?.name).toBe('專案')
   })
 
   it('folder menu offers 新增子資料夾 and 新增筆記', async () => {
@@ -330,7 +326,7 @@ describe('row menus (typing cost)', () => {
     mount()
     const r = await screen.findByRole('treeitem', { name: /Solo/ })
     fireEvent.pointerDown(within(r).getByRole('button', { name: '更多操作', hidden: true }), { button: 0, pointerType: 'mouse' })
-    expect(await screen.findByRole('menuitem', { name: '重新命名' })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: '下載此筆記' })).toBeInTheDocument()
   })
 })
 
@@ -358,34 +354,60 @@ describe('同步到雲端 (3f-2)', () => {
     vault.createNote({ title: 'Alpha' })
     mount()
     fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Alpha/ }))
-    await screen.findByRole('menuitem', { name: '重新命名' })
-    expect(screen.queryByRole('menuitemcheckbox', { name: '同步到雲端' })).toBeNull()
+    await screen.findByRole('menuitem', { name: '下載此筆記' })
+    expect(screen.queryByRole('menuitem', { name: '同步到雲端' })).toBeNull()
   })
 
-  it('turns sync on at once; turning it off asks first and keeps the note', async () => {
+  it('同步到雲端 opens a selection: clicking notes ticks them, 完成 applies; turning off asks first', async () => {
     account = fakeAccount(unlocked)
-    const n = vault.createNote({ title: 'Alpha' })
+    const a = vault.createNote({ title: 'Alpha' })
+    const b = vault.createNote({ title: 'Beta' })
+    const c = vault.createNote({ title: 'Gamma' })
+    vault.setNoteSynced(c.id, true)
     mount()
-    const row = await screen.findByRole('treeitem', { name: /Alpha/ })
-    expect(within(row).queryByLabelText('已同步到雲端')).toBeNull()
-    fireEvent.contextMenu(row)
-    const item = await screen.findByRole('menuitemcheckbox', { name: '同步到雲端' })
-    expect(item).toHaveAttribute('aria-checked', 'false')
-    fireEvent.click(item)
-    expect(vault.getNote(n.id)!.synced).toBe(true)
-    await waitFor(() => expect(within(screen.getByRole('treeitem', { name: /Alpha/ })).getByLabelText('已同步到雲端')).toBeInTheDocument())
-
+    expect(within(await screen.findByRole('treeitem', { name: /Gamma/ })).getByLabelText('已同步到雲端')).toBeInTheDocument()
     fireEvent.contextMenu(screen.getByRole('treeitem', { name: /Alpha/ }))
-    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: '同步到雲端', checked: true }))
-    const dialog = await screen.findByRole('dialog', { name: '停止同步這篇筆記？' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '同步到雲端' }))
+
+    const box = (t: string) => within(screen.getByRole('treeitem', { name: new RegExp(t) })).getByRole('checkbox')
+    expect(box('Alpha')).toHaveAttribute('aria-checked', 'false')
+    expect(box('Gamma')).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(screen.getByRole('treeitem', { name: /Alpha/ }))
+    fireEvent.click(screen.getByRole('treeitem', { name: /Beta/ }))
+    fireEvent.click(screen.getByRole('treeitem', { name: /Beta/ })) // and back
+    fireEvent.click(screen.getByRole('treeitem', { name: /Gamma/ }))
+    expect(box('Alpha')).toHaveAttribute('aria-checked', 'true')
+    expect(useUi.getState().openNoteId).toBeNull() // clicks select, they don't open
+    expect(vault.getNote(a.id)!.synced).toBe(false) // nothing applied yet
+
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    const dialog = await screen.findByRole('dialog', { name: '停止同步 1 篇筆記？' })
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
-    expect(vault.getNote(n.id)!.synced).toBe(true)
+    expect(screen.getByRole('button', { name: '完成' })).toBeInTheDocument() // back to selecting
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '停止同步' }))
+    expect(vault.getNote(a.id)!.synced).toBe(true)
+    expect(vault.getNote(b.id)!.synced).toBe(false)
+    expect(vault.getNote(c.id)!.synced).toBe(false)
+    expect(screen.queryByRole('checkbox')).toBeNull()
+  })
+
+  it('取消 leaves sync as it was; turning only on needs no confirmation', async () => {
+    account = fakeAccount(unlocked)
+    const a = vault.createNote({ title: 'Alpha' })
+    mount()
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Alpha/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '同步到雲端' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: /Alpha/ }))
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(vault.getNote(a.id)!.synced).toBe(false)
 
     fireEvent.contextMenu(screen.getByRole('treeitem', { name: /Alpha/ }))
-    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: '同步到雲端' }))
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '停止同步' }))
-    expect(vault.getNote(n.id)!.synced).toBe(false)
-    expect(vault.getNote(n.id)).toBeDefined()
+    fireEvent.click(await screen.findByRole('menuitem', { name: '同步到雲端' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: /Alpha/ }))
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    expect(vault.getNote(a.id)!.synced).toBe(true)
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('the status line shows sync progress and problems, and opens the account settings', async () => {
