@@ -274,4 +274,114 @@ describe('mirror', () => {
     expect(man.notes).toEqual([expect.objectContaining({ id: n.id, path: 'A.md', title: 'A' })])
     expect(man.notes[0].doc).toBeUndefined()
   })
+
+  describe('records lost (site data cleared, restored backup)', () => {
+    const restart = async (dir: ReturnType<typeof memoryDir>) => {
+      await db.meta.clear()
+      const m = new Mirror(deps())
+      mirrors.push(m)
+      await m.start(dir)
+      await m.whenIdle()
+      return m
+    }
+
+    it('a folder file identical to what would be written is adopted, not kept as an outside edit', async () => {
+      const n = await note('A', doc(p('一')))
+      const { m, dir } = await started()
+      await m.stop()
+      const m2 = await restart(dir)
+      expect([...dir.files.keys()].filter((k) => k.includes('外部修改'))).toEqual([])
+      expect(m2.snapshot.conflicts).toEqual([])
+      expect(m2.snapshot.files[n.id].path).toBe('A.md')
+    })
+
+    it('a differing folder file without a record is still kept', async () => {
+      await note('A', doc(p('一')))
+      const { m, dir } = await started()
+      await m.stop()
+      dir.files.set('A.md', { data: '外面改了', mtime: ++clock })
+      const m2 = await restart(dir)
+      expect([...dir.files.keys()].filter((k) => k.includes('外部修改'))).toHaveLength(1)
+      expect(m2.snapshot.conflicts).toHaveLength(1)
+    })
+
+    it('the folder manifest restores the records: a note edited since is overwritten without a kept copy', async () => {
+      const n = await note('A', doc(p('一')))
+      const { m, dir } = await started()
+      await m.writeManifest()
+      await m.stop()
+      await io.replace(n.id, doc(p('二')))
+      await restart(dir)
+      expect([...dir.files.keys()].filter((k) => k.includes('外部修改'))).toEqual([])
+      expect(await text(dir, 'A.md')).toBe('二\n')
+    })
+
+    it('adopting leaves the file untouched (same mtime)', async () => {
+      await note('A', doc(p('一')))
+      const { m, dir } = await started()
+      await m.stop()
+      const before = dir.files.get('A.md')!.mtime
+      await restart(dir)
+      expect(dir.files.get('A.md')!.mtime).toBe(before)
+    })
+
+    it('a manifest newer than the restored vault is not trusted: the folder text is kept', async () => {
+      const n = await note('A', doc(p('一')))
+      const { m, dir } = await started()
+      await m.writeManifest()
+      await m.stop()
+      const raw = JSON.parse(await text(dir, '.notes-v2.json') as string)
+      raw.notes[0].updatedAt = vault.getNote(n.id)!.updatedAt + 1000
+      dir.files.set('.notes-v2.json', { data: JSON.stringify(raw), mtime: ++clock })
+      await io.replace(n.id, doc(p('舊備份')))
+      await restart(dir)
+      expect([...dir.files.keys()].filter((k) => k.includes('外部修改'))).toHaveLength(1)
+    })
+
+    it('a broken manifest is ignored', async () => {
+      await note('A', doc(p('一')))
+      const { m, dir } = await started()
+      await m.stop()
+      for (const bad of ['{不是 json', '{"format":"notes-v2","notes":[null,{"id":1}]}']) {
+        dir.files.set('.notes-v2.json', { data: bad, mtime: ++clock })
+        await restart(dir)
+        expect([...dir.files.keys()].filter((k) => k.includes('外部修改'))).toEqual([])
+      }
+    })
+
+    it('resume() seeds from the manifest too', async () => {
+      const n = await note('A', doc(p('一')))
+      const { m, dir } = await started()
+      await m.writeManifest()
+      await m.stop()
+      await db.meta.clear()
+      await io.replace(n.id, doc(p('二')))
+      const m2 = new Mirror(deps())
+      mirrors.push(m2)
+      await m2.resume(dir)
+      expect([...dir.files.keys()].filter((k) => k.includes('外部修改'))).toEqual([])
+      expect(await text(dir, 'A.md')).toBe('二\n')
+    })
+
+    it('a stop during start does not throw', async () => {
+      await note('A', doc(p('一')))
+      const m = new Mirror(deps())
+      mirrors.push(m)
+      const dir = memoryDir(() => ++clock)
+      const started = m.start(dir)
+      await m.stop()
+      await expect(started).resolves.toBeUndefined()
+    })
+
+    it('the manifest is not trusted for a file that no longer matches its hash', async () => {
+      const n = await note('A', doc(p('一')))
+      const { m, dir } = await started()
+      await m.writeManifest()
+      await m.stop()
+      dir.files.set('A.md', { data: '外面改了', mtime: ++clock })
+      await io.replace(n.id, doc(p('二')))
+      await restart(dir)
+      expect([...dir.files.keys()].filter((k) => k.includes('外部修改'))).toHaveLength(1)
+    })
+  })
 })

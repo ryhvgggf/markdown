@@ -219,6 +219,81 @@ describe('ArrowUp in the first block', () => {
   })
 })
 
+describe('Backspace in an empty first block', () => {
+  const both = async (html: string) => {
+    render(
+      wrap(
+        <>
+          <TitleBlock noteId={noteId} />
+          <NoteEditor noteId={noteId} />
+        </>,
+      ),
+    )
+    await waitFor(() => expect(document.querySelector('.ProseMirror')).not.toBeNull())
+    const editor = useActiveEditor.getState().editor!
+    act(() => void editor.commands.setContent(html))
+    act(() => void editor.commands.setTextSelection(1))
+    const pm = document.querySelector('.ProseMirror') as HTMLElement
+    pm.focus()
+    return { editor, pm }
+  }
+
+  it('removes the empty block and moves to the end of the title when more blocks follow', async () => {
+    const { editor, pm } = await both('<p></p><p>second</p>')
+    fireEvent.keyDown(pm, { key: 'Backspace' })
+    expect(title()).toHaveFocus()
+    expect(editor.state.doc.childCount).toBe(1)
+    expect(editor.state.doc.textContent).toBe('second')
+  })
+
+  it('only moves to the title when it is the only block', async () => {
+    const { editor, pm } = await both('<p></p>')
+    fireEvent.keyDown(pm, { key: 'Backspace' })
+    expect(title()).toHaveFocus()
+    expect(editor.state.doc.childCount).toBe(1)
+  })
+
+  it('leaves a first block that has text alone', async () => {
+    const { editor, pm } = await both('<p>text</p><p>second</p>')
+    fireEvent.keyDown(pm, { key: 'Backspace' })
+    expect(title()).not.toHaveFocus()
+    expect(editor.state.doc.childCount).toBe(2)
+  })
+
+  it('does nothing during IME composition', async () => {
+    const { editor, pm } = await both('<p></p><p>second</p>')
+    fireEvent.keyDown(pm, { key: 'Backspace', keyCode: 229 })
+    expect(title()).not.toHaveFocus()
+    expect(editor.state.doc.childCount).toBe(2)
+  })
+})
+
+describe('Ctrl / ⌘ + click on a link', () => {
+  const setup = async () => {
+    render(wrap(<NoteEditor noteId={noteId} />))
+    await waitFor(() => expect(document.querySelector('.ProseMirror')).not.toBeNull())
+    const editor = useActiveEditor.getState().editor!
+    act(() => void editor.commands.setContent('<p><a href="https://example.com/x">link</a></p>'))
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    return { a: document.querySelector('.ProseMirror a') as HTMLElement, open }
+  }
+  afterEach(() => vi.restoreAllMocks())
+
+  it('opens a new tab for Ctrl and for ⌘', async () => {
+    const { a, open } = await setup()
+    fireEvent.click(a, { ctrlKey: true })
+    fireEvent.click(a, { metaKey: true })
+    expect(open).toHaveBeenCalledTimes(2)
+    expect(open).toHaveBeenCalledWith('https://example.com/x', '_blank', 'noopener,noreferrer')
+  })
+
+  it('a plain click only edits', async () => {
+    const { a, open } = await setup()
+    fireEvent.click(a)
+    expect(open).not.toHaveBeenCalled()
+  })
+})
+
 describe('ArrowDown in the title', () => {
   const both = () =>
     render(

@@ -1,5 +1,5 @@
 import type { NotesDb } from '@/adapters/storage/db'
-import type { Dir } from '@/adapters/fs/types'
+import type { Dir, FileStat } from '@/adapters/fs/types'
 import type { StorageAdapter } from '@/adapters/storage/types'
 import { hashText, localStamp, safeFileName, uniqueName } from '@/core/markdown/paths'
 import type { PMNode } from '@/core/markdown/types'
@@ -84,6 +84,8 @@ export class Mirror {
       if (this.gen !== gen) return
       // Read the records only now: while this tab waited, another one may have written files.
       this.state = await loadState(this.deps.db)
+      if (this.gen !== gen) return
+      await this.seedFromManifest(dir, gen)
       if (this.gen !== gen) return
       this.setStatus('active')
       this.stops.push(this.deps.onIndexed((id) => this.enqueue([id])))
@@ -213,6 +215,7 @@ export class Mirror {
   async resume(dir?: Dir): Promise<void> {
     if (dir) this.dir = dir
     if (!this.dir) return
+    await this.seedFromManifest(this.dir, this.gen)
     this.setStatus('active')
     await this.reconcile()
   }
@@ -237,13 +240,20 @@ export class Mirror {
       if (st && st.mtime === rec.mtime && st.size === rec.size) return
     }
 
-    if (!(await this.unchanged(dir, want.path, rec?.path === want.path ? rec : null))) await this.keepOutsideEdit(dir, id, want.path)
-    const st = await dir.write(want.path, text)
+    const known = rec?.path === want.path ? rec : null
+    let st: FileStat | null = null
+    if (!(await this.unchanged(dir, want.path, known))) {
+      // Records lost (site data cleared, backup restored): a file already holding exactly this text is ours.
+      if (!known) st = await this.sameText(dir, want.path, text)
+      if (!st) await this.keepOutsideEdit(dir, id, want.path)
+    }
+    const adopted = !!st
+    st ??= await dir.write(want.path, text)
     if (rec && rec.path !== want.path) {
       if (await this.unchanged(dir, rec.path, rec)) await dir.remove(rec.path)
     }
     this.state.files[id] = { path: want.path, hash, mtime: st.mtime, size: st.size, trashed: want.trashed, blockIds: blockIdsOf(doc) }
-    this.state.lastWriteAt = this.now()
+    if (!adopted) this.state.lastWriteAt = this.now()
   }
 
   /** True when the file is missing, or is exactly what the app last wrote there. */
@@ -251,6 +261,47 @@ export class Mirror {
     const st = await dir.stat(path)
     if (!st) return true
     return !!rec && st.mtime === rec.mtime && st.size === rec.size
+  }
+
+  /** The file's stat when it holds exactly `text`, else null (read and stat come from one read). */
+  private async sameText(dir: Dir, path: string, text: string): Promise<FileStat | null> {
+    const f = await dir.read(path)
+    if (!f || (await f.data.text()) !== text) return null
+    return { mtime: f.mtime, size: f.size }
+  }
+
+  /**
+   * Empty records + a manifest in the folder: trust each manifest entry whose file still hashes to
+   * its `mdHash` (nobody touched it since the app wrote it), so a note edited meanwhile is simply
+   * overwritten instead of the old file being kept as an "outside edit". Skipped when the manifest
+   * is newer than the vault's note (an older backup was restored: the folder holds the newer text).
+   * Any failure just leaves the records empty — the content comparison in syncNote still protects files.
+   */
+  private async seedFromManifest(rawDir: Dir, gen: number): Promise<void> {
+    if (Object.keys(this.state.files).length) return
+    const dir = this.gated(rawDir)
+    try {
+      const f = await dir.read(MANIFEST_PATH)
+      if (!f) return
+      const manifest = JSON.parse(await f.data.text()) as V2Manifest
+      if (manifest?.format !== 'notes-v2' || !Array.isArray(manifest.notes)) return
+      const want = desiredPaths(this.deps.vault)
+      for (const n of manifest.notes) {
+        if (this.gen !== gen) return
+        if (!n || typeof n.id !== 'string' || typeof n.path !== 'string' || typeof n.mdHash !== 'string') continue
+        const w = want.get(n.id)
+        const note = this.deps.vault.getNote(n.id)
+        if (!w || !note || w.path !== n.path) continue
+        if (typeof n.updatedAt === 'number' && n.updatedAt > note.updatedAt) continue
+        const file = await dir.read(n.path)
+        if (!file || hashText(await file.data.text()) !== n.mdHash) continue
+        if (this.gen !== gen) return
+        const blockIds = Array.isArray(n.blockIds) ? n.blockIds.filter((b): b is string => typeof b === 'string') : []
+        this.state.files[n.id] = { path: n.path, hash: n.mdHash, mtime: file.mtime, size: file.size, trashed: w.trashed, blockIds }
+      }
+    } catch {
+      /* unreadable or malformed manifest: no records seeded */
+    }
   }
 
   private async keepOutsideEdit(dir: Dir, noteId: string, path: string): Promise<void> {

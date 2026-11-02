@@ -4,6 +4,7 @@ import Code from '@tiptap/extension-code'
 import Highlight from '@tiptap/extension-highlight'
 import Italic from '@tiptap/extension-italic'
 import Link from '@tiptap/extension-link'
+import { Plugin } from '@tiptap/pm/state'
 import Strike from '@tiptap/extension-strike'
 import { Color, TextStyle } from '@tiptap/extension-text-style'
 import Underline from '@tiptap/extension-underline'
@@ -64,7 +65,29 @@ export function formattingExtensions(): AnyExtension[] {
     TextStyle,
     Color,
     Highlight.configure({ multicolor: true }),
-    Link.configure({
+    Link.extend({
+      // A plain click keeps editing; Ctrl / ⌘ + click opens the address in a new tab.
+      addProseMirrorPlugins() {
+        return [
+          ...(this.parent?.() ?? []),
+          new Plugin({
+            props: {
+              handleDOMEvents: {
+                click: (_view, event) => {
+                  if (!(event.ctrlKey || event.metaKey) || event.button !== 0) return false
+                  const a = (event.target as HTMLElement | null)?.closest?.('a')
+                  const href = a?.getAttribute('href')
+                  if (!href || !ALLOWED.test(href)) return false
+                  event.preventDefault()
+                  window.open(href, '_blank', 'noopener,noreferrer')
+                  return true
+                },
+              },
+            },
+          }),
+        ]
+      },
+    }).configure({
       openOnClick: false,
       autolink: true,
       linkOnPaste: true,

@@ -69,7 +69,7 @@ const ListItem = BaseListItem.extend({
 
 export const EMPTY_PLACEHOLDER = '輸入 / 插入區塊，或直接開始寫作'
 
-/** ArrowUp at the start of the first block moves focus to the title. */
+/** ArrowUp at the start of the first block, or Backspace in an empty first paragraph, moves focus to the title. */
 function titleNavigation(noteId: string) {
   return Extension.create({
     name: 'titleNavigation',
@@ -78,6 +78,19 @@ function titleNavigation(noteId: string) {
         new Plugin({
           props: {
             handleKeyDown(view, event) {
+              if (event.key === 'Backspace') {
+                if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false
+                if (isComposingEvent(event, view)) return false
+                const { selection, doc } = view.state
+                const { $from } = selection
+                // Only an empty plain paragraph at the very start; lists, headings etc. keep their own Backspace.
+                if (!selection.empty || $from.depth !== 1 || $from.index(0) !== 0) return false
+                if ($from.parent.type.name !== 'paragraph' || $from.parent.content.size !== 0) return false
+                event.preventDefault()
+                if (doc.childCount > 1) view.dispatch(view.state.tr.delete(0, $from.parent.nodeSize).scrollIntoView())
+                focusTitleEnd(noteId)
+                return true
+              }
               if (event.key !== 'ArrowUp' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false
               if (isComposingEvent(event, view)) return false
               const { selection } = view.state
