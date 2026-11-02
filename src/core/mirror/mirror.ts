@@ -215,7 +215,9 @@ export class Mirror {
   async resume(dir?: Dir): Promise<void> {
     if (dir) this.dir = dir
     if (!this.dir) return
-    await this.seedFromManifest(this.dir, this.gen)
+    const gen = this.gen
+    await this.seedFromManifest(this.dir, gen)
+    if (this.gen !== gen) return // stopped or restarted while the manifest was read
     this.setStatus('active')
     await this.reconcile()
   }
@@ -298,6 +300,13 @@ export class Mirror {
         if (this.gen !== gen) return
         const blockIds = Array.isArray(n.blockIds) ? n.blockIds.filter((b): b is string => typeof b === 'string') : []
         this.state.files[n.id] = { path: n.path, hash: n.mdHash, mtime: file.mtime, size: file.size, trashed: w.trashed, blockIds }
+      }
+      // Attachment files already in the folder keep their names (else a second copy is written and the note text changes).
+      for (const a of Array.isArray(manifest.attachments) ? manifest.attachments : []) {
+        if (this.gen !== gen) return
+        if (!a || typeof a.id !== 'string' || typeof a.path !== 'string' || !this.deps.vault.getAttachment(a.id)) continue
+        const st = await dir.stat(a.path)
+        if (st) this.state.attachments[a.id] = { path: a.path, mtime: st.mtime, size: st.size }
       }
     } catch {
       /* unreadable or malformed manifest: no records seeded */

@@ -363,6 +363,36 @@ describe('mirror', () => {
       expect(await text(dir, 'A.md')).toBe('二\n')
     })
 
+    it('attachments already in the folder are recognised from the manifest: no second copy, no kept note copy', async () => {
+      const a = vault.addAttachment({ filename: '圖.png', mimeType: 'image/png', size: 3 })
+      await storage.putBlob(a.id, new Blob(['png']))
+      await note('A', doc(media(a.id, 'image')))
+      const { m, dir } = await started()
+      await m.writeManifest()
+      await m.stop()
+      await restart(dir)
+      expect([...dir.files.keys()].filter((k) => k.includes('外部修改'))).toEqual([])
+      expect([...dir.files.keys()].filter((k) => k.startsWith('附件/'))).toEqual(['附件/圖.png'])
+      expect(await text(dir, 'A.md')).toBe('![圖.png](附件/圖.png)\n')
+    })
+
+    it('resume() after a stop during the manifest read does not reactivate', async () => {
+      await note('A', doc(p('一')))
+      const { m, dir } = await started()
+      await m.writeManifest()
+      await m.stop()
+      await db.meta.clear()
+      const slow = { ...dir, read: async (path: string) => (await Promise.resolve(), dir.read(path)) }
+      const m2 = new Mirror(deps())
+      mirrors.push(m2)
+      await m2.start(dir)
+      await m2.whenIdle()
+      const pending = m2.resume(slow)
+      await m2.stop()
+      await pending
+      expect(m2.status).toBe('off')
+    })
+
     it('a stop during start does not throw', async () => {
       await note('A', doc(p('一')))
       const m = new Mirror(deps())
