@@ -1,5 +1,5 @@
 import * as Y from 'yjs'
-import type { FolderMeta, NoteMeta } from '@/core/vault/types'
+import type { AttachmentMeta, FolderMeta, NoteMeta } from '@/core/vault/types'
 import type { StructureManifest } from './manifest'
 
 /**
@@ -12,9 +12,11 @@ export function encodeManifest(manifest: StructureManifest): Uint8Array {
   const doc = new Y.Doc()
   const notes = doc.getMap<Y.Map<unknown>>('notes')
   const folders = doc.getMap<Y.Map<unknown>>('folders')
+  const attachments = doc.getMap<Y.Map<unknown>>('attachments')
   doc.transact(() => {
     for (const n of manifest.notes) notes.set(n.id, new Y.Map(Object.entries(n)))
     for (const f of manifest.folders) folders.set(f.id, new Y.Map(Object.entries(f)))
+    for (const a of manifest.attachments ?? []) attachments.set(a.id, new Y.Map(Object.entries(a)))
   })
   return Y.encodeStateAsUpdate(doc)
 }
@@ -27,5 +29,8 @@ export function decodeManifest(update: Uint8Array): StructureManifest {
   const folders = [...doc.getMap<Y.Map<unknown>>('folders').values()].map(
     (m) => Object.fromEntries(m.entries()) as FolderMeta,
   )
-  return { notes, folders }
+  const attachments = [...doc.getMap<Y.Map<unknown>>('attachments').values()].map(
+    (m) => Object.fromEntries(m.entries()) as AttachmentMeta,
+  )
+  return { notes, folders, attachments }
 }

@@ -3,6 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryAuth } from '@/adapters/auth/memory-auth'
 import { MemoryKeyStore } from '@/adapters/key-store/memory-key-store'
+import { MemoryDevices } from '@/adapters/devices/memory-devices'
 import { createAccountService, type AccountService, type SyncHandle } from '@/app/account-service'
 import type { SyncReporter } from '@/app/sync-status'
 import { bootstrap } from '@/app/bootstrap'
@@ -19,7 +20,7 @@ afterEach(() => {
 
 let startSync: ReturnType<typeof vi.fn<(a: { vaultId: string; kek: CryptoKey; report: SyncReporter }) => SyncHandle>> | null = null
 
-async function setup() {
+async function setup(devices?: MemoryDevices) {
   startSync = vi.fn(() => ({ stop: async () => {} }))
   const auth = new MemoryAuth({ requireConfirmation: true })
   const keyStore = new MemoryKeyStore()
@@ -33,6 +34,8 @@ async function setup() {
         keyStore,
         vault,
         startSync: startSync!,
+        devices,
+        deviceId: () => 'this-device',
         meta: {
           get: async (k) => (await db.meta.get(k))?.value,
           put: async (k, v) => void (await db.meta.put({ key: k, value: v })),
@@ -169,5 +172,43 @@ describe('設定 · 帳號', () => {
     expect(list).not.toHaveTextContent('internal detail')
     await user.click(d.getByRole('button', { name: '知道了' }))
     expect(d.queryByRole('list', { name: '同步問題' })).toBeNull()
+  })
+
+  it('裝置: lists this device, renames, removes another after confirming', async () => {
+    const devices = new MemoryDevices()
+    await devices.register('ipad', 'u', 'iPad · Safari')
+    const { auth, user, dialog } = await setup(devices)
+    const d = within(dialog)
+    await user.click(d.getByRole('button', { name: '建立帳號' }))
+    await user.type(d.getByLabelText('Email'), 'a@example.com')
+    await user.type(d.getByLabelText('密碼'), 'hunter2hunter2')
+    await user.click(d.getByRole('button', { name: '建立帳號' }))
+    await d.findByRole('status')
+    auth.confirmEmail('a@example.com')
+    await auth.signOut()
+    await user.type(d.getByLabelText('密碼'), 'hunter2hunter2')
+    await user.click(d.getByRole('button', { name: '登入' }))
+    await d.findByRole('status', { name: '復原碼' })
+    await user.click(d.getByLabelText('我已妥善保存復原碼'))
+    await user.click(d.getByRole('button', { name: '完成' }))
+    await waitFor(() => expect(devices.rows.has('this-device')).toBe(true))
+
+    const section = await within(dialog).findByRole('region', { name: '裝置' })
+    await within(section).findByText('這台裝置')
+    expect(within(section).getAllByRole('button', { name: '移除' })).toHaveLength(1) // only the other device
+
+    const ipadRow = within(section).getByText('iPad · Safari').closest('li')!
+    await user.click(within(ipadRow).getByRole('button', { name: '重新命名' }))
+    const input = within(section).getByLabelText('裝置名稱')
+    await user.clear(input)
+    await user.type(input, '我的 iPad')
+    await user.click(within(section).getByRole('button', { name: '儲存' }))
+    await within(section).findByText('我的 iPad')
+
+    await user.click(within(section).getByRole('button', { name: '移除' }))
+    const confirm = within(section).getByRole('alertdialog', { name: '移除裝置' })
+    expect(confirm).toHaveTextContent('移除「我的 iPad」？該裝置下次連線時會登出。')
+    await user.click(within(confirm).getByRole('button', { name: '移除' }))
+    await waitFor(() => expect(devices.rows.has('ipad')).toBe(false))
   })
 })

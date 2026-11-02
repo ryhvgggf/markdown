@@ -4,6 +4,7 @@ import { decrypt, encrypt } from '@/adapters/crypto/webcrypto-crypto'
 import { MemoryKeyStore } from '@/adapters/key-store/memory-key-store'
 import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { Vault } from '@/core/vault/vault'
+import { MemoryDevices } from '@/adapters/devices/memory-devices'
 import { recoverWithCode } from '@/core/account/account'
 import type { SyncReporter } from './sync-status'
 import { createDeferredAccount, ACCOUNT_KEY, SYNC_VAULT_KEY, createAccountService, type AccountService, type MetaStore, type StoredAccount, type SyncHandle } from './account-service'
@@ -282,6 +283,50 @@ describe('account service (3f-2)', () => {
     s.cancelNewRecoveryCode()
     await expect(s.confirmNewRecoveryCode()).rejects.toBeDefined()
     await expect(recoverWithCode(keyStore, vaultId, oldCode, 'hunter2')).resolves.toBeDefined()
+  })
+})
+
+describe('account service — devices (3f-3)', () => {
+  const until = async (cond: () => boolean) => {
+    for (let i = 0; i < 100 && !cond(); i++) await new Promise((r) => setTimeout(r, 5))
+  }
+  function makeWith(devices: MemoryDevices, deviceId: string, deviceCheckMs?: number) {
+    const s = createAccountService({ auth, keyStore, meta, vault, startSync, channelFactory, devices, deviceId: () => deviceId, deviceCheckMs })
+    services.push(s)
+    return s
+  }
+
+  it('unlocking registers this device; the list marks it; other devices can be renamed and removed', async () => {
+    const devices = new MemoryDevices()
+    const s = makeWith(devices, 'this')
+    await s.init()
+    await signUpAndConfirm(s)
+    await s.confirmRecoveryCode()
+    await until(() => devices.rows.has('this'))
+    await devices.register('other', 'u', 'Old name')
+    const { devices: list, thisDevice } = await s.listDevices()
+    expect(thisDevice).toBe('this')
+    expect(list.map((d) => d.id).sort()).toEqual(['other', 'this'])
+    await s.renameDevice('other', '  我的 iPad ')
+    expect(devices.rows.get('other')?.name).toBe('我的 iPad')
+    await expect(s.removeDevice('this')).rejects.toThrow()
+    await s.removeDevice('other')
+    expect(devices.rows.has('other')).toBe(false)
+  })
+
+  it('a device removed from another one is signed out at its next check', async () => {
+    const devices = new MemoryDevices()
+    const s = makeWith(devices, 'this', 20)
+    await s.init()
+    await signUpAndConfirm(s)
+    await s.confirmRecoveryCode()
+    await until(() => devices.rows.has('this'))
+    await new Promise((r) => setTimeout(r, 10)) // let the first check-in finish recording the registration
+    await devices.remove('this')
+    await until(() => s.getState().status === 'signed-out')
+    expect(s.getState()).toEqual({ status: 'signed-out', email: 'a@example.com', notice: 'device-removed' })
+    expect(meta.map.has(ACCOUNT_KEY)).toBe(false)
+    expect(stopSync).toHaveBeenCalled()
   })
 })
 

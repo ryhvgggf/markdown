@@ -5,11 +5,13 @@ import { extractNote } from '@/core/extract/extract'
 import type { NoteDocCache } from '@/core/note-doc/cache'
 import type { Vault } from '@/core/vault/vault'
 import { onIdle } from '../idle'
-import { pushAttachment } from './attachment-sync'
+import { pullAttachment, pushAttachment } from './attachment-sync'
 import { bindCloudDoc, pushInitialSnapshot, type CloudDocBinding } from './cloud-doc'
 import { getDeviceId } from './device-id'
 import { manifestDocId, pullManifest, pushManifest } from './manifest-sync'
-import { mergeManifestIntoVault } from './manifest-merge'
+import { deriveManifest, type StructureManifest } from './manifest'
+import { cloudIsBehind, combineManifests, mergeManifestIntoVault, missingAttachments } from './manifest-merge'
+import type { AttachmentMeta } from '@/core/vault/types'
 
 export interface SyncManagerDeps {
   sync: SyncAdapter
@@ -47,20 +49,13 @@ interface NoteBinding {
  * synced notes and their titles/folders change, and attachments pushed when a synced note first starts
  * referencing them.
  *
- * Also pulls the manifest continuously for an already-running device (the design doc only specified a
- * one-time pull for a brand-new device at login, §8; this extends it so turning sync on for a note on
- * device A makes it appear on device B without B re-logging-in): once at `start()`, and again whenever
- * the manifest doc gets a realtime notification. Merging is `manifest-merge.ts`'s job — it only ever
- * creates a note/folder id the local vault completely lacks, never touches one that's already there (see
- * its own doc comment for the settled rules, including the id-collision case reported via `onError`).
+ * Also pulls the manifest continuously for an already-running device: once at `start()`, and again whenever
+ * the manifest doc gets a realtime notification. Merging is `manifest-merge.ts`'s job: it creates what the
+ * local vault lacks and, since 3f-3, applies newer titles/placements (last-writer-wins per field) to notes
+ * already synced here; pushes combine with the cloud copy the same way (`combineManifests`). Attachments
+ * another device synced are downloaded in the background, their metadata travelling in the manifest.
  *
- * Deliberately NOT included here — each is a separate, undecided piece of work, not an oversight:
- * - The §9 error-handling table's offline queue (surviving a restart with pushes still pending) and the
- *   "push to a doc another device deleted comes back not-found, fall back to local-only silently" case are
- *   milestone 3e ("離線佇列、...兩裝置各有本機資料的合併選擇") by the design doc's own split, not 3d.
- * - Device registration/listing (`devices` table) — the design doc flags it as deferred to 3d in
- *   `adapters/sync/types.ts`'s original comment, but §11's actual 3d bullet only names realtime sync and
- *   multi-device *verification*; building device management UI wasn't asked for here.
+ * Device registration (`devices` table) lives in the account layer (`core/account/devices.ts`), not here.
  */
 export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   const deviceId = deps.deviceId ?? getDeviceId()
@@ -91,15 +86,28 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // unchanged, unless it's in `deliberatelyRemoved` — so a note that merely vanished locally (never an
   // intentional delete) keeps its cloud copy and its place in the manifest, recoverable once the real cause
   // is fixed, instead of being wiped out the next time anything else triggers a manifest push.
+  //
+  // Since 3f-3 the merge is also field-level last-writer-wins for records both sides have (see
+  // `combineManifests`), so a rename made on another device that this one hasn't pulled yet isn't
+  // overwritten with this device's older title.
   async function pushMergedManifest(): Promise<void> {
     const cloud = await pullManifest(deps.sync, deps.kek, deps.vaultId).catch(() => null)
-    const localNotes = deps.vault.listNotes()
-    const localFolders = deps.vault.listFolders()
-    const localNoteIds = new Set(localNotes.map((n) => n.id))
-    const localFolderIds = new Set(localFolders.map((f) => f.id))
-    const keptCloudNotes = (cloud?.notes ?? []).filter((n) => !localNoteIds.has(n.id) && !deliberatelyRemoved.has(n.id))
-    const keptCloudFolders = (cloud?.folders ?? []).filter((f) => !localFolderIds.has(f.id))
-    await pushManifest(deps.sync, deps.kek, deps.vaultId, [...localNotes, ...keptCloudNotes], [...localFolders, ...keptCloudFolders])
+    const c = combineManifests(localView(), cloud, deliberatelyRemoved)
+    await pushManifest(deps.sync, deps.kek, deps.vaultId, c.notes, c.folders, c.attachments)
+  }
+
+  /** This device's contribution to the manifest: its notes and folders, and the metadata of attachments its synced notes use in the cloud. */
+  function localView() {
+    const attachments: AttachmentMeta[] = []
+    const seen = new Set<string>()
+    for (const nb of noteBindings.values()) {
+      for (const id of nb.pushedAttachments) {
+        const a = seen.has(id) ? undefined : deps.vault.getAttachment(id)
+        seen.add(id)
+        if (a) attachments.push({ id: a.id, filename: a.filename, mimeType: a.mimeType, size: a.size, createdAt: a.createdAt, deletedAt: null })
+      }
+    }
+    return { notes: deps.vault.listNotes(), folders: deps.vault.listFolders(), attachments }
   }
 
   const scheduleManifestPush = () => {
@@ -121,8 +129,38 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       const message =
         conflict.reason === 'id-collision'
           ? 'manifest note id collides with an unrelated local note (different createdAt) — left untouched'
-          : 'could not create a note pulled from the manifest (e.g. its title collides with an unrelated local note) — left uncreated'
+          : 'could not create a note pulled from the manifest (e.g. its folder could not be created) — left uncreated'
       reportError(new SyncError('conflict', message), conflict.noteId)
+    }
+    downloadAttachments(manifest)
+    // Another device's push may have raced ours and dropped something this device contributed: push again.
+    const view = localView()
+    const derived = { ...deriveManifest(view.notes, view.folders), attachments: view.attachments }
+    if (!closed && cloudIsBehind(derived, manifest)) scheduleManifestPush()
+  }
+
+  // Attachments other devices synced (3f-3): the bytes are downloaded and stored before the metadata is
+  // added, so a note never shows an attachment as "ready" whose bytes aren't here yet. Sequential, in the
+  // background (not blocking `start()`); a failure is reported and retried on the next manifest pull.
+  const downloading = new Set<string>()
+  const notInCloud = new Set<string>() // downloadAttachment said null: don't ask again this session
+  let downloadChain: Promise<void> = Promise.resolve()
+  function downloadAttachments(manifest: StructureManifest): void {
+    for (const a of missingAttachments(deps.vault, manifest)) {
+      if (downloading.has(a.id) || notInCloud.has(a.id)) continue
+      downloading.add(a.id)
+      downloadChain = downloadChain
+        .then(async () => {
+          if (closed || deps.vault.getAttachment(a.id)) return
+          const bytes = await pullAttachment(deps.attachmentSync, deps.kek, deps.vaultId, a.id)
+          if (!bytes) return void notInCloud.add(a.id)
+          await deps.storage.putBlob(a.id, new Blob([bytes as BlobPart], { type: a.mimeType }))
+          if (!deps.vault.getAttachment(a.id)) {
+            deps.vault.addAttachment({ id: a.id, filename: a.filename, mimeType: a.mimeType, size: a.size, createdAt: a.createdAt })
+          }
+        })
+        .catch((e) => reportError(e, manifestDocId(deps.vaultId))) // shown as a problem with the note list
+        .finally(() => downloading.delete(a.id))
     }
   }
 
@@ -145,14 +183,17 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     const doc = deps.noteDocs.peek(noteId)
     if (!doc) return
     const { attachmentIds } = extractNote(doc.getXmlFragment('content'))
+    let pushed = false
     for (const attachmentId of attachmentIds) {
       if (nb.pushedAttachments.has(attachmentId)) continue
       const blob = await deps.storage.getBlob(attachmentId)
-      if (!blob) continue // referenced but not stored locally (shouldn't happen; nothing to upload)
+      if (!blob) continue // not stored locally (e.g. still downloading from another device's upload): nothing to upload
       const bytes = new Uint8Array(await blob.arrayBuffer())
       await pushAttachment(deps.attachmentSync, deps.kek, deps.vaultId, noteId, attachmentId, bytes)
       nb.pushedAttachments.add(attachmentId)
+      pushed = true
     }
+    if (pushed) scheduleManifestPush() // its metadata goes into the manifest, so other devices can show it
   }
 
   async function turnOn(noteId: string): Promise<void> {
@@ -163,8 +204,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       // sync on but before this ran again) shouldn't be re-uploaded as a fresh snapshot — pullDoc tells us.
       const existing = await deps.sync.pullDoc(deps.vaultId, noteId)
       if (existing.length === 0) await pushInitialSnapshot(doc, cloudDeps)
+      // Attachments the cloud already holds for this note (uploaded by any device) aren't uploaded again.
+      const inCloud = existing.length === 0 ? [] : await deps.attachmentSync.listAttachments(deps.vaultId, noteId)
       const binding = await bindCloudDoc(doc, { ...cloudDeps, onError: (e) => reportError(e, noteId) })
-      const nb: NoteBinding = { binding, pushedAttachments: new Set() }
+      const nb: NoteBinding = { binding, pushedAttachments: new Set(inCloud) }
       noteBindings.set(noteId, nb)
       await pushNoteAttachments(noteId, nb)
     } catch (e) {
@@ -296,7 +339,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     },
 
     hasPending() {
-      if (manifestIdle !== null || manifestMergeIdle !== null) return true
+      if (manifestIdle !== null || manifestMergeIdle !== null || downloading.size > 0) return true
       for (const nb of noteBindings.values()) if (nb.binding.hasPending()) return true
       return false
     },
@@ -345,6 +388,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         }),
       )
       noteBindings.clear()
+      await downloadChain
     },
   }
 }

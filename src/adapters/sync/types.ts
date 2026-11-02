@@ -4,8 +4,7 @@
  * treats the cloud as "another storage adapter" it diffs the local one against. Everything here is
  * opaque ciphertext — this adapter never sees plaintext, never derives or holds a key.
  *
- * Device listing/removal (module table in §7) is deferred to 3d, alongside real device registration at
- * login — out of scope for 3c's single-device push/pull/delete round trip.
+ * Device listing/removal (module table in §7) is `adapters/devices` (3f-3).
  */
 
 /** Who pushed a change a `subscribe` notification is about, and which doc. */

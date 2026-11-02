@@ -400,3 +400,36 @@ describe('Vault — undo (notes & folders)', () => {
     off()
   })
 })
+
+describe('Vault — per-field stamps and remote apply (3f-3)', () => {
+  it('stamps titleAt on rename and placeAt on move, for notes and folders', async () => {
+    const v = await open()
+    const n = v.createNote({ title: 'A' })
+    const f = v.createFolder({ name: 'F', parentId: null })
+    expect(v.getNote(n.id)?.titleAt).toBeUndefined()
+    v.renameNote(n.id, 'B')
+    v.moveNote(n.id, { folderId: f.id, index: 0 })
+    v.renameFolder(f.id, 'G')
+    v.moveFolder(f.id, { parentId: null, index: 0 })
+    expect(v.getNote(n.id)?.titleAt).toBeTypeOf('number')
+    expect(v.getNote(n.id)?.placeAt).toBeTypeOf('number')
+    const g = v.listFolders()[0]
+    expect(g.nameAt).toBeTypeOf('number')
+    expect(g.placeAt).toBeTypeOf('number')
+  })
+
+  it('applyRemoteNote keeps the given stamps, suffixes a taken title, skips placement into a trashed folder', async () => {
+    const v = await open()
+    v.createNote({ title: 'Taken' })
+    const n = v.createNote({ title: 'Mine' })
+    const trashed = v.createFolder({ name: 'T', parentId: null })
+    v.trashFolder(trashed.id)
+    v.applyRemoteNote(n.id, { title: 'Taken', titleAt: 42, folderId: trashed.id, order: 'z', placeAt: 43 })
+    const got = v.getNote(n.id)!
+    expect(got.title).toBe('Taken (2)')
+    expect(got.titleAt).toBe(42)
+    expect(got.folderId).toBeNull()
+    expect(got.placeAt).toBeUndefined()
+    expect(v.canUndo()).toBe(false) // not a user action
+  })
+})

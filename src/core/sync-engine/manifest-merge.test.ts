@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryStorage } from '@/adapters/storage/memory-storage'
 import { Vault } from '@/core/vault/vault'
 import type { StructureManifest } from './manifest'
-import { mergeManifestIntoVault } from './manifest-merge'
+import type { NoteMeta } from '@/core/vault/types'
+import { cloudIsBehind, combineManifests, mergeManifestIntoVault } from './manifest-merge'
 
 let storage: MemoryStorage
 let vault: Vault
@@ -83,19 +84,70 @@ describe('mergeManifestIntoVault', () => {
     expect(vault.listNotes()).toHaveLength(1) // no duplicate created either
   })
 
-  it('does not touch an already-synced note just because it is in the manifest (no title/folder overwrite)', () => {
+  it('applies a newer title and placement from the manifest to an already-synced note', () => {
+    const folder = vault.createFolder({ name: 'F', parentId: null })
     const local = vault.createNote({ title: 'Mine', createdAt: 100, updatedAt: 100 })
     vault.setNoteSynced(local.id, true)
+    vault.renameNote(local.id, 'Mine')
+    const localAt = vault.getNote(local.id)!.titleAt!
     mergeManifestIntoVault(
       vault,
       manifest({
-        notes: [{ id: local.id, title: 'Renamed on another device', folderId: null, order: 'a', createdAt: 100, updatedAt: 500, deletedAt: null, synced: true }],
+        folders: [{ ...vault.listFolders()[0] }],
+        notes: [{ id: local.id, title: 'Renamed elsewhere', titleAt: localAt + 10, folderId: folder.id, order: 'm', placeAt: localAt + 10, createdAt: 100, updatedAt: 500, deletedAt: null, synced: true }],
       }),
+    )
+    const n = vault.getNote(local.id)!
+    expect(n.title).toBe('Renamed elsewhere')
+    expect(n.titleAt).toBe(localAt + 10)
+    expect(n.folderId).toBe(folder.id)
+    expect(n.order).toBe('m')
+  })
+
+  it('keeps the local title and placement when the manifest stamp is older or absent', () => {
+    const local = vault.createNote({ title: 'Mine', createdAt: 100, updatedAt: 100 })
+    vault.setNoteSynced(local.id, true)
+    vault.renameNote(local.id, 'Newer here')
+    const f = vault.createFolder({ name: 'F', parentId: null })
+    mergeManifestIntoVault(
+      vault,
+      manifest({
+        notes: [
+          { id: local.id, title: 'Older', titleAt: 1, folderId: f.id, order: 'a', createdAt: 100, updatedAt: 500, deletedAt: null, synced: true },
+        ],
+      }),
+    )
+    expect(vault.getNote(local.id)?.title).toBe('Newer here')
+    expect(vault.getNote(local.id)?.folderId).toBeNull()
+  })
+
+  it('never updates a note whose sync was turned off on this device', () => {
+    const local = vault.createNote({ title: 'Mine', createdAt: 100, updatedAt: 100 })
+    mergeManifestIntoVault(
+      vault,
+      manifest({ notes: [{ id: local.id, title: 'Remote', titleAt: Date.now() + 1000, folderId: null, order: 'a', createdAt: 100, updatedAt: 1, deletedAt: null, synced: true }] }),
     )
     expect(vault.getNote(local.id)?.title).toBe('Mine')
   })
 
-  it('skips a note whose creation fails (e.g. title collides with an unrelated local note) and reports it as a creation failure, distinct from an id collision', () => {
+  it('applies a newer folder name and parent, skipping a move that would make a cycle', () => {
+    const a = vault.createFolder({ name: 'A', parentId: null })
+    const b = vault.createFolder({ name: 'B', parentId: a.id })
+    const later = Date.now() + 1000
+    mergeManifestIntoVault(
+      vault,
+      manifest({
+        folders: [
+          { ...vault.listFolders().find((f) => f.id === a.id)!, name: 'A2', nameAt: later, parentId: b.id, placeAt: later },
+        ],
+      }),
+    )
+    const fa = vault.listFolders().find((f) => f.id === a.id)!
+    expect(fa.name).toBe('A2')
+    expect(fa.parentId).toBeNull() // A under its own child B would be a cycle: placement skipped
+  })
+
+  it('creates a pulled note whose title is taken locally with a suffix instead of skipping it', () => {
     vault.createNote({ title: 'Existing title', createdAt: 1, updatedAt: 1 })
     const result = mergeManifestIntoVault(
       vault,
@@ -103,7 +155,51 @@ describe('mergeManifestIntoVault', () => {
         notes: [{ id: 'n-new', title: 'Existing title', folderId: null, order: 'a', createdAt: 100, updatedAt: 100, deletedAt: null, synced: true }],
       }),
     )
+    expect(result.conflicts).toEqual([])
+    expect(vault.getNote('n-new')?.title).toBe('Existing title (2)')
+    expect(vault.getNote('n-new')?.synced).toBe(true)
+  })
+
+  it('reports a creation failure when the note cannot be created (its folder is missing)', () => {
+    const result = mergeManifestIntoVault(
+      vault,
+      manifest({
+        notes: [{ id: 'n-new', title: 'X', folderId: 'nowhere', order: 'a', createdAt: 100, updatedAt: 100, deletedAt: null, synced: true }],
+      }),
+    )
     expect(result.conflicts).toEqual([{ noteId: 'n-new', reason: 'create-failed' }])
     expect(vault.getNote('n-new')).toBeUndefined()
+  })
+})
+
+const note = (id: string, o: Partial<NoteMeta> = {}): NoteMeta => ({
+  id, title: id, folderId: null, order: 'a', createdAt: 1, updatedAt: 1, deletedAt: null, synced: true, ...o,
+})
+
+describe('combineManifests', () => {
+  it('takes each field from whichever side has the newer stamp; a tie keeps the cloud value', () => {
+    const local = { notes: [note('a', { title: 'local', titleAt: 5, folderId: 'L', placeAt: 1 }), note('b', { title: 'b local' })], folders: [], attachments: [] }
+    const cloud = manifest({ notes: [note('a', { title: 'cloud', titleAt: 3, folderId: 'C', placeAt: 9 }), note('b', { title: 'b cloud' })] })
+    const c = combineManifests(local, cloud, new Set())
+    const a = c.notes.find((n) => n.id === 'a')!
+    expect(a.title).toBe('local')
+    expect(a.folderId).toBe('C')
+    expect(c.notes.find((n) => n.id === 'b')!.title).toBe('b cloud')
+  })
+
+  it('keeps cloud-only notes unless deliberately removed, and cloud-only attachments', () => {
+    const cloud = manifest({ notes: [note('x'), note('gone')], attachments: [{ id: 'att', filename: 'a.png', mimeType: 'image/png', size: 1, createdAt: 1, deletedAt: null }] })
+    const c = combineManifests({ notes: [], folders: [], attachments: [] }, cloud, new Set(['gone']))
+    expect(c.notes.map((n) => n.id)).toEqual(['x'])
+    expect(c.attachments.map((a) => a.id)).toEqual(['att'])
+  })
+})
+
+describe('cloudIsBehind', () => {
+  it('is true when the cloud lacks a synced note or has an older stamp, false when it is current', () => {
+    const derived = manifest({ notes: [note('a', { titleAt: 5 })] })
+    expect(cloudIsBehind(derived, manifest())).toBe(true)
+    expect(cloudIsBehind(derived, manifest({ notes: [note('a', { titleAt: 4 })] }))).toBe(true)
+    expect(cloudIsBehind(derived, manifest({ notes: [note('a', { titleAt: 5 })] }))).toBe(false)
   })
 })

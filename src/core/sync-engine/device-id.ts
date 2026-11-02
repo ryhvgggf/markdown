@@ -3,9 +3,8 @@ import { newId } from '../ids'
 /**
  * A stable id for this browser (not this account or this vault), generated once and kept in `localStorage`
  * — it labels which device pushed each `doc_updates` row (design doc §4 `device_id`) and lets
- * `core/sync-engine`'s realtime binding skip pulling back its own pushes (see `cloud-doc.ts`). It is not the
- * `devices` table's row id (device registration/listing is out of scope here — see the phase 3d summary);
- * it only needs to be stable and distinct per browser, not globally registered.
+ * `core/sync-engine`'s realtime binding skip pulling back its own pushes (see `cloud-doc.ts`). Since 3f-3 it
+ * is also this browser's `devices` row id (`core/account/devices.ts`).
  */
 const KEY = 'notes-v2:device-id'
 

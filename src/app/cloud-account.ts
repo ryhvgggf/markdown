@@ -1,4 +1,6 @@
 import { SupabaseAuth } from '@/adapters/auth/supabase-auth'
+import { SupabaseDevices } from '@/adapters/devices/supabase-devices'
+import { getDeviceId } from '@/core/sync-engine/device-id'
 import { SupabaseKeyStore } from '@/adapters/key-store/supabase-key-store'
 import { getSupabaseClient } from '@/adapters/supabase-client'
 import { SupabaseAttachmentSync } from '@/adapters/sync/supabase-attachment-sync'
@@ -30,6 +32,8 @@ export function createCloudAccount(d: CloudAccountDeps): AccountService {
     keyStore: new SupabaseKeyStore(client),
     vault: d.vault,
     redirectTo: location.origin,
+    devices: new SupabaseDevices(client),
+    deviceId: getDeviceId,
     meta: {
       get: async (key) => (await d.db.meta.get(key))?.value,
       put: async (key, value) => void (await d.db.meta.put({ key, value })),

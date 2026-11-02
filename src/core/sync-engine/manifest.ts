@@ -1,8 +1,11 @@
-import type { FolderMeta, NoteMeta } from '@/core/vault/types'
+import type { AttachmentMeta, FolderMeta, NoteMeta } from '@/core/vault/types'
 
 export interface StructureManifest {
   notes: NoteMeta[]
   folders: FolderMeta[]
+  /** Metadata (name, type, size) of attachments synced notes use, so another device can show them (3f-3).
+   *  The bytes travel separately (`attachment-sync.ts`). Absent in manifests pushed before 3f-3. */
+  attachments?: AttachmentMeta[]
 }
 
 /**

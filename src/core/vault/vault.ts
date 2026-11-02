@@ -29,7 +29,14 @@ function toNote(m: YM): NoteMeta {
     updatedAt: (m.get('updatedAt') as number) ?? 0,
     deletedAt: (m.get('deletedAt') as number | null) ?? null,
     synced: (m.get('synced') as boolean) ?? false, // absent on notes created before phase 3
+    ...stamp(m, 'titleAt'),
+    ...stamp(m, 'placeAt'),
   }
+}
+/** `{ [key]: n }` when the map holds a numeric stamp, else `{}` (absent on records from before 3f-3). */
+function stamp<K extends string>(m: YM, key: K): Partial<Record<K, number>> {
+  const v = m.get(key)
+  return typeof v === 'number' ? ({ [key]: v } as Record<K, number>) : {}
 }
 function toFolder(m: YM): FolderMeta {
   return {
@@ -39,6 +46,8 @@ function toFolder(m: YM): FolderMeta {
     order: (m.get('order') as string) ?? '',
     createdAt: (m.get('createdAt') as number) ?? 0,
     deletedAt: (m.get('deletedAt') as number | null) ?? null,
+    ...stamp(m, 'nameAt'),
+    ...stamp(m, 'placeAt'),
   }
 }
 function toAttachment(id: string, m: YM): AttachmentMeta {
@@ -165,9 +174,11 @@ export class Vault {
     const m = this.note(id)
     const t = title.trim()
     if (!this.isTitleAvailable(t, id)) throw new VaultError('duplicate-title')
+    const now = Date.now()
     this.doc.transact(() => {
       m.set('title', t)
-      m.set('updatedAt', Date.now())
+      m.set('updatedAt', now)
+      m.set('titleAt', now)
     })
   }
   moveNote(id: string, to: { folderId: string | null; index: number }): void {
@@ -177,6 +188,31 @@ export class Vault {
     this.doc.transact(() => {
       m.set('folderId', to.folderId)
       m.set('order', order)
+      m.set('placeAt', Date.now())
+    })
+  }
+  /**
+   * Applies a title/placement another device set (cloud manifest merge, 3f-3), keeping that device's
+   * timestamps so last-writer-wins compares the same values everywhere. Each part is applied only when
+   * possible: a title taken by another local note gets a ` (n)` suffix locally (the remote title still
+   * wins in the cloud, see `combineManifests`); a placement whose folder is missing or trashed here is skipped.
+   * Not a user action (not undoable); `updatedAt` is left alone.
+   */
+  applyRemoteNote(id: string, p: { title?: string; titleAt?: number; folderId?: string | null; order?: string; placeAt?: number }): void {
+    const m = this.note(id)
+    let title: string | undefined
+    if (p.title !== undefined) {
+      const t = p.title.trim()
+      title = this.isTitleAvailable(t, id) ? t : dedupeTitle(t, new Set(this.listNotes().filter((n) => n.id !== id).map((n) => n.title)))
+    }
+    const placeOk = p.folderId === undefined || p.folderId === null || this.folders.get(p.folderId)?.get('deletedAt') === null
+    this.doc.transact(() => {
+      if (title !== undefined) m.set('title', title)
+      if (p.titleAt !== undefined) m.set('titleAt', p.titleAt)
+      if (!placeOk) return
+      if (p.folderId !== undefined) m.set('folderId', p.folderId)
+      if (p.order !== undefined) m.set('order', p.order)
+      if (p.placeAt !== undefined) m.set('placeAt', p.placeAt)
     })
   }
   touchNote(id: string): void {
@@ -230,7 +266,10 @@ export class Vault {
   }
   renameFolder(id: string, name: string): void {
     const m = this.folder(id)
-    this.doc.transact(() => m.set('name', name.trim()))
+    this.doc.transact(() => {
+      m.set('name', name.trim())
+      m.set('nameAt', Date.now())
+    })
   }
   moveFolder(id: string, to: { parentId: string | null; index: number }): void {
     const m = this.folder(id)
@@ -245,6 +284,27 @@ export class Vault {
     this.doc.transact(() => {
       m.set('parentId', to.parentId)
       m.set('order', order)
+      m.set('placeAt', Date.now())
+    })
+  }
+  /** Folder counterpart of `applyRemoteNote`. A placement under a missing/trashed parent, or one that would make a cycle, is skipped. */
+  applyRemoteFolder(id: string, p: { name?: string; nameAt?: number; parentId?: string | null; order?: string; placeAt?: number }): void {
+    const m = this.folder(id)
+    let placeOk = true
+    if (p.parentId !== undefined && p.parentId !== null) {
+      placeOk = this.folders.get(p.parentId)?.get('deletedAt') === null
+      for (let q: string | null = p.parentId, guard = 0; placeOk && q !== null && guard < 10000; guard++) {
+        if (q === id) placeOk = false
+        q = (this.folders.get(q)?.get('parentId') as string | null) ?? null
+      }
+    }
+    this.doc.transact(() => {
+      if (p.name !== undefined) m.set('name', p.name.trim())
+      if (p.nameAt !== undefined) m.set('nameAt', p.nameAt)
+      if (!placeOk) return
+      if (p.parentId !== undefined) m.set('parentId', p.parentId)
+      if (p.order !== undefined) m.set('order', p.order)
+      if (p.placeAt !== undefined) m.set('placeAt', p.placeAt)
     })
   }
   trashFolder(id: string): void {

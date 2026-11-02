@@ -8,6 +8,10 @@ export type NoteMeta = {
   deletedAt: number | null
   /** Phase 3 design doc §3.1: whether this note is pushed to the cloud. New notes default to false (opt-in). */
   synced: boolean
+  /** When `title` was last set by a rename (absent = never renamed). Last-writer-wins key for the cloud manifest merge (3f-3). */
+  titleAt?: number
+  /** When `folderId`/`order` were last set by a move (absent = never moved). Same purpose as `titleAt`. */
+  placeAt?: number
 }
 export type FolderMeta = {
   id: string
@@ -16,6 +20,10 @@ export type FolderMeta = {
   order: string
   createdAt: number
   deletedAt: number | null
+  /** When `name` was last set by a rename (absent = never). Last-writer-wins key for the cloud manifest merge (3f-3). */
+  nameAt?: number
+  /** When `parentId`/`order` were last set by a move (absent = never). */
+  placeAt?: number
 }
 export type AttachmentMeta = {
   id: string

@@ -1,5 +1,5 @@
 import type { SyncAdapter } from '@/adapters/sync/types'
-import type { FolderMeta, NoteMeta } from '@/core/vault/types'
+import type { AttachmentMeta, FolderMeta, NoteMeta } from '@/core/vault/types'
 import { decryptDocChunk, encryptDocChunk } from './doc-crypto'
 import { decodeManifest, encodeManifest } from './manifest-codec'
 import { deriveManifest, type StructureManifest } from './manifest'
@@ -20,9 +20,11 @@ export async function pushManifest(
   vaultId: string,
   notes: readonly NoteMeta[],
   folders: readonly FolderMeta[],
+  attachments: readonly AttachmentMeta[] = [],
 ): Promise<void> {
   const docId = manifestDocId(vaultId)
-  const ciphertext = await encryptDocChunk(kek, vaultId, docId, encodeManifest(deriveManifest(notes, folders)))
+  const manifest = { ...deriveManifest(notes, folders), attachments: [...attachments] }
+  const ciphertext = await encryptDocChunk(kek, vaultId, docId, encodeManifest(manifest))
   await sync.pushSnapshot(vaultId, docId, ciphertext, 0)
 }
 

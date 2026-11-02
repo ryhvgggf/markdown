@@ -1,4 +1,5 @@
-import { useId, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
+import type { DeviceRecord } from '@/adapters/devices/types'
 import { useServices } from '@/app/services-context'
 import type { AccountService, AccountState } from '@/app/account-service'
 import { useAccount, useSyncStatus } from '@/app/use-account'
@@ -147,6 +148,11 @@ function SignedOut({ account, state }: { account: AccountService; state: Extract
       {state.notice === 'confirm-email' && (
         <p role="status" className="py-2 text-sm text-fg">
           驗證信已寄到 {state.email}，點信中的連結後回來登入。
+        </p>
+      )}
+      {state.notice === 'device-removed' && (
+        <p role="status" className="py-2 text-sm text-fg">
+          這台裝置已從帳號中移除，請重新登入。
         </p>
       )}
       {state.notice === 'reset-sent' && (
@@ -358,6 +364,7 @@ function Unlocked({ account, email }: { account: AccountService; email: string }
     <div className="flex flex-col gap-3 py-2">
       <p className="text-base text-fg">已登入 {email}</p>
       <SyncProblems account={account} />
+      <Devices account={account} />
       <ErrorLine text={error} />
       <div className="flex flex-wrap gap-2">
         <Button disabled={busy} onClick={() => void run(() => account.signOut())}>
@@ -440,5 +447,112 @@ function SyncProblems({ account }: { account: AccountService }) {
         </Button>
       </div>
     </div>
+  )
+}
+
+const dateText = (t: number) => {
+  const d = new Date(t)
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
+}
+
+/** The account's devices (3f-3): rename any, remove others (removed ones sign out when they next connect). */
+function Devices({ account }: { account: AccountService }) {
+  const [list, setList] = useState<{ devices: DeviceRecord[]; thisDevice: string } | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
+  const [removing, setRemoving] = useState<DeviceRecord | null>(null)
+  const { busy, error, run } = useAction()
+  const [version, setVersion] = useState(0)
+  const load = useCallback(async () => setVersion((v) => v + 1), [])
+  useEffect(() => {
+    let live = true
+    account.listDevices().then(
+      (r) => {
+        if (!live) return
+        setList(r)
+        setFailed(false)
+      },
+      () => live && setFailed(true),
+    )
+    return () => {
+      live = false
+    }
+  }, [account, version])
+
+  if (failed) return <Note>無法載入裝置清單</Note>
+  if (!list || list.devices.length === 0) return null
+  return (
+    <section aria-label="裝置" className="flex max-w-md flex-col gap-1">
+      <SectionLabel>裝置</SectionLabel>
+      <ul className="flex flex-col">
+        {list.devices.map((d) => {
+          const mine = d.id === list.thisDevice
+          if (editing?.id === d.id) {
+            return (
+              <li key={d.id}>
+                <Form onSubmit={() => void run(async () => {
+                  await account.renameDevice(d.id, editing.name)
+                  setEditing(null)
+                  await load()
+                })}>
+                  <Field label="裝置名稱" value={editing.name} onChange={(name) => setEditing({ id: d.id, name })} />
+                  <div className="flex gap-2">
+                    <Button type="submit" variant="primary" disabled={busy || !editing.name.trim()}>
+                      儲存
+                    </Button>
+                    <Button variant="ghost" onClick={() => setEditing(null)}>
+                      取消
+                    </Button>
+                  </div>
+                </Form>
+              </li>
+            )
+          }
+          return (
+            <li key={d.id} className="flex min-h-11 items-center justify-between gap-3 py-1">
+              <div className="min-w-0">
+                <p className="truncate text-base text-fg">
+                  {d.name}
+                  {mine && <span className="ml-2 text-xs text-fg-tertiary">這台裝置</span>}
+                </p>
+                {!mine && <p className="text-xs text-fg-tertiary">上次使用 {dateText(d.lastSeenAt)}</p>}
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <Button variant="ghost" onClick={() => setEditing({ id: d.id, name: d.name })}>
+                  重新命名
+                </Button>
+                {!mine && (
+                  <Button variant="ghost" onClick={() => setRemoving(d)}>
+                    移除
+                  </Button>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+      {removing && (
+        <div role="alertdialog" aria-label="移除裝置" className="flex flex-col gap-2 rounded-control bg-fill px-3 py-2">
+          <p className="text-sm text-fg">移除「{removing.name}」？該裝置下次連線時會登出。</p>
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => void run(async () => {
+                await account.removeDevice(removing.id)
+                setRemoving(null)
+                await load()
+              })}
+            >
+              移除
+            </Button>
+            <Button variant="ghost" onClick={() => setRemoving(null)}>
+              取消
+            </Button>
+          </div>
+        </div>
+      )}
+      <ErrorLine text={error} />
+    </section>
   )
 }

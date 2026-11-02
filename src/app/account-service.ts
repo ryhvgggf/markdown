@@ -16,6 +16,8 @@ import {
   type ResolveResult,
 } from '@/core/account/account'
 import { AccountError } from '@/core/account/types'
+import { checkInDevice, defaultDeviceName } from '@/core/account/devices'
+import type { DeviceAdapter, DeviceRecord } from '@/adapters/devices/types'
 import type { Vault } from '@/core/vault/vault'
 import { createSyncStatus, type SyncReporter, type SyncStatus } from './sync-status'
 
@@ -31,7 +33,7 @@ import { createSyncStatus, type SyncReporter, type SyncStatus } from './sync-sta
 export type AccountState =
   | { status: 'loading' }
   | { status: 'unavailable' }
-  | { status: 'signed-out'; email?: string; notice?: 'confirm-email' | 'reset-sent' }
+  | { status: 'signed-out'; email?: string; notice?: 'confirm-email' | 'reset-sent' | 'device-removed' }
   | { status: 'locked'; email: string }
   | { status: 'set-password'; email: string }
   | { status: 'recovery-code'; email: string; recoveryCode: string }
@@ -67,6 +69,12 @@ export interface AccountServiceDeps {
   /** Where confirmation and reset-password links land. */
   redirectTo?: string
   channelFactory?: (name: string) => BroadcastChannel
+  /** The account's device list (3f-3); without it there is no device bookkeeping. */
+  devices?: DeviceAdapter
+  /** This browser's id (`core/sync-engine/device-id.ts`). */
+  deviceId?: () => string
+  /** How often a running device re-checks that it hasn't been removed. */
+  deviceCheckMs?: number
 }
 
 export interface AccountService {
@@ -95,6 +103,11 @@ export interface AccountService {
   getSyncStatus(): SyncStatus
   subscribeSync(cb: () => void): () => void
   dismissSyncIssues(): void
+  /** `unlocked`: the account's devices; `thisDevice` marks this browser. */
+  listDevices(): Promise<{ devices: DeviceRecord[]; thisDevice: string }>
+  renameDevice(id: string, name: string): Promise<void>
+  /** Removes another device: it is signed out the next time it connects. */
+  removeDevice(id: string): Promise<void>
   /** Back from a mid-flow screen to the sign-in form (forgets the password held for the flow). */
   cancel(): Promise<void>
   close(): void
@@ -122,6 +135,7 @@ export function createUnavailableAccount(): AccountService {
     abandonVault: fail, setNewPassword: fail, requestPasswordReset: fail, signOut: fail, cancel: fail,
     prepareRecoveryCode: fail, confirmNewRecoveryCode: fail, cancelNewRecoveryCode: () => {},
     getSyncStatus: () => OFF_STATUS, subscribeSync: () => () => {}, dismissSyncIssues: () => {},
+    listDevices: async () => ({ devices: [], thisDevice: '' }), renameDevice: fail, removeDevice: fail,
     close: () => {},
   }
 }
@@ -164,16 +178,61 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
     listeners.forEach((l) => l())
   }
 
+  let deviceTimer: ReturnType<typeof setInterval> | null = null
+  /** The check-in started with sync: the device list waits for it, so this device is already in it. */
+  let firstCheckIn: Promise<void> = Promise.resolve()
   const stopSync = async () => {
     const s = sync
     sync = null
     newCode = null
+    if (deviceTimer !== null) clearInterval(deviceTimer)
+    deviceTimer = null
     syncStatus.stop()
     await s?.stop()
   }
-  const startSync = (vaultId: string, kek: CryptoKey) => {
+  const startSync = (vaultId: string, kek: CryptoKey, userId: string) => {
     if (closed || sync || !deps.startSync) return
     sync = deps.startSync({ vaultId, kek, report: syncStatus.start() })
+    if (deps.devices) {
+      firstCheckIn = checkIn(userId)
+      deviceTimer = setInterval(() => void checkIn(userId), deps.deviceCheckMs ?? 30 * 60 * 1000)
+    }
+  }
+
+  // Registers this device / refreshes its last-seen time; a device removed from another one signs out here.
+  // Offline or any other failure is ignored: device bookkeeping never gets in the way of sync.
+  const thisDevice = () => deps.deviceId?.() ?? ''
+  async function checkIn(userId: string): Promise<void> {
+    if (!deps.devices) return
+    let r: 'ok' | 'removed'
+    try {
+      r = await checkInDevice(deps.devices, deps.meta, { deviceId: thisDevice(), userId, name: defaultDeviceName() })
+    } catch {
+      return
+    }
+    if (r !== 'removed') return
+    await serial(async () => {
+      if (state.status !== 'unlocked') return
+      await endSession('device-removed')
+    })
+  }
+
+  async function endSession(notice?: 'device-removed'): Promise<void> {
+    await stopSync()
+    const email = 'email' in state ? state.email : undefined
+    try {
+      await deps.auth.signOut()
+    } catch {
+      /* offline: the local session is dropped below either way */
+    }
+    await deps.meta.delete(ACCOUNT_KEY)
+    flow = null
+    set(notice ? { status: 'signed-out', email, notice } : { status: 'signed-out', email })
+    announce()
+  }
+  const requireDevices = () => {
+    if (!deps.devices || state.status !== 'unlocked') throw new AccountError('unknown', 'not unlocked')
+    return deps.devices
   }
 
   async function readStored(): Promise<StoredAccount | null> {
@@ -185,7 +244,7 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
     const [user, stored] = await Promise.all([deps.auth.getCurrentUser(), readStored()])
     if (stored && user?.userId === stored.userId) {
       set({ status: 'unlocked', email: stored.email, vaultId: stored.vaultId })
-      startSync(stored.vaultId, stored.kek)
+      startSync(stored.vaultId, stored.kek, stored.userId)
       return
     }
     await stopSync()
@@ -218,7 +277,7 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
     flow = null
     set({ status: 'unlocked', email, vaultId })
     announce()
-    startSync(vaultId, deviceKek)
+    startSync(vaultId, deviceKek, userId)
   }
 
   async function apply(userId: string, email: string, password: string, r: ResolveResult): Promise<void> {
@@ -319,20 +378,7 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
         await requestPasswordReset(deps.auth, email, { redirectTo: deps.redirectTo })
         set({ status: 'signed-out', email, notice: 'reset-sent' })
       }),
-    signOut: () =>
-      serial(async () => {
-        await stopSync()
-        const email = 'email' in state ? state.email : undefined
-        try {
-          await deps.auth.signOut()
-        } catch {
-          /* offline: the local session is dropped below either way */
-        }
-        await deps.meta.delete(ACCOUNT_KEY)
-        flow = null
-        set({ status: 'signed-out', email })
-        announce()
-      }),
+    signOut: () => serial(() => endSession()),
     prepareRecoveryCode: (password) =>
       serial(async () => {
         if (state.status !== 'unlocked') throw new AccountError('unknown', 'not unlocked')
@@ -351,6 +397,19 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
     getSyncStatus: () => syncStatus.get(),
     subscribeSync: (cb) => syncStatus.subscribe(cb),
     dismissSyncIssues: () => syncStatus.dismiss(),
+    listDevices: async () => {
+      if (!deps.devices) return { devices: [], thisDevice: thisDevice() }
+      await firstCheckIn
+      return { devices: await requireDevices().list(), thisDevice: thisDevice() }
+    },
+    renameDevice: async (id, name) => {
+      const n = name.trim()
+      if (n) await requireDevices().rename(id, n)
+    },
+    removeDevice: async (id) => {
+      if (id === thisDevice()) throw new AccountError('unknown', 'use sign out for this device')
+      await requireDevices().remove(id)
+    },
     cancel: () =>
       serial(async () => {
         const email = 'email' in state ? state.email : undefined
@@ -428,6 +487,9 @@ export function createDeferredAccount(load: () => Promise<AccountService>): Acco
       return () => void syncListeners.delete(cb)
     },
     dismissSyncIssues: () => inner?.dismissSyncIssues(),
+    listDevices: async () => (await get()).listDevices(),
+    renameDevice: call((s) => s.renameDevice),
+    removeDevice: call((s) => s.removeDevice),
     close() {
       closed = true
       inner?.close()
