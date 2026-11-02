@@ -416,37 +416,70 @@ describe('同步到雲端 (3f-2)', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('資料夾 can be synced: 同步此資料夾 syncs what is inside and what is put there; 停止同步 asks first', async () => {
+  it('資料夾 have a box too: ticking one syncs everything in it (and what is put there later); unticking asks first', async () => {
     account = fakeAccount(unlocked)
     const f = vault.createFolder({ name: 'Work', parentId: null })
     const inside = vault.createNote({ title: 'Inside', folderId: f.id })
+    const outside = vault.createNote({ title: 'Outside' })
     mount()
-    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Work/ }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '同步此資料夾' }))
-    expect(vault.getNote(inside.id)!.synced).toBe(true)
-    expect(vault.createNote({ title: 'Later', folderId: f.id }).synced).toBe(true)
-    expect(within(await screen.findByRole('treeitem', { name: /Work/ })).getByLabelText('資料夾已同步到雲端')).toBeInTheDocument()
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Outside/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '同步到雲端' }))
+    const box = (t: string) => within(screen.getByRole('treeitem', { name: new RegExp(t) })).getByRole('checkbox')
+    expect(box('Work')).toHaveAttribute('aria-checked', 'false')
 
+    fireEvent.click(screen.getByRole('treeitem', { name: /Work/ })) // a click ticks the folder, it does not open it
+    expect(box('Work')).toHaveAttribute('aria-checked', 'true')
+    expect(vault.getNote(inside.id)!.synced).toBe(false) // nothing applied yet
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    expect(screen.queryByRole('dialog')).toBeNull() // no extra window to turn it on
+    expect(vault.getNote(inside.id)!.synced).toBe(true)
+    expect(vault.getNote(outside.id)!.synced).toBe(false)
+    expect(vault.createNote({ title: 'Later', folderId: f.id }).synced).toBe(true)
+    expect(within(screen.getByRole('treeitem', { name: /Work/ })).getByLabelText('資料夾已同步到雲端')).toBeInTheDocument()
+
+    // untick: the notes inside are unticked with it, and 完成 asks before deleting their cloud copies
     fireEvent.contextMenu(screen.getByRole('treeitem', { name: /Work/ }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '停止同步此資料夾' }))
-    const dialog = await screen.findByRole('dialog', { name: '停止同步資料夾「Work」？' })
-    expect(dialog).toHaveTextContent('2 篇筆記的雲端副本會被刪除')
+    fireEvent.click(await screen.findByRole('menuitem', { name: '同步到雲端' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: /Work/ }))
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    const dialog = await screen.findByRole('dialog', { name: '停止同步 2 篇筆記？' })
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
     expect(vault.getNote(inside.id)!.synced).toBe(true)
-
-    fireEvent.contextMenu(screen.getByRole('treeitem', { name: /Work/ }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '停止同步此資料夾' }))
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '停止同步' }))
     expect(vault.getNote(inside.id)!.synced).toBe(false)
     expect(screen.queryByLabelText('資料夾已同步到雲端')).toBeNull()
   })
 
-  it('the folder item is offered only when signed in', async () => {
+  it('a folder box shows its notes as ticked, a note can be unticked on its own, and the arrow still opens the folder', async () => {
+    account = fakeAccount(unlocked)
+    const f = vault.createFolder({ name: 'Work', parentId: null })
+    const a = vault.createNote({ title: 'Alpha', folderId: f.id })
+    const b = vault.createNote({ title: 'Beta', folderId: f.id })
+    mount()
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Work/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '同步到雲端' }))
+    const row = () => screen.getByRole('treeitem', { name: /Work/ })
+    fireEvent.click(row().querySelector('span')!) // the arrow: opens the folder without ticking it
+    expect(within(row()).getByRole('checkbox')).toHaveAttribute('aria-checked', 'false')
+    const box = (t: string) => within(screen.getByRole('treeitem', { name: new RegExp(t) })).getByRole('checkbox')
+    fireEvent.click(row())
+    expect(box('Alpha')).toHaveAttribute('aria-checked', 'true')
+    expect(box('Beta')).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(screen.getByRole('treeitem', { name: /Beta/ }))
+    expect(box('Beta')).toHaveAttribute('aria-checked', 'false')
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    expect(vault.getNote(a.id)!.synced).toBe(true)
+    expect(vault.getNote(b.id)!.synced).toBe(false)
+    expect(vault.listFolders()[0].synced).toBe(true)
+  })
+
+  it('the 同步到雲端 item is offered on folders only when signed in', async () => {
     vault.createFolder({ name: 'Work', parentId: null })
     mount()
     fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Work/ }))
     await screen.findByRole('menuitem', { name: '下載此資料夾' })
-    expect(screen.queryByRole('menuitem', { name: '同步此資料夾' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '同步到雲端' })).toBeNull()
   })
 
   it('the status line shows sync progress and problems, and opens the account settings', async () => {

@@ -26,6 +26,8 @@ export interface SyncManagerDeps {
   vaultId: string
   kek: CryptoKey
   deviceId?: string
+  /** The note open on screen: on start its content is fetched first. */
+  priorityNoteId?: () => string | null
   onError?: (e: SyncError, info: { docId: string }) => void
 }
 
@@ -61,6 +63,9 @@ interface NoteBinding {
  *
  * Device registration (`devices` table) lives in the account layer (`core/account/devices.ts`), not here.
  */
+/** How many notes are brought up to date at once when sync starts. */
+const INITIAL_SYNC_PARALLEL = 6
+
 export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   const deviceId = deps.deviceId ?? getDeviceId()
   const noteBindings = new Map<string, NoteBinding>()
@@ -234,7 +239,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       if (existing.length === 0) await pushInitialSnapshot(doc, cloudDeps)
       // Attachments the cloud already holds for this note (uploaded by any device) aren't uploaded again.
       const inCloud = existing.length === 0 ? [] : await deps.attachmentSync.listAttachments(deps.vaultId, noteId)
-      const binding = await bindCloudDoc(doc, { ...cloudDeps, onError: (e) => reportError(e, noteId) })
+      const binding = await bindCloudDoc(doc, { ...cloudDeps, initialChunks: existing.length > 0 ? existing : undefined, onError: (e) => reportError(e, noteId) })
       const nb: NoteBinding = { binding, pushedAttachments: new Set(inCloud) }
       noteBindings.set(noteId, nb)
       await pushNoteAttachments(noteId, nb)
@@ -358,7 +363,16 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       remotelyRemoved.clear() // nothing is bound yet, so nothing needs the detach-only treatment
 
       prevSyncedIds = new Set(deps.vault.listNotes().filter((n) => n.synced).map((n) => n.id))
-      for (const id of prevSyncedIds) await turnOn(id)
+      // Several notes at once (each needs a few round trips; one after another a big vault took minutes to
+      // arrive on a new device), the one on screen first.
+      const open = deps.priorityNoteId?.() ?? null
+      const ids = [...prevSyncedIds].sort((a, b) => Number(b === open) - Number(a === open))
+      let next = 0
+      await Promise.all(
+        Array.from({ length: Math.min(INITIAL_SYNC_PARALLEL, ids.length) }, async () => {
+          while (next < ids.length) await turnOn(ids[next++])
+        }),
+      )
 
       // Appearance settings (design doc §5 open decision 5: always synced once signed in, no per-note on/off).
       if (deps.prefs) {

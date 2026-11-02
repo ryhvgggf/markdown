@@ -63,13 +63,11 @@ const same = (a: TreeItemProps, b: TreeItemProps) =>
 export const TreeItem = memo(TreeItemRow, same)
 
 /** Which menu items a row shows: notes have no 重新命名 (the title is the name); 同步到雲端 needs sign-in. */
-function rowMenu(m: RowMenuActions, isNote: boolean, syncable: boolean, folderSynced: boolean): RowMenuActions {
+function rowMenu(m: RowMenuActions, isNote: boolean, syncable: boolean): RowMenuActions {
   return {
     ...m,
     rename: isNote ? undefined : m.rename,
-    syncSelect: isNote && syncable ? m.syncSelect : undefined,
-    syncFolder: !isNote && syncable ? m.syncFolder : undefined,
-    folderSynced,
+    syncSelect: syncable ? m.syncSelect : undefined,
   }
 }
 
@@ -83,7 +81,7 @@ function TreeItemRow(props: TreeItemProps) {
   const cloudMark = props.syncable && synced(props.node) && !props.selecting
   const p = {
     ...props,
-    menu: rowMenu(api.menu(ref.id), isNote, props.syncable, props.node.kind === 'folder' && props.node.folder.synced === true),
+    menu: rowMenu(api.menu(ref.id), isNote, props.syncable),
     onActivate: () => api.activate(ref.id),
     onExpand: (open: boolean) => api.expand(ref.id, open),
     onRename: (v: string) => api.rename(ref.id, v),
@@ -140,7 +138,17 @@ function TreeItemRow(props: TreeItemProps) {
     >
       {p.drop === 'before' && <span className="pointer-events-none absolute inset-x-2 -top-px h-0.5 rounded bg-accent" />}
       {p.drop === 'after' && <span className="pointer-events-none absolute inset-x-2 -bottom-px h-0.5 rounded bg-accent" />}
-      <span className="grid size-4 shrink-0 place-items-center text-fg-tertiary">
+      <span
+        className="grid size-4 shrink-0 place-items-center text-fg-tertiary"
+        onClick={
+          p.selecting && p.node.kind === 'folder'
+            ? (e) => {
+                e.stopPropagation() // the arrow still opens and closes the folder while choosing what to sync
+                p.onExpand(!p.expanded)
+              }
+            : undefined
+        }
+      >
         {p.node.kind === 'folder' && (
           <ChevronRight
             size={14}
@@ -148,7 +156,7 @@ function TreeItemRow(props: TreeItemProps) {
           />
         )}
       </span>
-      {p.selecting && isNote && (
+      {p.selecting && (
         <span
           role="checkbox"
           aria-checked={p.checked}

@@ -19,6 +19,8 @@ export interface CloudDocDeps {
   kek: CryptoKey
   deviceId: string
   compactAfter?: number
+  /** What the caller just pulled for this doc, so attaching doesn't pull it a second time. */
+  initialChunks?: Uint8Array[]
   onError?: (e: SyncError) => void
 }
 
@@ -191,7 +193,7 @@ async function pullAndApply(doc: Y.Doc, deps: CloudDocDeps): Promise<void> {
  * trade-off this whole module already makes for remote re-pulls.
  */
 async function recoverLocalOnlyEdits(doc: Y.Doc, deps: CloudDocDeps): Promise<Uint8Array | null> {
-  const chunks = await deps.sync.pullDoc(deps.vaultId, deps.docId)
+  const chunks = deps.initialChunks ?? (await deps.sync.pullDoc(deps.vaultId, deps.docId))
   if (chunks.length === 0) return null
   const decrypted = await Promise.all(chunks.map((c) => decryptDocChunk(deps.kek, deps.vaultId, deps.docId, c)))
 

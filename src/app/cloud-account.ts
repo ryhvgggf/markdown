@@ -11,6 +11,7 @@ import type { NoteDocCache } from '@/core/note-doc/cache'
 import { createSyncManager } from '@/core/sync-engine/sync-manager'
 import type { Preferences } from '@/core/preferences/preferences'
 import type { Vault } from '@/core/vault/vault'
+import { useUi } from './ui-store'
 import { createAccountService, type AccountService } from './account-service'
 import { runAsSyncLeader } from './sync-leader'
 import { reportingProgress } from './sync-status'
@@ -52,6 +53,7 @@ export function createCloudAccount(d: CloudAccountDeps): AccountService {
               noteDocs: d.notes,
               vault: d.vault,
               prefs: d.prefs,
+              priorityNoteId: () => useUi.getState().openNoteId,
               vaultId,
               kek,
               onError: (e, info) => {

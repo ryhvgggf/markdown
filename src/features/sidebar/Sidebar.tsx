@@ -33,36 +33,52 @@ export function Sidebar() {
   const setView = useUi((s) => s.setSidebarView)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const trashCount = trashRoots(trashed).length
-  // 同步到雲端 selection: the notes whose box was clicked, with the state they should end up in.
+  // 同步到雲端 selection: the boxes that were clicked (notes and folders), with the state each should end up in.
   const [picks, setPicks] = useState<Map<string, boolean> | null>(null)
   const [confirmUnsync, setConfirmUnsync] = useState(false)
-  // A folder's sync rule being turned off with synced notes inside: waits for the confirmation.
-  const [stopFolder, setStopFolder] = useState<{ id: string; name: string; count: number } | null>(null)
-  const syncFolder = (id: string) => {
-    const folder = vault.listFolders().find((f) => f.id === id)
-    if (!folder) return
-    if (folder.synced !== true) return vault.setFolderSynced(id, true)
-    const count = vault.notesStoppedByUnsyncingFolder(id).length
-    if (count === 0) vault.setFolderSynced(id, false)
-    else setStopFolder({ id, name: folder.name || '未命名資料夾', count })
-  }
   const selecting = picks !== null && signedIn && view === 'tree'
-  const isSynced = (id: string) => vault.getNote(id)?.synced === true
+  const folderById = new Map(vault.listFolders().map((f) => [f.id, f]))
+  const folderOn = (id: string) => picks?.get(id) ?? folderById.get(id)?.synced === true
+  // A note's box: its own click wins; else the nearest folder above it that was clicked decides (ticked, or
+  // unticked unless a folder further up still holds it); else it keeps its current state.
+  const noteOn = (id: string): boolean => {
+    const own = picks?.get(id)
+    if (own !== undefined) return own
+    const note = vault.getNote(id)
+    if (!note) return false
+    let clicked = false
+    let held = false
+    for (let f = note.folderId, guard = 0; f !== null && guard < 10000; guard++) {
+      const folder = folderById.get(f)
+      if (!folder) break
+      if (picks?.has(f)) {
+        if (picks.get(f)) return true
+        clicked = true
+      } else if (folder.synced === true) held = true
+      f = folder.parentId
+    }
+    return clicked ? held : note.synced === true
+  }
   const selection = selecting
     ? {
-        has: (id: string) => picks.get(id) ?? isSynced(id),
+        has: (id: string) => (folderById.has(id) ? folderOn(id) : noteOn(id)),
         toggle: (id: string) =>
           setPicks((m) => {
             const next = new Map(m)
-            next.set(id, !(m?.get(id) ?? isSynced(id)))
+            next.set(id, !(folderById.has(id) ? m?.get(id) ?? folderById.get(id)?.synced === true : noteOn(id)))
             return next
           }),
       }
     : null
-  const changes = [...(picks ?? [])].filter(([id, on]) => vault.getNote(id) && on !== isSynced(id))
-  const unsyncCount = changes.filter(([, on]) => !on).length
+  const liveNotes = selecting ? vault.listNotes() : []
+  const unsyncCount = liveNotes.filter((n) => n.synced && !noteOn(n.id)).length
   const applyPicks = () => {
-    for (const [id, on] of changes) vault.setNoteSynced(id, on)
+    // Folders first (they set their notes), then the notes whose own state still differs.
+    for (const [id, on] of picks ?? []) if (folderById.has(id) && on !== (folderById.get(id)?.synced === true)) vault.setFolderSynced(id, on)
+    for (const n of vault.listNotes()) {
+      const want = noteOn(n.id)
+      if (n.synced !== want) vault.setNoteSynced(n.id, want)
+    }
     setPicks(null)
     setConfirmUnsync(false)
   }
@@ -132,7 +148,6 @@ export function Sidebar() {
                 setRenamingId={setRenamingId}
                 syncable={signedIn}
                 onSyncSelect={() => setPicks(new Map())}
-                onSyncFolder={syncFolder}
                 selection={selection}
               />
             )}
@@ -182,25 +197,6 @@ export function Sidebar() {
           </>
         )}
       </p>
-      <Dialog title={`停止同步資料夾「${stopFolder?.name ?? ''}」？`} open={stopFolder !== null} onOpenChange={(o) => !o && setStopFolder(null)}>
-        <p className="text-sm text-fg-secondary">
-          {stopFolder?.count} 篇筆記的雲端副本會被刪除，其他裝置保留目前的內容但不再更新。這台裝置上的筆記不受影響。
-        </p>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setStopFolder(null)}>
-            取消
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              if (stopFolder) vault.setFolderSynced(stopFolder.id, false)
-              setStopFolder(null)
-            }}
-          >
-            停止同步
-          </Button>
-        </div>
-      </Dialog>
       <Dialog title={`停止同步 ${unsyncCount} 篇筆記？`} open={selecting && confirmUnsync} onOpenChange={setConfirmUnsync}>
         <p className="text-sm text-fg-secondary">雲端副本會被刪除，其他裝置保留目前的內容但不再更新。這台裝置上的筆記不受影響。</p>
         <div className="mt-4 flex justify-end gap-2">

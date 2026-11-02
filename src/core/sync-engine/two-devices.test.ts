@@ -308,3 +308,53 @@ describe('removal elsewhere (3f-4)', () => {
     expect(a.vault.getNote(n.id)?.synced).toBe(true)
   })
 })
+
+describe('a new device with many notes (3f-4)', () => {
+  it('fetches notes in parallel, the open one first, pulling each note once', async () => {
+    const a = await device('A')
+    const ids: string[] = []
+    for (let i = 0; i < 12; i++) {
+      const n = a.vault.createNote({ title: `Note ${i}` })
+      a.vault.setNoteSynced(n.id, true)
+      const doc = await a.notes.acquire(n.id)
+      const p = new Y.XmlElement('paragraph')
+      p.insert(0, [new Y.XmlText(`body ${i}`)])
+      doc.getXmlFragment('content').insert(0, [p])
+      a.notes.release(n.id)
+      ids.push(n.id)
+    }
+    await a.manager.start()
+    await until(() => !a.manager.hasPending())
+
+    // B sees the same cloud, but every pull takes a while (a real network).
+    const pulls: string[] = []
+    let running = 0
+    let peak = 0
+    const slow = Object.create(sync) as MemorySync
+    slow.pullDoc = async (v, d) => {
+      pulls.push(d)
+      running++
+      peak = Math.max(peak, running)
+      await wait(15)
+      running--
+      return sync.pullDoc(v, d)
+    }
+    const storage = new MemoryStorage()
+    const vault = await Vault.open(storage, 'v1', { channelFactory: isolated })
+    const notes = new NoteDocCache(storage, { channelFactory: isolated })
+    const open = ids[7]
+    const manager = createSyncManager({ sync: slow, attachmentSync, storage, noteDocs: notes, vault, vaultId: 'v1', kek, deviceId: 'B', priorityNoteId: () => open })
+    devices.push({ storage, vault, notes, manager, errors: [] })
+    await manager.start()
+
+    expect(peak).toBeGreaterThan(1) // not one after another
+    const notePulls = pulls.filter((d) => ids.includes(d))
+    expect(notePulls.length).toBe(ids.length) // once per note, not twice
+    expect(notePulls[0]).toBe(open) // the one on screen goes first
+    for (const [i, id] of ids.entries()) {
+      const doc = await notes.acquire(id)
+      expect(text(doc)).toContain(`body ${i}`)
+      notes.release(id)
+    }
+  })
+})

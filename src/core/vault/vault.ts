@@ -324,23 +324,6 @@ export class Vault {
       }
     })
   }
-  /** Ids of the synced notes that would stop syncing if this folder's rule were turned off (for the confirmation). */
-  notesStoppedByUnsyncingFolder(id: string): string[] {
-    const subtree = this.subtreeIds(id)
-    const covered = (folderId: string | null): boolean => {
-      for (let p = folderId, guard = 0; p !== null && guard < 10000; guard++) {
-        const f = this.folders.get(p)
-        if (!f) return false
-        if (p !== id && f.get('synced') === true) return true
-        p = (f.get('parentId') as string | null) ?? null
-      }
-      return false
-    }
-    return [...this.notes.entries()]
-      .filter(([, n]) => n.get('deletedAt') === null && n.get('synced') === true && subtree.has((n.get('folderId') as string | null) ?? ''))
-      .filter(([, n]) => !covered((n.get('folderId') as string | null) ?? null))
-      .map(([noteId]) => noteId)
-  }
   /** Clears every folder's sync rule without touching notes (another account's vault is being unlocked). */
   clearFolderSyncRules(): void {
     this.doc.transact(() => {
