@@ -103,3 +103,20 @@ test('拖曳欄的邊線調整欄寬', async ({ page }, info) => {
   expect(after.width).toBeGreaterThan(box.width + 40)
   await expect(first).toHaveAttribute('colwidth', /\d+/)
 })
+
+test('欄寬拖曳可以用 Ctrl+Z 復原、Ctrl+Shift+Z 重做', async ({ page }) => {
+  const editor = await insertTable(page)
+  const first = editor.locator('th').first()
+  const before = (await first.boundingBox())!
+  const edgeX = before.x + before.width + 1
+  await page.mouse.move(edgeX, before.y + before.height - 8)
+  await page.mouse.down()
+  await page.mouse.move(edgeX + 80, before.y + before.height - 8, { steps: 6 })
+  await page.mouse.up()
+  const widened = (await first.boundingBox())!
+  expect(widened.width).toBeGreaterThan(before.width + 40)
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect.poll(async () => Math.round((await first.boundingBox())!.width)).toBeLessThan(Math.round(widened.width - 40))
+  await page.keyboard.press('ControlOrMeta+Shift+z')
+  await expect.poll(async () => Math.round((await first.boundingBox())!.width)).toBeGreaterThan(Math.round(before.width + 40))
+})
