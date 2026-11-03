@@ -241,6 +241,55 @@ describe('account service (3f-1)', () => {
   })
 })
 
+describe('account service — two tabs (3f review A1)', () => {
+  // Tabs of one browser: shared storage and auth session, messages delivered to the other tabs only.
+  function tabsBus() {
+    const channels = new Map<string, Set<(e: { data: unknown }) => void>>()
+    return (name: string) => {
+      const mine = new Set<(e: { data: unknown }) => void>()
+      const all = channels.get(name) ?? new Set()
+      channels.set(name, all)
+      return {
+        postMessage: (data: unknown) => all.forEach((l) => !mine.has(l) && l({ data })),
+        addEventListener: (_: string, l: (e: { data: unknown }) => void) => (mine.add(l), all.add(l)),
+        removeEventListener: (_: string, l: (e: { data: unknown }) => void) => (mine.delete(l), all.delete(l)),
+        close() {},
+      } as unknown as BroadcastChannel
+    }
+  }
+
+  it('a new vault made after a password reset in one tab stops the other tab syncing the old one', async () => {
+    const bus = tabsBus()
+    // Only the tab that opened the reset link hears the recovery event.
+    const deaf = new Proxy(auth, {
+      get: (t, k) => (k === 'onPasswordRecovery' ? () => () => {} : typeof Reflect.get(t, k) === 'function' ? Reflect.get(t, k).bind(t) : Reflect.get(t, k)),
+    })
+    const stop1 = vi.fn(async () => {})
+    const start1 = vi.fn<StartSync>(() => ({ stop: stop1 }))
+    const tab1 = createAccountService({ auth: deaf, keyStore, meta, vault, startSync: start1, channelFactory: bus })
+    const tab2 = createAccountService({ auth, keyStore, meta, vault, startSync, channelFactory: bus })
+    services.push(tab1, tab2)
+    await tab1.init()
+    await signUpAndConfirm(tab1)
+    await tab1.confirmRecoveryCode()
+    const oldVault = (tab1.getState() as { vaultId: string }).vaultId
+    await tab2.init()
+    expect(start1).toHaveBeenLastCalledWith(expect.objectContaining({ vaultId: oldVault }))
+
+    auth.openResetLink('a@example.com') // in tab 2
+    await vi.waitFor(() => expect(tab2.getState().status).toBe('set-password'))
+    await vi.waitFor(() => expect(stop1).toHaveBeenCalled()) // tab 1 stops with the dropped key
+    await tab2.setNewPassword('new-password')
+    await tab2.abandonVault() // no recovery code: a new vault
+    await tab2.confirmRecoveryCode()
+    const newVault = (tab2.getState() as { vaultId: string }).vaultId
+    expect(newVault).not.toBe(oldVault)
+
+    await vi.waitFor(() => expect(tab1.getState()).toMatchObject({ status: 'unlocked', vaultId: newVault }))
+    expect(start1).toHaveBeenLastCalledWith(expect.objectContaining({ vaultId: newVault }))
+  })
+})
+
 describe('account service (3f-2)', () => {
   async function unlocked() {
     const s = make()
@@ -343,6 +392,20 @@ describe('account service — devices (3f-3)', () => {
     expect(s.getState()).toEqual({ status: 'signed-out', email: 'a@example.com', notice: 'device-removed' })
     expect(meta.map.has(ACCOUNT_KEY)).toBe(false)
     expect(stopSync).toHaveBeenCalled()
+  })
+
+  it('coming back to the app (tab shown again) checks at once, without waiting for the timer', async () => {
+    const devices = new MemoryDevices()
+    const s = makeWith(devices, 'this', 60 * 60 * 1000)
+    await s.init()
+    await signUpAndConfirm(s)
+    await s.confirmRecoveryCode()
+    await until(() => devices.rows.has('this'))
+    await new Promise((r) => setTimeout(r, 10))
+    await devices.remove('this')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await until(() => s.getState().status === 'signed-out')
+    expect(s.getState()).toMatchObject({ status: 'signed-out', notice: 'device-removed' })
   })
 })
 

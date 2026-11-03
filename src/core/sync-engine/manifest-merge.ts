@@ -1,6 +1,6 @@
 import type { Vault } from '@/core/vault/vault'
 import type { AttachmentMeta, FolderMeta, NoteMeta } from '@/core/vault/types'
-import { TOMBSTONE_TTL_MS, type StructureManifest } from './manifest'
+import type { StructureManifest } from './manifest'
 
 export interface ManifestConflict {
   noteId: string
@@ -15,6 +15,11 @@ export interface ManifestMergeResult {
   conflicts: ManifestConflict[]
   /** Notes this device had synced that another device removed from the cloud; now unsynced here, content kept. */
   unsynced: string[]
+  /**
+   * Notes the cloud lists that this device turned off more recently (`syncAt`) than the cloud's copy was turned
+   * on — while sync wasn't running here, so no removal was recorded. Left off; the caller finishes the removal.
+   */
+  offHere: string[]
 }
 
 export interface ManifestMergeOptions {
@@ -54,12 +59,13 @@ const stateOf = (x: { stateAt?: number; deletedAt: number | null }) => x.stateAt
 export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest, opts: ManifestMergeOptions = {}): ManifestMergeResult {
   const conflicts: ManifestConflict[] = []
   const unsynced: string[] = []
+  const offHere: string[] = []
   const removed = new Set((manifest.removed ?? []).map((r) => r.id).filter((id) => !opts.resynced?.has(id)))
   for (const id of removed) {
     const n = vault.getNote(id)
     if (!n?.synced) continue
     opts.onRemotelyRemoved?.(id)
-    vault.setNoteSynced(id, false)
+    vault.setNoteSynced(id, false, { at: null }) // not this device's choice: its own stamp stays
     unsynced.push(id)
   }
 
@@ -105,7 +111,11 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
         // it removed), so this device syncs it too — the same note on another device was turned on, or turned off
         // and on again. Except one the user is just now turning off here.
         if (opts.keepOff?.has(note.id)) continue
-        vault.setNoteSynced(note.id, true)
+        if (at(local.syncAt) > at(note.syncAt)) {
+          offHere.push(note.id) // turned off here after it was turned on in the cloud
+          continue
+        }
+        vault.setNoteSynced(note.id, true, { at: note.syncAt ?? null })
       }
       if (stateOf(note) > stateOf(local)) vault.applyRemoteNoteState(note.id, { deletedAt: note.deletedAt, stateAt: stateOf(note) })
       const patch = notePatch(local, note)
@@ -118,13 +128,13 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
       vault.createNote({ id: note.id, title: '', folderId: note.folderId, createdAt: note.createdAt, updatedAt: note.updatedAt })
       vault.applyRemoteNote(note.id, { title: note.title, titleAt: note.titleAt, order: note.order, placeAt: note.placeAt })
       if (note.deletedAt !== null) vault.applyRemoteNoteState(note.id, { deletedAt: note.deletedAt, stateAt: stateOf(note) })
-      vault.setNoteSynced(note.id, true) // it came from the manifest, so it's synced by definition
+      vault.setNoteSynced(note.id, true, { at: note.syncAt ?? null }) // it came from the manifest, so it's synced by definition
     } catch {
       conflicts.push({ noteId: note.id, reason: 'create-failed' }) // e.g. its folder never got created above
     }
   }
 
-  return { conflicts, unsynced }
+  return { conflicts, unsynced, offHere }
 }
 
 function notePatch(local: NoteMeta, remote: NoteMeta): Parameters<Vault['applyRemoteNote']>[1] | null {
@@ -145,7 +155,6 @@ export interface CombineOptions {
   removed: ReadonlyMap<string, number>
   /** Notes the user deliberately re-synced this session: any removal mark for them is dropped. */
   resynced: ReadonlySet<string>
-  now: number
 }
 
 /**
@@ -154,7 +163,8 @@ export interface CombineOptions {
  * - Cloud entries this device doesn't have locally are kept — a note merely missing locally (a bug, data
  *   loss) must not delete its cloud copy (3e) — unless it is marked removed.
  * - Removal marks: the cloud's, plus this device's own deliberate removals, minus notes the user re-synced
- *   here, minus ones older than `TOMBSTONE_TTL_MS`. A marked note is left out even if this device still has
+ *   here. Marks never expire (3f review C2): an expired one let a device that was away long enough bring a
+ *   removed note back, and a device with its clock far ahead could drop them all. A marked note is left out even if this device still has
  *   it synced (it hasn't pulled the mark yet), so a stale copy can't bring a removed note back.
  * - For entries both sides have, each field group takes whichever side's stamp is newer; a tie keeps the
  *   cloud's value, so a local-only adjustment (a ` (n)` title suffix from `applyRemoteNote`) never spreads.
@@ -169,7 +179,6 @@ export function combineManifests(
   for (const r of cloud?.removed ?? []) marks.set(r.id, r.at)
   for (const [id, at] of opts.removed) marks.set(id, Math.max(at, marks.get(id) ?? 0))
   for (const id of opts.resynced) marks.delete(id)
-  for (const [id, at] of marks) if (opts.now - at > TOMBSTONE_TTL_MS) marks.delete(id)
 
   const cloudNotes = new Map((cloud?.notes ?? []).map((n) => [n.id, n]))
   const cloudFolders = new Map((cloud?.folders ?? []).map((f) => [f.id, f]))
@@ -182,6 +191,7 @@ export function combineManifests(
       const c = cloudNotes.get(n.id)
       if (!c || c.createdAt !== n.createdAt) return n
       const out = { ...n, updatedAt: Math.max(n.updatedAt, c.updatedAt) }
+      if (at(c.syncAt) > at(n.syncAt)) out.syncAt = c.syncAt
       if (stateOf(c) >= stateOf(n)) Object.assign(out, { deletedAt: c.deletedAt, stateAt: c.stateAt })
       if (at(c.titleAt) >= at(n.titleAt)) Object.assign(out, { title: c.title, titleAt: c.titleAt })
       if (at(c.placeAt) >= at(n.placeAt)) Object.assign(out, { folderId: c.folderId, order: c.order, placeAt: c.placeAt })

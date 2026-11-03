@@ -187,7 +187,7 @@ const note = (id: string, o: Partial<NoteMeta> = {}): NoteMeta => ({
   id, title: id, folderId: null, order: 'a', createdAt: 1, updatedAt: 1, deletedAt: null, synced: true, ...o,
 })
 
-const opts = (o: Partial<CombineOptions> = {}): CombineOptions => ({ removed: new Map(), resynced: new Set(), now: 1000, ...o })
+const opts = (o: Partial<CombineOptions> = {}): CombineOptions => ({ removed: new Map(), resynced: new Set(), ...o })
 
 describe('combineManifests', () => {
   it('takes each field from whichever side has the newer stamp; a tie keeps the cloud value', () => {
@@ -240,12 +240,25 @@ describe('removal marks', () => {
     expect(c.removed.sort((a, b) => a.id.localeCompare(b.id))).toEqual([{ id: 'cloud-copy', at: 10 }, { id: 'stale', at: 20 }])
   })
 
-  it('combine: a note re-synced here loses its mark and is included again; old marks are dropped', () => {
-    const local = { notes: [note('back')], folders: [], attachments: [] }
+  it('combine: a note re-synced here loses its mark and is included again; other marks never expire', () => {
+    const local = { notes: [note('back'), note('ancient')], folders: [], attachments: [] }
     const cloud = manifest({ removed: [{ id: 'back', at: 10 }, { id: 'ancient', at: 1 }] })
-    const c = combineManifests(local, cloud, opts({ resynced: new Set(['back']), now: 1 + 181 * 24 * 60 * 60 * 1000 }))
-    expect(c.notes.map((n) => n.id)).toEqual(['back'])
-    expect(c.removed).toEqual([])
+    const c = combineManifests(local, cloud, opts({ resynced: new Set(['back']) }))
+    expect(c.notes.map((n) => n.id)).toEqual(['back']) // a device back after years still can't bring 'ancient' back
+    expect(c.removed).toEqual([{ id: 'ancient', at: 1 }])
+  })
+
+  it('merge: a note turned off here after the cloud turned it on stays off and is reported; an older off follows the account', () => {
+    const newer = vault.createNote({ title: 'Newer off', createdAt: 100 })
+    const older = vault.createNote({ title: 'Older off', createdAt: 100 })
+    vault.setNoteSynced(newer.id, true, { at: 1 })
+    vault.setNoteSynced(newer.id, false, { at: 50 })
+    vault.setNoteSynced(older.id, true, { at: 1 })
+    vault.setNoteSynced(older.id, false, { at: 10 })
+    const r = mergeManifestIntoVault(vault, manifest({ notes: [note(newer.id, { createdAt: 100, syncAt: 20 }), note(older.id, { createdAt: 100, syncAt: 20 })] }))
+    expect(r.offHere).toEqual([newer.id])
+    expect(vault.getNote(newer.id)?.synced).toBe(false)
+    expect(vault.getNote(older.id)).toMatchObject({ synced: true, syncAt: 20 })
   })
 
   it('cloudIsBehind: true when this device\'s own removal mark is not in the cloud yet', () => {

@@ -41,6 +41,8 @@ export interface CloudDocBinding {
   hasPending(): boolean
   isFailing(): boolean
   retry(): void
+  /** Pulls the cloud copy and applies it now, as a realtime notification would (used after missed notifications). */
+  resync(): Promise<void>
   /** Stops for good: detaches, cancels retries and the subscription, drops unsent pushes, waits for the in-flight push. */
   close(): Promise<void>
 }
@@ -132,14 +134,18 @@ export async function bindCloudDoc(doc: Y.Doc, deps: CloudDocDeps): Promise<Clou
     void flush()
   }
 
+  const pull = () =>
+    closed
+      ? Promise.resolve()
+      : pullAndApply(doc, deps, pending, (diff) => {
+          pending.push(diff)
+          void flush()
+        }).catch((e) => {
+          deps.onError?.(e instanceof SyncError ? e : new SyncError('unknown', String(e), { cause: e }))
+        })
   const unsubscribe = deps.sync.subscribe(deps.vaultId, (change) => {
     if (closed || change.docId !== deps.docId || change.deviceId === deps.deviceId) return
-    void pullAndApply(doc, deps, (diff) => {
-      pending.push(diff)
-      void flush()
-    }).catch((e) => {
-      deps.onError?.(e instanceof SyncError ? e : new SyncError('unknown', String(e), { cause: e }))
-    })
+    void pull()
   })
 
   return {
@@ -156,6 +162,7 @@ export async function bindCloudDoc(doc: Y.Doc, deps: CloudDocDeps): Promise<Clou
       retryTimer = null
       void flush()
     },
+    resync: pull,
     async close() {
       closed = true
       doc.off('update', onUpdate)
@@ -186,7 +193,12 @@ function shapeOf(fragment: Y.XmlFragment): string {
   return fragment.toString().replace(/\s+id="[^"]*"/g, '')
 }
 
-async function pullAndApply(doc: Y.Doc, deps: CloudDocDeps, onAdopted: (localDiff: Uint8Array) => void): Promise<void> {
+async function pullAndApply(
+  doc: Y.Doc,
+  deps: CloudDocDeps,
+  unsent: readonly Uint8Array[],
+  onAdopted: (localDiff: Uint8Array) => void,
+): Promise<void> {
   const chunks = await deps.sync.pullDoc(deps.vaultId, deps.docId)
   if (chunks.length === 0) return
   const decrypted = await Promise.all(chunks.map((c) => decryptDocChunk(deps.kek, deps.vaultId, deps.docId, c)))
@@ -196,9 +208,20 @@ async function pullAndApply(doc: Y.Doc, deps: CloudDocDeps, onAdopted: (localDif
     if (isUnrelated(doc, cloudOnly, cfg.fragment)) {
       // The cloud copy was replaced by another device's: take it on as a whole. This device's items stay as
       // deleted ones and are pushed, so edits made here from now on connect to their history.
+      //
+      // Except edits this device made without knowing about the replacement (3f review B3): ones it pushed onto
+      // the new cloud copy (the cloud can't place them — they build on history it no longer has) and ones not
+      // sent yet. Those are the newest edits anywhere, so their blocks are carried over into the adopted copy.
+      const carried = blocksMadeIn(doc.getXmlFragment(cfg.fragment), orphanRanges(cloudOnly, unsent))
       const diff = adoptCloudCopy(doc, cloudOnly, decrypted, cfg.fragment)
       cloudOnly.destroy()
       if (diff) onAdopted(diff)
+      if (carried.length > 0) {
+        const f = doc.getXmlFragment(cfg.fragment)
+        doc.transact(() => {
+          for (const c of carried) f.insert(Math.min(c.index, f.length), [c.block])
+        }) // a local edit: pushed like any other
+      }
       return
     }
     cloudOnly.destroy()
@@ -206,6 +229,46 @@ async function pullAndApply(doc: Y.Doc, deps: CloudDocDeps, onAdopted: (localDif
   doc.transact(() => {
     for (const u of decrypted) Y.applyUpdate(doc, u, CLOUD_ORIGIN)
   }, CLOUD_ORIGIN)
+}
+
+type Ranges = Map<number, Array<[number, number]>> // client → [from, to) clock ranges
+
+/** What this device wrote that the cloud copy can't place (pushed onto a replaced copy), plus what is still unsent. */
+function orphanRanges(cloud: Y.Doc, unsent: readonly Uint8Array[]): Ranges {
+  const out: Ranges = new Map()
+  const add = (update: Uint8Array, v2 = false) => {
+    const { from, to } = v2 ? Y.parseUpdateMetaV2(update) : Y.parseUpdateMeta(update)
+    for (const [client, start] of from) {
+      const end = to.get(client) ?? start
+      if (end > start) out.set(client, [...(out.get(client) ?? []), [start, end]])
+    }
+  }
+  const pendingUpdate = cloud.store.pendingStructs?.update
+  if (pendingUpdate) add(pendingUpdate, true) // Yjs keeps these in its v2 encoding
+  for (const u of unsent) add(u)
+  return out
+}
+
+/** Top-level blocks holding any live item in `ranges`, cloned with their index (taken before the fragment is cleared). */
+function blocksMadeIn(fragment: Y.XmlFragment, ranges: Ranges): Array<{ index: number; block: Y.XmlElement | Y.XmlText }> {
+  if (ranges.size === 0) return []
+  const hit = (id: Y.ID, length: number) =>
+    (ranges.get(id.client) ?? []).some(([from, to]) => id.clock < to && id.clock + length > from)
+  const touches = (t: Y.AbstractType<unknown>): boolean => {
+    for (let i = t._start; i !== null; i = i.right) {
+      if (i.deleted) continue
+      if (hit(i.id, i.length)) return true
+      if (i.content instanceof Y.ContentType && touches(i.content.type)) return true
+    }
+    return false
+  }
+  const out: Array<{ index: number; block: Y.XmlElement | Y.XmlText }> = []
+  fragment.toArray().forEach((b, index) => {
+    if (!(b instanceof Y.XmlElement || b instanceof Y.XmlText)) return
+    const item = b._item
+    if ((item && hit(item.id, 1)) || touches(b as Y.AbstractType<unknown>)) out.push({ index, block: b.clone() })
+  })
+  return out
 }
 
 function scratchDoc(updates: Uint8Array[]): Y.Doc {

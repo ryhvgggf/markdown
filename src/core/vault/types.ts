@@ -14,6 +14,9 @@ export type NoteMeta = {
   placeAt?: number
   /** When the note was last moved to the trash or taken out of it (absent = never). Last-writer-wins key for the trash state across devices. */
   stateAt?: number
+  /** When `synced` was last switched by the user, on any device (absent = never). Decides, when the cloud lists a
+   *  note this device has turned off, whether that is a newer "off" to finish or an older one the account overrode. */
+  syncAt?: number
 }
 export type FolderMeta = {
   id: string

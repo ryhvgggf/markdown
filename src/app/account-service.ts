@@ -149,6 +149,7 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
   let flow: { userId: string; email: string; password: string; pending?: PendingVault } | null = null
   let vaultForRecovery: string | null = null
   let sync: SyncHandle | null = null
+  let syncing: { vaultId: string; userId: string } | null = null // what `sync` is running for
   let newCode: PendingRecoveryCode | null = null
   let closed = false
   const syncStatus = createSyncStatus({ channelFactory: deps.channelFactory })
@@ -186,6 +187,7 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
   const stopSync = async () => {
     const s = sync
     sync = null
+    syncing = null
     newCode = null
     if (deviceTimer !== null) clearInterval(deviceTimer)
     deviceTimer = null
@@ -195,6 +197,7 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
   const startSync = (vaultId: string, kek: CryptoKey, userId: string) => {
     if (closed || sync || !deps.startSync) return
     sync = deps.startSync({ vaultId, kek, report: syncStatus.start() })
+    syncing = { vaultId, userId }
     if (deps.devices) {
       firstCheckIn = checkIn(userId)
       deviceTimer = setInterval(() => void checkIn(userId), deps.deviceCheckMs ?? 30 * 60 * 1000)
@@ -245,6 +248,9 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
   async function load(): Promise<void> {
     const [user, stored] = await Promise.all([deps.auth.getCurrentUser(), readStored()])
     if (stored && user?.userId === stored.userId) {
+      // Another tab unlocked a different vault (e.g. a new one after a password reset): this tab's running sync
+      // still holds the old vault's key, so it stops and starts again with the stored one (3f review A1).
+      if (syncing && (syncing.vaultId !== stored.vaultId || syncing.userId !== stored.userId)) await stopSync()
       set({ status: 'unlocked', email: stored.email, vaultId: stored.vaultId })
       startSync(stored.vaultId, stored.kek, stored.userId)
       return
@@ -270,7 +276,7 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
     const deviceKek = await toDeviceKek(kek)
     const previousVault = await deps.meta.get(SYNC_VAULT_KEY)
     if (previousVault !== vaultId) {
-      for (const n of deps.vault.listNotes({ includeTrashed: true })) if (n.synced) deps.vault.setNoteSynced(n.id, false)
+      for (const n of deps.vault.listNotes({ includeTrashed: true })) if (n.synced) deps.vault.setNoteSynced(n.id, false, { at: null })
       deps.vault.clearFolderSyncRules()
       await deps.vault.flushWrites()
       await deps.meta.put(SYNC_VAULT_KEY, vaultId)
@@ -315,8 +321,17 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
       await deps.meta.delete(ACCOUNT_KEY)
       flow = null
       set({ status: 'set-password', email: user?.email ?? '' })
+      announce() // other tabs stop syncing with the key just dropped (3f review A1)
     })
   })
+  // Opening the app checks in at once (`startSync`); coming back to it (tab shown again, back online) does too,
+  // so a device removed elsewhere signs out then rather than at the next timer tick.
+  const onReturn = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    if (syncing && deps.devices) void checkIn(syncing.userId)
+  }
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onReturn)
+  if (typeof window !== 'undefined') window.addEventListener('online', onReturn)
 
   return {
     getState: () => state,
@@ -429,6 +444,8 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
     close() {
       closed = true
       offRecovery()
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onReturn)
+      if (typeof window !== 'undefined') window.removeEventListener('online', onReturn)
       channel?.removeEventListener('message', onMessage)
       channel?.close()
       void stopSync()

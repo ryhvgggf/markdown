@@ -147,8 +147,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // `combineManifests`), so a rename made on another device that this one hasn't pulled yet isn't
   // overwritten with this device's older title.
   async function pushMergedManifest(): Promise<void> {
-    const cloud = await pullManifest(deps.sync, deps.kek, deps.vaultId).catch(() => null)
-    const c = combineManifests(localView(), cloud, { removed: deliberatelyRemoved, resynced, now: Date.now() })
+    // A failed read must fail the push (it is retried): treating it as "nothing in the cloud" would overwrite the
+    // cloud manifest with only this device's notes, dropping everyone else's and every removal mark (3f review B1).
+    const cloud = await pullManifest(deps.sync, deps.kek, deps.vaultId)
+    const c = combineManifests(localView(), cloud, { removed: deliberatelyRemoved, resynced })
     await pushManifest(deps.sync, deps.kek, deps.vaultId, c.notes, c.folders, c.attachments, c.removed)
     manifestFailed = false
     for (const r of c.removed) {
@@ -245,9 +247,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       deliberatelyRemoved.delete(id)
     }
     merging = true
-    let conflicts
+    let conflicts, offHere
     try {
-      ;({ conflicts } = mergeManifestIntoVault(deps.vault, manifest, {
+      ;({ conflicts, offHere } = mergeManifestIntoVault(deps.vault, manifest, {
         resynced,
         // a removal this device is still finishing must not be undone by a manifest that doesn't know about it yet
         keepOff: new Set([...deliberatelyRemoved.keys(), ...pendingRemovals.keys()]),
@@ -255,6 +257,13 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       }))
     } finally {
       merging = false
+    }
+    // Turned off on this device more recently than the cloud's copy was turned on — while sync wasn't running
+    // (signed out, or the app closed before the removal was recorded): finish that removal now (3f review C1/C3).
+    for (const id of offHere) {
+      if (deliberatelyRemoved.has(id) || pendingRemovals.has(id)) continue
+      const at = deps.vault.getNote(id)?.syncAt ?? Date.now()
+      enqueue(id, () => turnOff(id, at))
     }
     for (const conflict of conflicts) {
       const message =
@@ -337,10 +346,14 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   async function localCopyIsNewer(noteId: string): Promise<boolean> {
     const local = deps.vault.getNote(noteId)
     if (!local) return false
-    const manifest = await pullManifest(deps.sync, deps.kek, deps.vaultId).catch(() => null)
+    const manifest = await pullManifest(deps.sync, deps.kek, deps.vaultId) // a failed read fails this attempt (retried)
     for (const n of manifest?.notes ?? []) cloudEditedAt.set(n.id, n.updatedAt)
     const cloud = cloudEditedAt.get(noteId)
-    return cloud !== undefined && local.updatedAt > cloud // unknown or equal: the cloud copy stays
+    // Not known (the cloud copy is there but the manifest doesn't list it yet — another device is just turning it
+    // on): replacing either copy now could throw away the newer one (3f review B2), so this attempt fails and is
+    // tried again later, by when the manifest says.
+    if (cloud === undefined) throw new SyncError('offline', 'cloud edit time of this note not known yet')
+    return local.updatedAt > cloud // equal: the cloud copy stays
   }
 
   async function turnOn(noteId: string): Promise<void> {
@@ -373,8 +386,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
   /** A deliberate stop: closes the binding (if any) and tells the cloud to delete this note's content —
    * for an explicit `setNoteSynced(false)` toggle or a `Vault.onNotePurged` permanent delete only. */
-  async function turnOff(noteId: string): Promise<void> {
-    const at = Date.now()
+  async function turnOff(noteId: string, at = Date.now()): Promise<void> {
     deliberatelyRemoved.set(noteId, at)
     confirmedMarks.delete(noteId)
     resynced.delete(noteId)
@@ -477,7 +489,21 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     scheduleManifestPush()
   }
 
-  const onOnline = () => retryNow()
+  // Back online, or the app shown again (e.g. the computer woke up): realtime notifications sent meanwhile are
+  // never replayed, so everything is pulled again, and whatever is waiting to be pushed goes now (3f review B3).
+  function resume(): void {
+    if (closed) return
+    retryNow()
+    scheduleManifestMerge()
+    for (const nb of noteBindings.values()) {
+      nb.binding.retry()
+      void nb.binding.resync()
+    }
+  }
+  const onOnline = () => resume()
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') resume()
+  }
 
   function onNoteContentChange(noteId: string): void {
     const nb = noteBindings.get(noteId)
@@ -507,6 +533,13 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       remotelyRemoved.clear() // nothing is bound yet, so nothing needs the detach-only treatment
 
       prevSyncedIds = new Set(deps.vault.listNotes().filter((n) => n.synced).map((n) => n.id))
+      // Watching starts before the first download, not after it: a note turned on (or off) while a new device is
+      // still downloading takes effect at once instead of waiting for the next structure change (3f review).
+      unobserve = deps.vault.observe(onVaultChange)
+      unwatchContent = deps.noteDocs.onChange((noteId) => onNoteContentChange(noteId))
+      // The one explicit "really gone, on purpose" signal (see `reconcile`'s comment) — a permanent
+      // delete should still delete the cloud copy, even though a note merely vanishing otherwise must not.
+      unwatchPurge = deps.vault.onNotePurged((noteId) => enqueue(noteId, () => turnOff(noteId)))
       // Several notes at once (each needs a few round trips; one after another a big vault took minutes to
       // arrive on a new device), the one on screen first.
       const open = deps.priorityNoteId?.() ?? null
@@ -518,7 +551,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           while (next < ids.length) {
             const id = ids[next++]
             try {
-              await turnOn(id)
+              // Through the note's own queue, so a toggle made meanwhile runs strictly after (or instead of) it.
+              enqueue(id, () => reconcile(id))
+              await noteChains.get(id)
             } finally {
               loadingNotes.delete(id)
             }
@@ -535,11 +570,6 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         }
       }
 
-      unobserve = deps.vault.observe(onVaultChange)
-      unwatchContent = deps.noteDocs.onChange((noteId) => onNoteContentChange(noteId))
-      // The one explicit "really gone, on purpose" signal (see `reconcile`'s comment) — a permanent
-      // delete should still delete the cloud copy, even though a note merely vanishing otherwise must not.
-      unwatchPurge = deps.vault.onNotePurged((noteId) => enqueue(noteId, () => turnOff(noteId)))
       // The manifest doc's own pushes (ours and everyone else's) notify with `deviceId: ''` (design doc
       // §3.1's manifest predates per-device echo filtering — see `cloud-doc.ts`'s subscribe for the
       // contrast). So this can't tell "I just pushed this" from "someone else did" by deviceId the way a
@@ -552,6 +582,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       scheduleManifestPush()
       for (const p of pendingRemovals.values()) if (!p.docDeleted) enqueue(p.id, () => finishRemoval(p.id))
       if (typeof window !== 'undefined') window.addEventListener('online', onOnline)
+      if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible)
     },
 
     loadingNoteIds: () => [...loadingNotes],
@@ -591,6 +622,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
       closed = true
       if (typeof window !== 'undefined') window.removeEventListener('online', onOnline)
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
       if (retryTimer !== null) clearTimeout(retryTimer)
       retryTimer = null
       unobserve?.()

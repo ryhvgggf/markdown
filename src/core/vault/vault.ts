@@ -32,12 +32,22 @@ function toNote(m: YM): NoteMeta {
     ...stamp(m, 'titleAt'),
     ...stamp(m, 'placeAt'),
     ...stamp(m, 'stateAt'),
+    ...stamp(m, 'syncAt'),
   }
 }
 /** `{ [key]: n }` when the map holds a numeric stamp, else `{}` (absent on records from before 3f-3). */
 function stamp<K extends string>(m: YM, key: K): Partial<Record<K, number>> {
   const v = m.get(key)
   return typeof v === 'number' ? ({ [key]: v } as Record<K, number>) : {}
+}
+/**
+ * Switches a note's `synced` flag; when it actually changes, `at` (the user's own switch: now) becomes its
+ * `syncAt` stamp. `null` keeps the stamp as it is — for a switch that wasn't this device's choice.
+ */
+function setSynced(m: YM, synced: boolean, at: number | null = Date.now()): void {
+  if (((m.get('synced') as boolean | undefined) ?? false) === synced) return
+  m.set('synced', synced)
+  if (at !== null) m.set('syncAt', at)
 }
 function toFolder(m: YM): FolderMeta {
   return {
@@ -171,6 +181,7 @@ export class Vault {
       m.set('updatedAt', i.updatedAt ?? i.createdAt ?? now)
       m.set('deletedAt', null)
       m.set('synced', synced) // default false: opt-in (design doc §5 open decision 4)
+      if (synced) m.set('syncAt', now)
     })
     return this.getNote(id)!
   }
@@ -197,8 +208,8 @@ export class Vault {
       m.set('order', order)
       m.set('placeAt', Date.now())
       // Moved into a synced folder → synced; out of one → no longer. Reordering or moving between two synced folders changes nothing.
-      if (!wasIn && nowIn) m.set('synced', true)
-      else if (wasIn && !nowIn) m.set('synced', false)
+      if (!wasIn && nowIn) setSynced(m, true)
+      else if (wasIn && !nowIn) setSynced(m, false)
     })
   }
   /**
@@ -233,9 +244,9 @@ export class Vault {
   /** Phase 3 design doc §8.5: turn cloud sync on/off for one note. Pure local flag — pushing the initial
    * snapshot, deleting the cloud copy, and recomputing the cloud manifest are `core/sync-engine`'s job
    * (it observes this field), not the vault's. */
-  setNoteSynced(id: string, synced: boolean): void {
+  setNoteSynced(id: string, synced: boolean, opts: { at?: number | null } = {}): void {
     const m = this.note(id)
-    this.doc.transact(() => m.set('synced', synced))
+    this.doc.transact(() => setSynced(m, synced, opts.at === undefined ? Date.now() : opts.at))
   }
   trashNote(id: string): void {
     const m = this.note(id)
@@ -331,8 +342,8 @@ export class Vault {
       // The notes inside follow the same rule as a single moved note, judged by the folder they now sit under.
       inside.forEach((n, i) => {
         const now = this.inSyncedFolder((n.get('folderId') as string | null) ?? null)
-        if (!before[i] && now) n.set('synced', true)
-        else if (before[i] && !now) n.set('synced', false)
+        if (!before[i] && now) setSynced(n, true)
+        else if (before[i] && !now) setSynced(n, false)
       })
     })
   }
@@ -351,8 +362,8 @@ export class Vault {
         if (n.get('deletedAt') !== null) continue
         const f = (n.get('folderId') as string | null) ?? null
         if (f === null || !subtree.has(f)) continue
-        if (synced) n.set('synced', true)
-        else if (!this.inSyncedFolder(f)) n.set('synced', false)
+        if (synced) setSynced(n, true)
+        else if (!this.inSyncedFolder(f)) setSynced(n, false)
       }
     })
   }
