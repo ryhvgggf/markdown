@@ -8,6 +8,7 @@ import { Shell } from '@/features/shell/Shell'
 import { StorageBanner } from '@/features/shell/StorageBanner'
 import { bootstrap, type AppServices } from './bootstrap'
 import { startPageLifecycle } from './lifecycle'
+import { useSyncStatus } from './use-account'
 import { ServicesProvider, useServices } from './services-context'
 import { setPersistLastNote, useUi } from './ui-store'
 
@@ -98,7 +99,8 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
 }
 
 function MainNote() {
-  const { vault } = useServices()
+  const { vault, account } = useServices()
+  const loadingFromCloud = useSyncStatus(account).loading
   const openNoteId = useUi((s) => s.openNoteId)
   // After the first switch every note shown fades in (noteSwitchFade in Shell); the first one on start does not.
   const [firstId] = useState(openNoteId)
@@ -112,6 +114,11 @@ function MainNote() {
   return (
     <div key={openNoteId} data-note-page className="note-page" data-entering={switched ? 'true' : undefined}>
       <TitleBlock noteId={openNoteId} />
+      {loadingFromCloud?.includes(openNoteId) && (
+        <p role="status" className="px-1 pb-2 text-sm text-fg-tertiary">
+          正在從雲端載入…
+        </p>
+      )}
       <Suspense fallback={null}>
         <NoteEditor noteId={openNoteId} />
       </Suspense>

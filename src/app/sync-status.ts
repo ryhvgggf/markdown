@@ -14,10 +14,14 @@ export interface SyncIssue {
 export interface SyncStatus {
   state: 'off' | 'syncing' | 'synced' | 'error'
   issues: SyncIssue[]
+  /** Notes whose content is still being fetched from the cloud right after sync started (absent when none). */
+  loading?: string[]
 }
 
 export interface SyncReporter {
   pending(pending: boolean): void
+  /** The notes still being fetched (replaces the previous list). */
+  loading(noteIds: string[]): void
   error(e: unknown, docId: string): void
 }
 
@@ -44,6 +48,7 @@ const kindOf = (e: unknown): SyncIssueKind => {
 export function createSyncStatus(opts: { channelFactory?: (name: string) => BroadcastChannel } = {}): SyncStatusStore {
   let status = OFF
   let pending = false
+  let loadingIds: string[] = []
   let run = 0
   /** This tab is the one syncing (it has reported something in the current run). */
   let active = false
@@ -72,6 +77,7 @@ export function createSyncStatus(opts: { channelFactory?: (name: string) => Broa
   const derive = (issues: SyncIssue[]): SyncStatus => ({
     state: issues.length ? 'error' : pending ? 'syncing' : 'synced',
     issues,
+    ...(loadingIds.length ? { loading: loadingIds } : {}),
   })
   const dismissHere = () => set(derive([]), true)
 
@@ -93,6 +99,7 @@ export function createSyncStatus(opts: { channelFactory?: (name: string) => Broa
     start() {
       const id = ++run
       pending = false
+      loadingIds = []
       const live = () => {
         if (id !== run) return false
         active = true
@@ -105,6 +112,11 @@ export function createSyncStatus(opts: { channelFactory?: (name: string) => Broa
           const cleared = pending && !p
           pending = p
           set(derive(cleared ? status.issues.filter((i) => i.kind !== 'offline') : status.issues), true)
+        },
+        loading(noteIds) {
+          if (!live() || (noteIds.length === loadingIds.length && noteIds.every((n, i) => n === loadingIds[i]))) return
+          loadingIds = noteIds
+          set(derive(status.issues), true)
         },
         error(e, docId) {
           if (!live()) return
@@ -119,6 +131,7 @@ export function createSyncStatus(opts: { channelFactory?: (name: string) => Broa
       const wasActive = active
       active = false
       pending = false
+      loadingIds = []
       set(OFF, wasActive)
     },
     dismiss() {
@@ -134,7 +147,7 @@ export function createSyncStatus(opts: { channelFactory?: (name: string) => Broa
 }
 
 /** Feeds a sync manager's pending state into `report` while it runs (polled; the manager has no event for it). */
-export function reportingProgress<M extends { start(): Promise<void>; close(): Promise<void>; hasPending(): boolean }>(
+export function reportingProgress<M extends { start(): Promise<void>; close(): Promise<void>; hasPending(): boolean; loadingNoteIds?(): string[] }>(
   manager: M,
   report: SyncReporter,
   everyMs = 1500,
@@ -143,7 +156,14 @@ export function reportingProgress<M extends { start(): Promise<void>; close(): P
   return {
     async start() {
       report.pending(true)
-      await manager.start()
+      // The notes still coming down show as loading while start() runs (it resolves when the last one is here).
+      const poll = setInterval(() => report.loading(manager.loadingNoteIds?.() ?? []), 300)
+      try {
+        await manager.start()
+      } finally {
+        clearInterval(poll)
+        report.loading([])
+      }
       report.pending(manager.hasPending())
       timer = setInterval(() => report.pending(manager.hasPending()), everyMs)
     },

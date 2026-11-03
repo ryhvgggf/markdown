@@ -8,7 +8,7 @@ import { createDb, type NotesDb } from '@/adapters/storage/db'
 import { Vault } from '@/core/vault/vault'
 import { NoteDocCache } from '@/core/note-doc/cache'
 import { Indexer } from '@/core/indexer/indexer'
-import { addGuide, GUIDE_FOLDER, GUIDE_TITLES, guideSchema } from './guide'
+import { addGuide, GUIDE_FOLDER, GUIDE_TITLES, guideSchema, untouchedGuideFolderIds } from './guide'
 
 const fakeChannel = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
@@ -149,5 +149,31 @@ describe('addGuide', () => {
     const titles = second.noteIds.map((id) => vault.getNote(id)!.title)
     expect(titles).toEqual(GUIDE_TITLES.map((t) => `${t} (2)`))
     for (const l of collect(await loadNode(second.noteIds[0])).links) expect(second.noteIds).toContain(l.noteId)
+  })
+})
+
+describe('untouchedGuideFolderIds', () => {
+  it('finds a guide nobody touched, also a second copy with suffixed names', async () => {
+    const first = await addGuide({ vault, storage, db })
+    const second = await addGuide({ vault, storage, db })
+    expect(untouchedGuideFolderIds(vault).sort()).toEqual([first.folderId, second.folderId].sort())
+  })
+
+  it('leaves a guide alone once a note in it was edited, synced, renamed, or something was added', async () => {
+    const edited = await addGuide({ vault, storage, db })
+    vault.touchNote(edited.noteIds[0])
+    const synced = await addGuide({ vault, storage, db })
+    vault.setNoteSynced(synced.noteIds[1], true)
+    const added = await addGuide({ vault, storage, db })
+    vault.createNote({ title: 'My own note', folderId: added.folderId })
+    const subfolder = await addGuide({ vault, storage, db })
+    vault.createFolder({ name: 'Mine', parentId: subfolder.folderId })
+    expect(untouchedGuideFolderIds(vault)).toEqual([])
+  })
+
+  it('is not fooled by a folder with the same name and other notes in it', () => {
+    const f = vault.createFolder({ name: GUIDE_FOLDER, parentId: null })
+    vault.createNote({ title: '日記', folderId: f.id })
+    expect(untouchedGuideFolderIds(vault)).toEqual([])
   })
 })

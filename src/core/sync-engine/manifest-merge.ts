@@ -25,6 +25,8 @@ export interface ManifestMergeOptions {
 }
 
 const at = (v: number | undefined) => v ?? 0
+/** When a note or folder last went into or out of the trash (a trashed one from before the stamp existed: when it was trashed). */
+const stateOf = (x: { stateAt?: number; deletedAt: number | null }) => x.stateAt ?? x.deletedAt ?? 0
 
 /**
  * Applies a pulled structure manifest onto the local vault (design doc §8 manifest pull; two-way since 3f-3).
@@ -39,7 +41,8 @@ const at = (v: number | undefined) => v ?? 0
  *   note whose sync was turned off on this device is never touched.
  * - A title that collides with another local note is kept with a ` (n)` suffix on this device (see
  *   `Vault.applyRemoteNote`), instead of the note not appearing at all.
- * - Trash state is not merged: trashing stays a per-device action (out of 3f-3's scope).
+ * - Trash state (into or out of the trash) is last-writer-wins too, on `stateAt`; a note arriving already in the
+ *   trash is created there. Permanent deletes are the `removed` marks below, not this.
  * - A note the manifest lists as removed (permanent delete or sync turned off on another device) is never
  *   created, and one this device still has synced stops being synced here — its content and place stay, so
  *   the user can delete it or sync it again. Unless the user re-synced it on this device this session.
@@ -68,6 +71,7 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
       if (!parentReady) continue
       vault.createFolder({ id: f.id, name: f.name, parentId: f.parentId, createdAt: f.createdAt })
       vault.applyRemoteFolder(f.id, { order: f.order, nameAt: f.nameAt, placeAt: f.placeAt })
+      if (f.deletedAt !== null) vault.applyRemoteFolderState(f.id, { deletedAt: f.deletedAt, stateAt: stateOf(f) })
       created.add(f.id)
     }
   }
@@ -77,6 +81,7 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
   for (const f of manifest.folders) {
     const local = localFolders.get(f.id)
     if (!local || local.createdAt !== f.createdAt) continue
+    if (stateOf(f) > stateOf(local)) vault.applyRemoteFolderState(f.id, { deletedAt: f.deletedAt, stateAt: stateOf(f) })
     const patch: Parameters<Vault['applyRemoteFolder']>[1] = {}
     if (at(f.nameAt) > at(local.nameAt)) Object.assign(patch, { name: f.name, nameAt: f.nameAt })
     if (at(f.placeAt) > at(local.placeAt)) Object.assign(patch, { parentId: f.parentId, order: f.order, placeAt: f.placeAt })
@@ -92,6 +97,7 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
         continue
       }
       if (!local.synced) continue // sync turned off on this device: never touched
+      if (stateOf(note) > stateOf(local)) vault.applyRemoteNoteState(note.id, { deletedAt: note.deletedAt, stateAt: stateOf(note) })
       const patch = notePatch(local, note)
       if (patch) vault.applyRemoteNote(note.id, patch)
       continue
@@ -101,6 +107,7 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
       // rather than failing the whole note.
       vault.createNote({ id: note.id, title: '', folderId: note.folderId, createdAt: note.createdAt, updatedAt: note.updatedAt })
       vault.applyRemoteNote(note.id, { title: note.title, titleAt: note.titleAt, order: note.order, placeAt: note.placeAt })
+      if (note.deletedAt !== null) vault.applyRemoteNoteState(note.id, { deletedAt: note.deletedAt, stateAt: stateOf(note) })
       vault.setNoteSynced(note.id, true) // it came from the manifest, so it's synced by definition
     } catch {
       conflicts.push({ noteId: note.id, reason: 'create-failed' }) // e.g. its folder never got created above
@@ -112,6 +119,7 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
 
 function notePatch(local: NoteMeta, remote: NoteMeta): Parameters<Vault['applyRemoteNote']>[1] | null {
   const patch: Parameters<Vault['applyRemoteNote']>[1] = {}
+  if (remote.updatedAt > local.updatedAt) patch.updatedAt = remote.updatedAt
   if (at(remote.titleAt) > at(local.titleAt)) Object.assign(patch, { title: remote.title, titleAt: remote.titleAt })
   if (at(remote.placeAt) > at(local.placeAt)) Object.assign(patch, { folderId: remote.folderId, order: remote.order, placeAt: remote.placeAt })
   return Object.keys(patch).length > 0 ? patch : null
@@ -163,7 +171,8 @@ export function combineManifests(
     .map((n) => {
       const c = cloudNotes.get(n.id)
       if (!c || c.createdAt !== n.createdAt) return n
-      const out = { ...n }
+      const out = { ...n, updatedAt: Math.max(n.updatedAt, c.updatedAt) }
+      if (stateOf(c) >= stateOf(n)) Object.assign(out, { deletedAt: c.deletedAt, stateAt: c.stateAt })
       if (at(c.titleAt) >= at(n.titleAt)) Object.assign(out, { title: c.title, titleAt: c.titleAt })
       if (at(c.placeAt) >= at(n.placeAt)) Object.assign(out, { folderId: c.folderId, order: c.order, placeAt: c.placeAt })
       return dropUndefined(out)
@@ -174,6 +183,7 @@ export function combineManifests(
     const c = cloudFolders.get(f.id)
     if (!c || c.createdAt !== f.createdAt) return f
     const out = { ...f }
+    if (stateOf(c) >= stateOf(f)) Object.assign(out, { deletedAt: c.deletedAt, stateAt: c.stateAt })
     if (at(c.nameAt) >= at(f.nameAt)) Object.assign(out, { name: c.name, nameAt: c.nameAt })
     if (at(c.placeAt) >= at(f.placeAt)) Object.assign(out, { parentId: c.parentId, order: c.order, placeAt: c.placeAt })
     return dropUndefined(out)
@@ -206,13 +216,13 @@ export function cloudIsBehind(derived: StructureManifest, cloud: StructureManife
     const c = cloudNotes.get(n.id)
     if (!c) return true
     if (c.createdAt !== n.createdAt) continue
-    if (at(n.titleAt) > at(c.titleAt) || at(n.placeAt) > at(c.placeAt)) return true
+    if (at(n.titleAt) > at(c.titleAt) || at(n.placeAt) > at(c.placeAt) || stateOf(n) > stateOf(c)) return true
   }
   for (const f of derived.folders) {
     const c = cloudFolders.get(f.id)
     if (!c) return true
     if (c.createdAt !== f.createdAt) continue
-    if (at(f.nameAt) > at(c.nameAt) || at(f.placeAt) > at(c.placeAt)) return true
+    if (at(f.nameAt) > at(c.nameAt) || at(f.placeAt) > at(c.placeAt) || stateOf(f) > stateOf(c)) return true
   }
   const cloudAttachments = new Set((cloud.attachments ?? []).map((a) => a.id))
   for (const a of derived.attachments ?? []) if (!cloudAttachments.has(a.id)) return true

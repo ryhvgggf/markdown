@@ -7,7 +7,7 @@ import { Vault } from '@/core/vault/vault'
 import { MemoryDevices } from '@/adapters/devices/memory-devices'
 import { recoverWithCode } from '@/core/account/account'
 import type { SyncReporter } from './sync-status'
-import { createDeferredAccount, ACCOUNT_KEY, SYNC_VAULT_KEY, createAccountService, type AccountService, type MetaStore, type StoredAccount, type SyncHandle } from './account-service'
+import { createDeferredAccount, ACCOUNT_KEY, FIRST_SYNC_KEY, SYNC_VAULT_KEY, createAccountService, type AccountService, type MetaStore, type StoredAccount, type SyncHandle } from './account-service'
 
 const channelFactory = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
@@ -283,6 +283,22 @@ describe('account service (3f-2)', () => {
     s.cancelNewRecoveryCode()
     await expect(s.confirmNewRecoveryCode()).rejects.toBeDefined()
     await expect(recoverWithCode(keyStore, vaultId, oldCode, 'hunter2')).resolves.toBeDefined()
+  })
+})
+
+describe('account service — first sync of a vault (3f-4)', () => {
+  it('marks the first time this device meets a cloud vault, and not again for the same one', async () => {
+    const s = make()
+    await s.init()
+    await signUpAndConfirm(s)
+    await s.confirmRecoveryCode()
+    const vaultId = (s.getState() as { vaultId: string }).vaultId
+    expect(meta.map.get(FIRST_SYNC_KEY)).toBe(vaultId)
+    meta.map.delete(FIRST_SYNC_KEY) // the sync run has dealt with it
+    await s.signOut()
+    await s.signIn('a@example.com', 'hunter2')
+    expect(s.getState().status).toBe('unlocked')
+    expect(meta.map.has(FIRST_SYNC_KEY)).toBe(false)
   })
 })
 

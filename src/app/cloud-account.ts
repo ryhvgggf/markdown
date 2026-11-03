@@ -8,13 +8,17 @@ import { SupabaseSync } from '@/adapters/sync/supabase-sync'
 import type { StorageAdapter } from '@/adapters/storage/types'
 import type { NotesDb } from '@/adapters/storage/db'
 import type { NoteDocCache } from '@/core/note-doc/cache'
-import { createSyncManager } from '@/core/sync-engine/sync-manager'
+import { createSyncManager, type PendingRemoval } from '@/core/sync-engine/sync-manager'
 import type { Preferences } from '@/core/preferences/preferences'
 import type { Vault } from '@/core/vault/vault'
 import { useUi } from './ui-store'
-import { createAccountService, type AccountService } from './account-service'
+import type { Maintenance } from '@/core/maintenance/maintenance'
+import { createAccountService, FIRST_SYNC_KEY, type AccountService } from './account-service'
 import { runAsSyncLeader } from './sync-leader'
 import { reportingProgress } from './sync-status'
+
+/** db.meta: cloud removals not finished yet (see `SyncManagerDeps.pendingRemovals`). */
+const PENDING_KEY = 'syncPendingRemovals'
 
 export interface CloudAccountDeps {
   db: NotesDb
@@ -22,6 +26,7 @@ export interface CloudAccountDeps {
   vault: Vault
   notes: NoteDocCache
   prefs: Preferences
+  maintenance: Maintenance
   /** The page was opened from a reset-password link (read before Supabase consumes the URL). */
   recoveryUrl: boolean
 }
@@ -54,6 +59,23 @@ export function createCloudAccount(d: CloudAccountDeps): AccountService {
               vault: d.vault,
               prefs: d.prefs,
               priorityNoteId: () => useUi.getState().openNoteId,
+              onFirstMerge: async ({ cloudHasNotes }) => {
+                // The first time this device meets the account: it made its own starter guide before signing in, and
+                // the account's notes are now here. If that guide was never touched, it is only a second copy.
+                if ((await d.db.meta.get(FIRST_SYNC_KEY))?.value !== vaultId) return
+                await d.db.meta.delete(FIRST_SYNC_KEY)
+                if (!cloudHasNotes) return
+                const { untouchedGuideFolderIds } = await import('@/features/guide/guide')
+                for (const id of untouchedGuideFolderIds(d.vault)) await d.maintenance.purge({ kind: 'folder', id })
+              },
+              pendingRemovals: {
+                // Scoped to the vault: another account's list must never delete anything in this one.
+                read: async () => {
+                  const v = (await d.db.meta.get(PENDING_KEY))?.value as { vaultId?: string; items?: PendingRemoval[] } | undefined
+                  return v?.vaultId === vaultId && Array.isArray(v.items) ? v.items : []
+                },
+                write: async (items) => void (await d.db.meta.put({ key: PENDING_KEY, value: { vaultId, items } })),
+              },
               vaultId,
               kek,
               onError: (e, info) => {

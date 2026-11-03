@@ -101,4 +101,25 @@ describe('reportingProgress', () => {
     expect(s.get().state).toBe('synced')
     await m.close()
   })
+
+  it('reports which notes are still coming down while start() runs, and none afterwards', async () => {
+    const s = mk()
+    let loading = ['a', 'b']
+    let finish!: () => void
+    const m = reportingProgress(
+      { start: () => new Promise<void>((r) => (finish = r)), close: async () => {}, hasPending: () => false, loadingNoteIds: () => loading },
+      s.start(),
+      5,
+    )
+    const started = m.start()
+    await new Promise((r) => setTimeout(r, 400))
+    expect(s.get().loading).toEqual(['a', 'b'])
+    loading = ['b']
+    await new Promise((r) => setTimeout(r, 400))
+    expect(s.get().loading).toEqual(['b'])
+    finish()
+    await started
+    expect(s.get().loading).toBeUndefined()
+    await m.close()
+  })
 })

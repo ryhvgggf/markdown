@@ -369,25 +369,26 @@ describe('the same note created separately on two devices (3f-4)', () => {
       return p
     })
   }
-  async function both(aLines: string[], bLines: string[]) {
+  /** A syncs first; B has its own copy of the same note (id and createdAt) and turns sync on after. */
+  async function both(aLines: string[], bLines: string[], edited: { a: number; b: number } = { a: 100, b: 100 }) {
     const a = await device('A')
     const b = await device('B')
-    const note = { id: 'same-note', title: 'T-code', createdAt: 100, updatedAt: 100 }
+    const id = 'same-note'
     for (const d of [a, b]) {
-      d.vault.createNote(note)
-      const doc = await d.notes.acquire(note.id)
+      d.vault.createNote({ id, title: 'T-code', createdAt: 100, updatedAt: d === a ? edited.a : edited.b })
+      const doc = await d.notes.acquire(id)
       doc.getXmlFragment('content').insert(0, body(...(d === a ? aLines : bLines)))
-      d.notes.release(note.id)
+      d.notes.release(id)
     }
-    a.vault.setNoteSynced(note.id, true)
+    a.vault.setNoteSynced(id, true)
     await a.manager.start()
     await until(() => !a.manager.hasPending())
-    b.vault.setNoteSynced(note.id, true)
+    b.vault.setNoteSynced(id, true)
     await b.manager.start()
     await until(() => !b.manager.hasPending())
-    await wait(200)
+    await wait(250)
     await until(() => !a.manager.hasPending() && !b.manager.hasPending())
-    return { a, b, note }
+    return { a, b, note: { id } }
   }
   const paragraphs = async (d: Device, id: string) => {
     const doc = await d.notes.acquire(id)
@@ -395,8 +396,9 @@ describe('the same note created separately on two devices (3f-4)', () => {
     d.notes.release(id)
     return out
   }
+  const titles = (d: Device) => d.vault.listNotes({ includeTrashed: true }).map((n) => n.title)
 
-  it('identical content is not doubled: the cloud version is adopted on both devices', async () => {
+  it('identical content is not doubled', async () => {
     const { a, b, note } = await both(['ST22', 'SE01', 'STMS'], ['ST22', 'SE01', 'STMS'])
     expect(await paragraphs(a, note.id)).toEqual(['ST22', 'SE01', 'STMS'])
     expect(await paragraphs(b, note.id)).toEqual(['ST22', 'SE01', 'STMS'])
@@ -404,18 +406,28 @@ describe('the same note created separately on two devices (3f-4)', () => {
     expect(b.errors).toEqual([])
   })
 
-  it('different content: the cloud version wins and the local one is kept as a separate note, nothing merged', async () => {
-    const { a, b, note } = await both(['cloud one', 'cloud two'], ['local only'])
-    expect(await paragraphs(a, note.id)).toEqual(['cloud one', 'cloud two'])
-    expect(await paragraphs(b, note.id)).toEqual(['cloud one', 'cloud two'])
-    const copy = b.vault.listNotes().find((n) => n.title === 'T-code（本機版本）')
-    expect(copy).toBeDefined()
-    expect(copy!.synced).toBe(false)
-    expect(await paragraphs(b, copy!.id)).toEqual(['local only'])
-    expect(a.vault.listNotes().map((n) => n.title)).toEqual(['T-code']) // A is not given B's copy
+  it('this device edited it more recently: the cloud copy becomes this device\'s, and the other device follows', async () => {
+    const { a, b, note } = await both(['old cloud text'], ['edited here', 'on B'], { a: 100, b: 900 })
+    expect(await paragraphs(b, note.id)).toEqual(['edited here', 'on B'])
+    expect(await paragraphs(a, note.id)).toEqual(['edited here', 'on B']) // A was already syncing: it takes the new copy as a whole
+    expect(titles(a)).toEqual(['T-code']) // no extra note, nothing in the trash, on either device
+    expect(titles(b)).toEqual(['T-code'])
   })
 
-  it('after adopting the cloud copy, edits made on either device reach the other', async () => {
+  it('the cloud copy is newer: this device\'s note becomes the cloud copy, with nothing left over', async () => {
+    const { a, b, note } = await both(['newer in the cloud', 'two'], ['older here'], { a: 900, b: 100 })
+    expect(await paragraphs(a, note.id)).toEqual(['newer in the cloud', 'two'])
+    expect(await paragraphs(b, note.id)).toEqual(['newer in the cloud', 'two'])
+    expect(titles(b)).toEqual(['T-code'])
+  })
+
+  it('the same time: the cloud copy stays', async () => {
+    const { a, b, note } = await both(['cloud'], ['local'], { a: 500, b: 500 })
+    expect(await paragraphs(a, note.id)).toEqual(['cloud'])
+    expect(await paragraphs(b, note.id)).toEqual(['cloud'])
+  })
+
+  it('after one copy replaced the other, edits made on either device reach the other', async () => {
     const { a, b, note } = await both(['one', 'two'], ['one', 'two'])
     const docA = await a.notes.acquire(note.id)
     docA.getXmlFragment('content').insert(2, body('from A'))
@@ -424,9 +436,18 @@ describe('the same note created separately on two devices (3f-4)', () => {
     docB.getXmlFragment('content').insert(0, body('from B'))
     await until(async () => (await paragraphs(a, note.id)).includes('from B'))
     expect(await paragraphs(a, note.id)).toEqual(await paragraphs(b, note.id))
-    expect(await paragraphs(a, note.id).then((p) => p.sort())).toEqual(['from A', 'from B', 'one', 'two'])
+    expect((await paragraphs(a, note.id)).sort()).toEqual(['from A', 'from B', 'one', 'two'])
     a.notes.release(note.id)
     b.notes.release(note.id)
+  })
+
+  it('after this device\'s copy replaced the cloud\'s, the other device\'s later edits still arrive', async () => {
+    const { a, b, note } = await both(['old'], ['new one', 'new two'], { a: 100, b: 900 })
+    const docA = await a.notes.acquire(note.id)
+    docA.getXmlFragment('content').insert(2, body('A adds'))
+    await until(async () => (await paragraphs(b, note.id)).includes('A adds'))
+    expect(await paragraphs(b, note.id)).toEqual(['new one', 'new two', 'A adds'])
+    a.notes.release(note.id)
   })
 
   it('a note that was already in step is left alone (edits still merge normally)', async () => {
@@ -436,5 +457,89 @@ describe('the same note created separately on two devices (3f-4)', () => {
     await until(async () => (await paragraphs(a, note.id)).includes('added on B'))
     expect(await paragraphs(a, note.id)).toEqual(['one', 'added on B'])
     b.notes.release(note.id)
+  })
+})
+
+describe('the trash across devices (3f-4)', () => {
+  async function pair() {
+    const a = await device('A')
+    const folder = a.vault.createFolder({ name: 'Work', parentId: null })
+    const n = a.vault.createNote({ title: 'Plan', folderId: folder.id })
+    const other = a.vault.createNote({ title: 'Other', folderId: folder.id })
+    for (const id of [n.id, other.id]) {
+      a.vault.setNoteSynced(id, true)
+      const doc = await a.notes.acquire(id)
+      const p = new Y.XmlElement('paragraph')
+      p.insert(0, [new Y.XmlText(`text of ${id}`)])
+      doc.getXmlFragment('content').insert(0, [p])
+      a.notes.release(id)
+    }
+    await a.manager.start()
+    const b = await device('B')
+    await b.manager.start()
+    await until(() => b.vault.listNotes().length === 2)
+    await until(() => !a.manager.hasPending() && !b.manager.hasPending())
+    return { a, b, n, other, folder }
+  }
+
+  it('a note trashed on one device is in the trash on the other, and comes back when restored', async () => {
+    const { a, b, n } = await pair()
+    a.vault.trashNote(n.id)
+    await until(() => b.vault.getNote(n.id)?.deletedAt != null)
+    expect(b.vault.getNote(n.id)?.deletedAt).toBe(a.vault.getNote(n.id)?.deletedAt) // the 30 days run from the same moment
+    expect(b.vault.getNote(n.id)?.synced).toBe(true) // still the same synced note, only in the trash
+    a.vault.restoreNote(n.id)
+    await until(() => b.vault.getNote(n.id)?.deletedAt === null)
+    b.vault.trashNote(n.id)
+    await until(() => a.vault.getNote(n.id)?.deletedAt != null)
+  })
+
+  it('a folder trashed with its notes is in the trash on the other device, and restoring brings it all back', async () => {
+    const { a, b, n, other, folder } = await pair()
+    a.vault.trashFolder(folder.id)
+    await until(() => b.vault.getNote(n.id)?.deletedAt != null && b.vault.getNote(other.id)?.deletedAt != null)
+    expect(b.vault.listFolders().map((f) => f.id)).toEqual([])
+    expect(b.vault.listFolders({ includeTrashed: true }).map((f) => f.id)).toEqual([folder.id])
+    a.vault.restoreFolder(folder.id)
+    await until(() => b.vault.getNote(n.id)?.deletedAt === null && b.vault.getNote(other.id)?.deletedAt === null)
+    expect(b.vault.listFolders().map((f) => f.id)).toEqual([folder.id])
+    expect(b.vault.getNote(n.id)?.folderId).toBe(folder.id)
+  })
+
+  it('the later of two trash/restore actions wins on both devices', async () => {
+    const { a, b, n } = await pair()
+    a.vault.trashNote(n.id)
+    await wait(5)
+    b.vault.trashNote(n.id)
+    await wait(5)
+    b.vault.restoreNote(n.id) // the last word
+    await until(() => a.vault.getNote(n.id)?.deletedAt === null && b.vault.getNote(n.id)?.deletedAt === null)
+    await wait(200)
+    expect(a.vault.getNote(n.id)?.deletedAt).toBeNull()
+    expect(b.vault.getNote(n.id)?.deletedAt).toBeNull()
+  })
+
+  it('a device that signs in later gets the trashed note in its trash, with its text once restored', async () => {
+    const a = await device('A')
+    const n = a.vault.createNote({ title: 'Old' })
+    a.vault.setNoteSynced(n.id, true)
+    const doc = await a.notes.acquire(n.id)
+    const p = new Y.XmlElement('paragraph')
+    p.insert(0, [new Y.XmlText('still here')])
+    doc.getXmlFragment('content').insert(0, [p])
+    a.notes.release(n.id)
+    await a.manager.start()
+    await until(() => !a.manager.hasPending())
+    a.vault.trashNote(n.id)
+    await until(() => !a.manager.hasPending())
+    await wait(100)
+
+    const c = await device('C')
+    await c.manager.start()
+    expect(c.vault.getNote(n.id)?.deletedAt).not.toBeNull()
+    c.vault.restoreNote(n.id)
+    const docC = await c.notes.acquire(n.id)
+    await until(() => text(docC).includes('still here'))
+    c.notes.release(n.id)
   })
 })

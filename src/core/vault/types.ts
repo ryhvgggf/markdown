@@ -12,6 +12,8 @@ export type NoteMeta = {
   titleAt?: number
   /** When `folderId`/`order` were last set by a move (absent = never moved). Same purpose as `titleAt`. */
   placeAt?: number
+  /** When the note was last moved to the trash or taken out of it (absent = never). Last-writer-wins key for the trash state across devices. */
+  stateAt?: number
 }
 export type FolderMeta = {
   id: string
@@ -24,6 +26,8 @@ export type FolderMeta = {
   nameAt?: number
   /** When `parentId`/`order` were last set by a move (absent = never). */
   placeAt?: number
+  /** When the folder was last moved to the trash or taken out of it (absent = never). */
+  stateAt?: number
   /** 3f-4: notes in this folder (and its subfolders) follow cloud sync — they are synced when put or created here
    *  and unsynced when moved out. A rule of this device only: never sent to the cloud or other devices. */
   synced?: boolean

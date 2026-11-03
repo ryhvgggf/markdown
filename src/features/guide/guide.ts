@@ -15,6 +15,28 @@ import { assignBlockIds } from './pm-json'
 export { GUIDE_FOLDER }
 export const GUIDE_TITLES = GUIDE_NOTES.map((n) => n.title)
 
+/**
+ * The 「功能導覽」 folders that are still exactly as the app made them: top level, only guide notes (titles may
+ * carry a ` (n)` suffix), none edited or synced. A new device that signs in gets its own guide first and then the
+ * account's notes; this tells which guide can go without anyone losing anything.
+ */
+export function untouchedGuideFolderIds(vault: Vault): string[] {
+  const base = (t: string) => t.replace(/ \(\d+\)$/, '')
+  const folders = vault.listFolders()
+  const notes = vault.listNotes()
+  return folders
+    .filter((f) => {
+      if (f.parentId !== null || base(f.name) !== GUIDE_FOLDER || folders.some((x) => x.parentId === f.id)) return false
+      const inside = notes.filter((n) => n.folderId === f.id)
+      return (
+        inside.length > 0 &&
+        inside.length <= GUIDE_TITLES.length &&
+        inside.every((n) => (GUIDE_TITLES as string[]).includes(base(n.title)) && !n.synced && n.updatedAt === n.createdAt)
+      )
+    })
+    .map((f) => f.id)
+}
+
 /** meta flag: the guide was seeded once on this device (deleting it must not bring it back). */
 export const GUIDE_SEEDED_KEY = 'guideSeeded'
 

@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { StorageError } from '@/adapters/storage/types'
 import { App } from './App'
+import { bootstrap } from './bootstrap'
+import { createUnavailableAccount, type AccountService } from './account-service'
+import type { SyncStatus } from './sync-status'
 import { ServicesProvider } from './services-context'
 import { StorageBanner } from '@/features/shell/StorageBanner'
 import type { AppServices } from './bootstrap'
@@ -40,5 +43,25 @@ describe('App', () => {
     expect(screen.getByText('正在開啟筆記…')).toBeInTheDocument()
     expect(await screen.findByText('無法開啟筆記：boom')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '重新整理' })).toBeInTheDocument()
+  })
+
+  it('says the note is coming from the cloud while it is still being fetched, and stops when it is here', async () => {
+    const listeners = new Set<() => void>()
+    let st: SyncStatus = { state: 'synced', issues: [] }
+    const account: AccountService = {
+      ...createUnavailableAccount(),
+      getSyncStatus: () => st,
+      subscribeSync: (cb) => (listeners.add(cb), () => void listeners.delete(cb)),
+    }
+    const services = await bootstrap({ dbName: 'app-loading-hint', forceMemory: true, seedGuide: false, createAccount: () => account })
+    render(<App boot={() => Promise.resolve(services)} />)
+    await screen.findByLabelText('筆記標題')
+    expect(screen.queryByText('正在從雲端載入…')).toBeNull()
+    st = { state: 'syncing', issues: [], loading: [services.initialNoteId!] }
+    act(() => listeners.forEach((l) => l()))
+    expect(await screen.findByText('正在從雲端載入…')).toBeInTheDocument()
+    st = { state: 'synced', issues: [] }
+    act(() => listeners.forEach((l) => l()))
+    expect(screen.queryByText('正在從雲端載入…')).toBeNull()
   })
 })

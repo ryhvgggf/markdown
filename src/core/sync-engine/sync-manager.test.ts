@@ -8,7 +8,8 @@ import { NoteDocCache } from '@/core/note-doc/cache'
 import { Vault } from '@/core/vault/vault'
 import { Preferences } from '@/core/preferences/preferences'
 import { manifestDocId, pullManifest } from './manifest-sync'
-import { createSyncManager, type SyncManager } from './sync-manager'
+import { createSyncManager, type PendingRemoval, type SyncManager } from './sync-manager'
+import { SyncError } from '@/adapters/sync/types'
 
 const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms))
 
@@ -404,5 +405,177 @@ describe('createSyncManager', () => {
     await managerB.close()
     prefsA.close()
     prefsB.close()
+  })
+
+  describe('offline (3f-4)', () => {
+    /** The same fake cloud, with a switch that makes every call fail like a dropped connection. */
+    function flaky() {
+      const f = { offline: false }
+      const down = () => {
+        if (f.offline) throw new SyncError('offline', 'offline')
+      }
+      const wrapped = Object.create(sync) as MemorySync
+      for (const name of ['pushUpdate', 'pushSnapshot', 'pullDoc', 'deleteDoc', 'listDocs'] as const) {
+        const original = (sync[name] as (...a: unknown[]) => Promise<unknown>).bind(sync)
+        ;(wrapped as unknown as Record<string, unknown>)[name] = async (...a: unknown[]) => {
+          down()
+          return original(...a)
+        }
+      }
+      return { f, wrapped }
+    }
+    const comeBack = async (f: { offline: boolean }) => {
+      f.offline = false
+      window.dispatchEvent(new Event('online'))
+      await wait(150)
+    }
+    function pendingStore(initial: PendingRemoval[] = []) {
+      const box = { items: initial }
+      return { box, store: { read: async () => box.items, write: async (items: PendingRemoval[]) => void (box.items = items) } }
+    }
+
+    it('starting offline still starts, and the notes go up once the connection is back', async () => {
+      const { f, wrapped } = flaky()
+      f.offline = true
+      const note = vault.createNote({ title: 'Offline start' })
+      vault.setNoteSynced(note.id, true)
+      manager = createSyncManager({ sync: wrapped, attachmentSync, storage, noteDocs, vault, vaultId: 'v1', kek, deviceId: 'dev1', onError: () => {} })
+      await manager.start() // does not throw
+      expect(manager.hasPending()).toBe(true) // and says so: not "synced"
+      expect(await sync.listDocs('v1')).not.toContain(note.id)
+      await comeBack(f)
+      expect(await sync.listDocs('v1')).toContain(note.id)
+      expect((await pullManifest(sync, kek, 'v1'))?.notes.map((n) => n.id)).toEqual([note.id])
+      await wait(50)
+      expect(manager.hasPending()).toBe(false)
+    })
+
+    it('turning sync on while offline is finished when back online', async () => {
+      const { f, wrapped } = flaky()
+      manager = createSyncManager({ sync: wrapped, attachmentSync, storage, noteDocs, vault, vaultId: 'v1', kek, deviceId: 'dev1', onError: () => {} })
+      await manager.start()
+      const note = vault.createNote({ title: 'Later' })
+      f.offline = true
+      vault.setNoteSynced(note.id, true)
+      await wait(100)
+      expect(await sync.listDocs('v1')).not.toContain(note.id)
+      await comeBack(f)
+      expect(await sync.listDocs('v1')).toContain(note.id)
+    })
+
+    it('turning sync off while offline deletes the cloud copy and leaves the mark when back online', async () => {
+      const { f, wrapped } = flaky()
+      const { store } = pendingStore()
+      const note = vault.createNote({ title: 'Going' })
+      vault.setNoteSynced(note.id, true)
+      manager = createSyncManager({ sync: wrapped, attachmentSync, storage, noteDocs, vault, vaultId: 'v1', kek, deviceId: 'dev1', onError: () => {}, pendingRemovals: store })
+      await manager.start()
+      await wait(80)
+      expect(await sync.listDocs('v1')).toContain(note.id)
+      f.offline = true
+      vault.setNoteSynced(note.id, false)
+      await wait(100)
+      expect(await sync.listDocs('v1')).toContain(note.id) // still there: it could not be reached
+      await comeBack(f)
+      expect(await sync.listDocs('v1')).not.toContain(note.id)
+      expect((await pullManifest(sync, kek, 'v1'))?.removed?.map((r) => r.id)).toEqual([note.id])
+    })
+
+    it('a removal that could not be finished survives closing the app', async () => {
+      const { f, wrapped } = flaky()
+      const { box, store } = pendingStore()
+      const note = vault.createNote({ title: 'Going' })
+      vault.setNoteSynced(note.id, true)
+      manager = createSyncManager({ sync: wrapped, attachmentSync, storage, noteDocs, vault, vaultId: 'v1', kek, deviceId: 'dev1', onError: () => {}, pendingRemovals: store })
+      await manager.start()
+      await wait(80)
+      f.offline = true
+      vault.setNoteSynced(note.id, false)
+      await wait(100)
+      expect(box.items.map((p) => p.id)).toEqual([note.id])
+      await manager.close()
+
+      f.offline = false // next time the app opens, the connection is there
+      manager = createSyncManager({ sync: wrapped, attachmentSync, storage, noteDocs, vault, vaultId: 'v1', kek, deviceId: 'dev1', onError: () => {}, pendingRemovals: store })
+      await manager.start()
+      await wait(200)
+      expect(await sync.listDocs('v1')).not.toContain(note.id)
+      expect((await pullManifest(sync, kek, 'v1'))?.removed?.map((r) => r.id)).toEqual([note.id])
+      expect(box.items).toEqual([]) // nothing left to do
+    })
+
+    it('a note synced again before the removal was finished is not deleted', async () => {
+      const { f, wrapped } = flaky()
+      const { store } = pendingStore()
+      const note = vault.createNote({ title: 'Flip' })
+      vault.setNoteSynced(note.id, true)
+      manager = createSyncManager({ sync: wrapped, attachmentSync, storage, noteDocs, vault, vaultId: 'v1', kek, deviceId: 'dev1', onError: () => {}, pendingRemovals: store })
+      await manager.start()
+      await wait(80)
+      f.offline = true
+      vault.setNoteSynced(note.id, false)
+      await wait(60)
+      vault.setNoteSynced(note.id, true)
+      await wait(60)
+      await comeBack(f)
+      expect(await sync.listDocs('v1')).toContain(note.id)
+      expect((await pullManifest(sync, kek, 'v1'))?.removed ?? []).toEqual([])
+    })
+  })
+
+  it('onFirstMerge runs once per start, after the first manifest pull, and says whether the cloud had notes', async () => {
+    const seen: boolean[] = []
+    manager = createSyncManager({ sync, attachmentSync, storage, noteDocs, vault, vaultId: 'v1', kek, deviceId: 'dev1', onFirstMerge: ({ cloudHasNotes }) => void seen.push(cloudHasNotes) })
+    await manager.start()
+    expect(seen).toEqual([false]) // nothing in the cloud yet
+    await manager.close()
+
+    const other = vault.createNote({ title: 'In the cloud' })
+    vault.setNoteSynced(other.id, true)
+    manager = createSyncManager({ sync, attachmentSync, storage, noteDocs, vault, vaultId: 'v1', kek, deviceId: 'dev1' })
+    await manager.start()
+    await wait(80)
+    await manager.close()
+
+    const storageB = new MemoryStorage()
+    const vaultB = await Vault.open(storageB, 'v1')
+    const guideLike = vaultB.createNote({ title: 'Local only' })
+    expect(guideLike.synced).toBe(false)
+    const seenB: boolean[] = []
+    const managerB = createSyncManager({ sync, attachmentSync, storage: storageB, noteDocs: new NoteDocCache(storageB), vault: vaultB, vaultId: 'v1', kek, deviceId: 'devB', onFirstMerge: ({ cloudHasNotes }) => void seenB.push(cloudHasNotes) })
+    await managerB.start()
+    expect(seenB).toEqual([true])
+    await managerB.close()
+  })
+
+  it('loadingNoteIds lists the notes still being fetched during start(), the one on screen first, and empties after', async () => {
+    const ids: string[] = []
+    for (let i = 0; i < 3; i++) {
+      const n = vault.createNote({ title: `N${i}` })
+      vault.setNoteSynced(n.id, true)
+      ids.push(n.id)
+    }
+    await mkManager().start()
+    await wait(80)
+    await manager!.close()
+
+    const slow = Object.create(sync) as MemorySync
+    slow.pullDoc = async (v, d) => {
+      await wait(40)
+      return sync.pullDoc(v, d)
+    }
+    const storageB = new MemoryStorage()
+    const vaultB = await Vault.open(storageB, 'v1')
+    const managerB = createSyncManager({ sync: slow, attachmentSync, storage: storageB, noteDocs: new NoteDocCache(storageB), vault: vaultB, vaultId: 'v1', kek, deviceId: 'devB' })
+    const seen: string[][] = []
+    const started = managerB.start()
+    for (let i = 0; i < 8; i++) {
+      await wait(15)
+      seen.push(managerB.loadingNoteIds())
+    }
+    await started
+    expect(seen.some((s) => s.length > 0)).toBe(true)
+    expect(managerB.loadingNoteIds()).toEqual([])
+    await managerB.close()
   })
 })

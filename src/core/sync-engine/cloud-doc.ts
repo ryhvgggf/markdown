@@ -24,10 +24,12 @@ export interface CloudDocDeps {
   /**
    * For note docs: when the cloud copy and this device's copy have nothing in common (the same note was made
    * separately on each device, e.g. by importing the same export twice) and both have content, merging them
-   * would write the content twice. Instead the cloud copy is adopted. If the two differ, `onLocalDiverged`
-   * gets this device's version first so it can be kept as a note of its own.
+   * would write the content twice. So one of them replaces the other, as a whole: the same text → the cloud
+   * copy stays; different → `localWins()` (the more recently edited one wins) decides whether this device's
+   * copy replaces the cloud's or the other way round. A device already bound when the cloud copy gets replaced
+   * simply adopts the new one (the replacing device already made the decision).
    */
-  adoptCloudIfUnrelated?: { fragment: string; onLocalDiverged?: (localState: Uint8Array) => void }
+  reconcileUnrelated?: { fragment: string; localWins: () => Promise<boolean> }
   onError?: (e: SyncError) => void
 }
 
@@ -132,7 +134,10 @@ export async function bindCloudDoc(doc: Y.Doc, deps: CloudDocDeps): Promise<Clou
 
   const unsubscribe = deps.sync.subscribe(deps.vaultId, (change) => {
     if (closed || change.docId !== deps.docId || change.deviceId === deps.deviceId) return
-    void pullAndApply(doc, deps).catch((e) => {
+    void pullAndApply(doc, deps, (diff) => {
+      pending.push(diff)
+      void flush()
+    }).catch((e) => {
       deps.onError?.(e instanceof SyncError ? e : new SyncError('unknown', String(e), { cause: e }))
     })
   })
@@ -181,13 +186,58 @@ function shapeOf(fragment: Y.XmlFragment): string {
   return fragment.toString().replace(/\s+id="[^"]*"/g, '')
 }
 
-async function pullAndApply(doc: Y.Doc, deps: CloudDocDeps): Promise<void> {
+async function pullAndApply(doc: Y.Doc, deps: CloudDocDeps, onAdopted: (localDiff: Uint8Array) => void): Promise<void> {
   const chunks = await deps.sync.pullDoc(deps.vaultId, deps.docId)
   if (chunks.length === 0) return
   const decrypted = await Promise.all(chunks.map((c) => decryptDocChunk(deps.kek, deps.vaultId, deps.docId, c)))
+  const cfg = deps.reconcileUnrelated
+  if (cfg) {
+    const cloudOnly = scratchDoc(decrypted)
+    if (isUnrelated(doc, cloudOnly, cfg.fragment)) {
+      // The cloud copy was replaced by another device's: take it on as a whole. This device's items stay as
+      // deleted ones and are pushed, so edits made here from now on connect to their history.
+      const diff = adoptCloudCopy(doc, cloudOnly, decrypted, cfg.fragment)
+      cloudOnly.destroy()
+      if (diff) onAdopted(diff)
+      return
+    }
+    cloudOnly.destroy()
+  }
   doc.transact(() => {
     for (const u of decrypted) Y.applyUpdate(doc, u, CLOUD_ORIGIN)
   }, CLOUD_ORIGIN)
+}
+
+function scratchDoc(updates: Uint8Array[]): Y.Doc {
+  const d = new Y.Doc()
+  d.transact(() => {
+    for (const u of updates) Y.applyUpdate(d, u)
+  })
+  return d
+}
+
+/** Both copies have content and share no author: the same note made separately, not two edits of one. */
+function isUnrelated(local: Y.Doc, cloud: Y.Doc, fragment: string): boolean {
+  return (
+    local.getXmlFragment(fragment).length > 0 &&
+    cloud.getXmlFragment(fragment).length > 0 &&
+    !shareHistory(Y.encodeStateVector(local), Y.encodeStateVector(cloud))
+  )
+}
+
+/**
+ * Makes `doc` the cloud copy: its own content is deleted and the cloud's comes in. Returns what the cloud
+ * doesn't have yet (this device's deleted items — they carry no content, but later edits here build on them,
+ * and without them other devices could never apply those edits), or null when there is none.
+ */
+function adoptCloudCopy(doc: Y.Doc, cloud: Y.Doc, updates: Uint8Array[], fragment: string): Uint8Array | null {
+  const local = doc.getXmlFragment(fragment)
+  doc.transact(() => {
+    local.delete(0, local.length)
+    for (const u of updates) Y.applyUpdate(doc, u, CLOUD_ORIGIN)
+  }, CLOUD_ORIGIN)
+  const diff = Y.encodeStateAsUpdate(doc, Y.encodeStateVector(cloud))
+  return diff.length > 2 ? diff : null
 }
 
 /**
@@ -216,29 +266,22 @@ async function recoverLocalOnlyEdits(doc: Y.Doc, deps: CloudDocDeps): Promise<Ui
   if (chunks.length === 0) return null
   const decrypted = await Promise.all(chunks.map((c) => decryptDocChunk(deps.kek, deps.vaultId, deps.docId, c)))
 
-  const cloudOnly = new Y.Doc()
-  cloudOnly.transact(() => {
-    for (const u of decrypted) Y.applyUpdate(cloudOnly, u)
-  })
+  const cloudOnly = scratchDoc(decrypted)
   const cloudStateVector = Y.encodeStateVector(cloudOnly)
 
-  const adopt = deps.adoptCloudIfUnrelated
-  if (adopt) {
-    const local = doc.getXmlFragment(adopt.fragment)
-    const cloud = cloudOnly.getXmlFragment(adopt.fragment)
-    if (local.length > 0 && cloud.length > 0 && !shareHistory(Y.encodeStateVector(doc), cloudStateVector)) {
-      if (shapeOf(local) !== shapeOf(cloud)) adopt.onLocalDiverged?.(Y.encodeStateAsUpdate(doc))
-      // Local content goes, the cloud copy comes in: the note ends up as the cloud has it, with no second copy
-      // of the text. The local items stay in the doc as deleted ones and ARE pushed (they carry no content any
-      // more): this device's later edits build on that history, and without it other devices could never apply them.
-      doc.transact(() => {
-        local.delete(0, local.length)
-        for (const u of decrypted) Y.applyUpdate(doc, u, CLOUD_ORIGIN)
-      }, CLOUD_ORIGIN)
+  const cfg = deps.reconcileUnrelated
+  if (cfg && isUnrelated(doc, cloudOnly, cfg.fragment)) {
+    const same = shapeOf(doc.getXmlFragment(cfg.fragment)) === shapeOf(cloudOnly.getXmlFragment(cfg.fragment))
+    if (same || !(await cfg.localWins())) {
+      const diff = adoptCloudCopy(doc, cloudOnly, decrypted, cfg.fragment)
       cloudOnly.destroy()
-      const diff = Y.encodeStateAsUpdate(doc, cloudStateVector)
-      return diff.length > 2 ? diff : null
+      return diff
     }
+    // This device's copy is the newer one: it replaces the cloud's, whole. Devices bound to the old one adopt it.
+    cloudOnly.destroy()
+    await deps.sync.deleteDoc(deps.vaultId, deps.docId)
+    await deps.sync.pushSnapshot(deps.vaultId, deps.docId, await encryptDocChunk(deps.kek, deps.vaultId, deps.docId, Y.encodeStateAsUpdate(doc)), 0)
+    return null
   }
   cloudOnly.destroy()
 

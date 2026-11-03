@@ -31,6 +31,7 @@ function toNote(m: YM): NoteMeta {
     synced: (m.get('synced') as boolean) ?? false, // absent on notes created before phase 3
     ...stamp(m, 'titleAt'),
     ...stamp(m, 'placeAt'),
+    ...stamp(m, 'stateAt'),
   }
 }
 /** `{ [key]: n }` when the map holds a numeric stamp, else `{}` (absent on records from before 3f-3). */
@@ -48,6 +49,7 @@ function toFolder(m: YM): FolderMeta {
     deletedAt: (m.get('deletedAt') as number | null) ?? null,
     ...stamp(m, 'nameAt'),
     ...stamp(m, 'placeAt'),
+    ...stamp(m, 'stateAt'),
     ...(m.get('synced') === true ? { synced: true } : {}),
   }
 }
@@ -206,7 +208,7 @@ export class Vault {
    * wins in the cloud, see `combineManifests`); a placement whose folder is missing or trashed here is skipped.
    * Not a user action (not undoable); `updatedAt` is left alone.
    */
-  applyRemoteNote(id: string, p: { title?: string; titleAt?: number; folderId?: string | null; order?: string; placeAt?: number }): void {
+  applyRemoteNote(id: string, p: { title?: string; titleAt?: number; folderId?: string | null; order?: string; placeAt?: number; updatedAt?: number }): void {
     const m = this.note(id)
     let title: string | undefined
     if (p.title !== undefined) {
@@ -215,6 +217,7 @@ export class Vault {
     }
     const placeOk = p.folderId === undefined || p.folderId === null || this.folders.get(p.folderId)?.get('deletedAt') === null
     this.doc.transact(() => {
+      if (p.updatedAt !== undefined && p.updatedAt > ((m.get('updatedAt') as number) ?? 0)) m.set('updatedAt', p.updatedAt) // "last modified" follows the newest edit anywhere
       if (title !== undefined) m.set('title', title)
       if (p.titleAt !== undefined) m.set('titleAt', p.titleAt)
       if (!placeOk) return
@@ -236,7 +239,36 @@ export class Vault {
   }
   trashNote(id: string): void {
     const m = this.note(id)
-    this.doc.transact(() => m.set('deletedAt', Date.now()))
+    const now = Date.now()
+    this.doc.transact(() => {
+      m.set('deletedAt', now)
+      m.set('stateAt', now)
+    })
+  }
+  /**
+   * Applies a trash state another device set (cloud manifest merge): moved to the trash with that device's time
+   * (so the 30 days run from the same moment everywhere), or taken out of it like a restore (a taken title gets a
+   * suffix, a missing folder means the top level). The stamp is the other device's, for last-writer-wins.
+   */
+  applyRemoteNoteState(id: string, s: { deletedAt: number | null; stateAt: number }): void {
+    const m = this.note(id)
+    this.doc.transact(() => {
+      if (s.deletedAt === null) this.restoreNoteIn(m)
+      else m.set('deletedAt', s.deletedAt)
+      m.set('stateAt', s.stateAt)
+    })
+  }
+  /** Folder counterpart of `applyRemoteNoteState`; restoring under a trashed parent puts it at the top level. */
+  applyRemoteFolderState(id: string, s: { deletedAt: number | null; stateAt: number }): void {
+    const m = this.folder(id)
+    this.doc.transact(() => {
+      if (s.deletedAt === null) {
+        const parent = m.get('parentId') as string | null
+        if (parent !== null && this.folders.get(parent)?.get('deletedAt') !== null) m.set('parentId', null)
+      }
+      m.set('deletedAt', s.deletedAt)
+      m.set('stateAt', s.stateAt)
+    })
   }
   restoreNote(id: string): void {
     const m = this.note(id)
@@ -355,10 +387,16 @@ export class Vault {
     const ids = this.subtreeIds(id)
     const now = Date.now()
     this.doc.transact(() => {
-      for (const fid of ids) this.folders.get(fid)?.set('deletedAt', now)
+      for (const fid of ids) {
+        this.folders.get(fid)?.set('deletedAt', now)
+        this.folders.get(fid)?.set('stateAt', now)
+      }
       for (const n of this.notes.values()) {
         const f = n.get('folderId') as string | null
-        if (f !== null && ids.has(f)) n.set('deletedAt', now)
+        if (f !== null && ids.has(f)) {
+          n.set('deletedAt', now)
+          n.set('stateAt', now)
+        }
       }
     })
   }
@@ -368,7 +406,11 @@ export class Vault {
     this.doc.transact(() => {
       const parent = root.get('parentId') as string | null
       if (parent !== null && this.folders.get(parent)?.get('deletedAt') !== null) root.set('parentId', null)
-      for (const fid of ids) this.folders.get(fid)?.set('deletedAt', null)
+      const now = Date.now()
+      for (const fid of ids) {
+        this.folders.get(fid)?.set('deletedAt', null)
+        this.folders.get(fid)?.set('stateAt', now)
+      }
       for (const n of this.notes.values()) {
         const f = n.get('folderId') as string | null
         if (f !== null && ids.has(f) && n.get('deletedAt') !== null) this.restoreNoteIn(n)
@@ -603,6 +645,7 @@ export class Vault {
       m.set('title', dedupeTitle(title, taken))
     }
     m.set('deletedAt', null)
+    m.set('stateAt', Date.now())
   }
   /** Whether `folderId` or any folder above it is marked synced. */
   private inSyncedFolder(folderId: string | null): boolean {

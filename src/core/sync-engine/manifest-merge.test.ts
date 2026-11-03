@@ -251,3 +251,32 @@ describe('cloudIsBehind', () => {
     expect(cloudIsBehind(derived, manifest({ notes: [note('a', { titleAt: 5 })] }))).toBe(false)
   })
 })
+
+describe('trash state', () => {
+  it('merge: a note that arrives trashed is created in the trash, with the other device\'s time', () => {
+    mergeManifestIntoVault(vault, manifest({ notes: [note('gone', { deletedAt: 777, stateAt: 777 })] }))
+    expect(vault.getNote('gone')).toMatchObject({ deletedAt: 777, stateAt: 777, synced: true })
+    expect(vault.listNotes()).toEqual([])
+  })
+
+  it('merge: a newer trash state is applied, an older one is not, and a restore takes the title suffix if needed', () => {
+    const local = vault.createNote({ title: 'Mine', createdAt: 1, updatedAt: 1 })
+    vault.setNoteSynced(local.id, true)
+    vault.trashNote(local.id)
+    const trashedAt = vault.getNote(local.id)!.stateAt!
+    mergeManifestIntoVault(vault, manifest({ notes: [note(local.id, { title: 'Mine', createdAt: 1, deletedAt: null, stateAt: trashedAt - 5 })] }))
+    expect(vault.getNote(local.id)?.deletedAt).not.toBeNull() // older than the trash action here: ignored
+    vault.createNote({ title: 'Mine' }) // the name is taken meanwhile
+    mergeManifestIntoVault(vault, manifest({ notes: [note(local.id, { title: 'Mine', createdAt: 1, deletedAt: null, stateAt: trashedAt + 5 })] }))
+    expect(vault.getNote(local.id)).toMatchObject({ deletedAt: null, title: 'Mine (2)' })
+  })
+
+  it('combine: the later trash action wins, a trashed note from before the stamp counts from when it was trashed', () => {
+    const local = { notes: [note('a', { deletedAt: 50, stateAt: 50 }), note('b', { deletedAt: 40 })], folders: [], attachments: [] }
+    const cloud = manifest({ notes: [note('a', { deletedAt: null, stateAt: 60 }), note('b', { deletedAt: null })] })
+    const c = combineManifests(local, cloud, opts())
+    expect(c.notes.find((n) => n.id === 'a')).toMatchObject({ deletedAt: null, stateAt: 60 })
+    expect(c.notes.find((n) => n.id === 'b')).toMatchObject({ deletedAt: 40 }) // trashed here, never stamped there: the trashing counts
+    expect(cloudIsBehind(manifest({ notes: [note('b', { deletedAt: 40 })] }), cloud)).toBe(true)
+  })
+})

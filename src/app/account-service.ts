@@ -116,6 +116,8 @@ export interface AccountService {
 export const ACCOUNT_KEY = 'account'
 /** The cloud vault this device's `synced` flags belong to (see `finishUnlock`). */
 export const SYNC_VAULT_KEY = 'syncVaultId'
+/** The cloud vault this device attached to for the first time and has not yet finished its first sync of (see `SyncManagerDeps.onFirstMerge`). */
+export const FIRST_SYNC_KEY = 'firstSyncVaultId'
 const CHANNEL = 'notes-v2-account'
 
 const OFF_STATUS: SyncStatus = { state: 'off', issues: [] }
@@ -272,6 +274,7 @@ export function createAccountService(deps: AccountServiceDeps): AccountService {
       deps.vault.clearFolderSyncRules()
       await deps.vault.flushWrites()
       await deps.meta.put(SYNC_VAULT_KEY, vaultId)
+      await deps.meta.put(FIRST_SYNC_KEY, vaultId)
     }
     const stored: StoredAccount = { userId, email, vaultId, kek: deviceKek }
     await deps.meta.put(ACCOUNT_KEY, stored)
