@@ -68,6 +68,7 @@ function rowMenu(m: RowMenuActions, isNote: boolean, syncable: boolean): RowMenu
   return {
     ...m,
     rename: isNote ? undefined : m.rename,
+    share: isNote ? m.share : undefined,
     syncSelect: syncable ? m.syncSelect : undefined,
   }
 }

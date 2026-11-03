@@ -23,6 +23,8 @@ export interface UiState {
   /** The import dialog: null closed; [] open at the file picker; files: open with those files. */
   importFiles: File[] | null
   highlightBlockId: string | null
+  /** The note whose 分享 dialog is open. */
+  shareNoteId: string | null
   openNote(id: string, blockId?: string): void
   toggleBacklinks(): void
   /** Without `force` (pointer left) a pinned panel stays; `force` (×, Esc) closes and unpins. */
@@ -37,6 +39,7 @@ export interface UiState {
   openImport(files?: File[]): void
   closeImport(): void
   clearHighlight(): void
+  setShareNote(id: string | null): void
 }
 
 export function createUiStore(deps: { persistLastNote?: (id: string) => void } = {}) {
@@ -54,6 +57,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     dataOpen: false,
     importFiles: null,
     highlightBlockId: null,
+    shareNoteId: null,
     openNote: (id, blockId) => {
       set((s) => ({ openNoteId: id, highlightBlockId: blockId ?? null, backlinksOpen: s.backlinksOpen && s.backlinksPinned }))
       deps.persistLastNote?.(id)
@@ -71,6 +75,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     openImport: (files = []) => set({ importFiles: files }),
     closeImport: () => set({ importFiles: null }),
     clearHighlight: () => set({ highlightBlockId: null }),
+    setShareNote: (shareNoteId) => set({ shareNoteId }),
   }))
 }
 

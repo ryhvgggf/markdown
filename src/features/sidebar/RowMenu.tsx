@@ -12,6 +12,8 @@ export interface RowMenuActions {
   exportMd?(): void
   /** While signed in: opens the 同步到雲端 selection (notes and folders get a box to tick). */
   syncSelect?(): void
+  /** Notes only: opens the 分享 dialog. */
+  share?(): void
   trash(): void
 }
 
@@ -76,6 +78,7 @@ export function RowMenu({
         </>
       )}
       {actions.exportMd && <Menu.Item onSelect={pick(actions.exportMd)}>{kind === 'folder' ? '下載此資料夾' : '下載此筆記'}</Menu.Item>}
+      {actions.share && <Menu.Item onSelect={pick(actions.share)}>分享…</Menu.Item>}
       {actions.syncSelect && <Menu.Item onSelect={pick(actions.syncSelect)}>同步到雲端</Menu.Item>}
       <Menu.Separator />
       <Menu.Item onSelect={pick(actions.trash)}>移到垃圾桶</Menu.Item>

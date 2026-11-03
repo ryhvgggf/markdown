@@ -1,4 +1,5 @@
 import { createDeferredAccount, createUnavailableAccount, type AccountService } from './account-service'
+import { createShareFacade, type ShareFacade } from './share-facade'
 import { createMirrorService, type MirrorService } from './mirror-service'
 import { createTransferServices, type TransferServices } from './transfer-services'
 import * as Y from 'yjs'
@@ -41,6 +42,8 @@ export type AppServices = {
   initialNoteId: string | null
   /** Sign-in and cloud sync (phase 3f). `unavailable` when no Supabase project is configured. */
   account: AccountService
+  /** Read-only snapshot links (phase 4a): the share dialog and the clean-up when a note is deleted for good. */
+  share: ShareFacade
   /** Persists meta.lastNoteId. */
   setLastNoteId(id: string): void
   /** Synchronously stashes every not-yet-stored update (pagehide); recovered on the next start. */
@@ -56,6 +59,8 @@ export interface BootstrapOptions {
   forceMemory?: boolean
   /** Seed the 「功能導覽」 notes into a brand-new vault (default true; off for the bench and e2e runs). */
   seedGuide?: boolean
+  /** Replaces the share facade (tests, e2e). */
+  createShare?: (db: NotesDb) => ShareFacade
   /** Replaces the account service (tests). */
   createAccount?: (s: { db: NotesDb; storage: StorageAdapter; vault: Vault; notes: NoteDocCache; prefs: Preferences; maintenance: Maintenance }) => AccountService
 }
@@ -69,6 +74,20 @@ function defaultAccount(s: { db: NotesDb; storage: StorageAdapter; vault: Vault;
   // Memory mode (private window without IndexedDB, tests) keeps no key between sessions: local-only.
   if (mode !== 'persistent' || !supabaseConfigured()) return createUnavailableAccount()
   return createDeferredAccount(async () => (await import('./cloud-account')).createCloudAccount({ ...s, recoveryUrl: RECOVERY_URL }))
+}
+
+function defaultShare(db: NotesDb, mode: 'persistent' | 'memory'): ShareFacade {
+  const configured = mode === 'persistent' && supabaseConfigured()
+  return createShareFacade({
+    db,
+    origin: () => location.origin,
+    adapter: configured
+      ? async () => {
+          const [{ SupabaseShare }, { getSupabaseClient }] = await Promise.all([import('@/adapters/share/supabase-share'), import('@/adapters/supabase-client')])
+          return new SupabaseShare(getSupabaseClient())
+        }
+      : null,
+  })
 }
 
 const VAULT_ID = 'default-vault'
@@ -193,7 +212,8 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   const createSearch =
     opts.createSearch ?? ((d, m) => (m === 'persistent' ? new SearchClient({ dbName }) : new LocalSearch(d)))
   const search = createSearch(db, mode)
-  const maintenance = new Maintenance({ db, storage, vault, notes, indexer, onError: errors.emit })
+  const share = (opts.createShare ?? ((d) => defaultShare(d, mode)))(db)
+  const maintenance = new Maintenance({ db, storage, vault, notes, indexer, onError: errors.emit, onNotesPurged: (ids) => void share.noteRemoved(ids) })
   // Purges, index rebuild/catch-up and attachment GC are NOT run here: they are off the critical path
   // (App starts `maintenance.runStartup()` after the first render) and can never block opening the app.
   indexer.start()
@@ -227,7 +247,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   return {
     storage, db, vault, notes, indexer, search, prefs, persistence,
     storageMode: mode, storageErrors: { subscribe: errors.subscribe }, maintenance, transfer, mirror, initialNoteId, setLastNoteId,
-    account,
+    account, share,
     stashUnsaved() {
       if (mode !== 'persistent') return
       vault.stashUnsaved(stashUpdate)

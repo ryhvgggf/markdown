@@ -19,7 +19,7 @@ export function editorSchema(): Schema {
 /** Schema-normalized JSON (default attributes filled in), the same shape `nodeFromJSON(x).toJSON()` gives. */
 export const normalizeDoc = (doc: PMNode): PMNode => editorSchema().nodeFromJSON(doc).toJSON() as PMNode
 /** A note never typed in has no content yet: it reads as one empty paragraph (what the editor shows). */
-const toJSON = (y: Y.Doc): PMNode => {
+export const toJSON = (y: Y.Doc): PMNode => {
   const frag = y.getXmlFragment('content')
   if (frag.length === 0) return { type: 'doc', content: [{ type: 'paragraph' }] }
   return yXmlFragmentToProseMirrorRootNode(frag, editorSchema()).toJSON() as PMNode

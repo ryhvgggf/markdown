@@ -29,6 +29,8 @@ export interface MaintenanceDeps {
   notes: NoteDocCache
   indexer: Indexer
   onError?: (e: StorageError) => void
+  /** Notes that were permanently deleted (their links must stop working); fire-and-forget. */
+  onNotesPurged?: (noteIds: string[]) => void
   now?: () => number
   /** Awaited between notes of O(vault) passes so they never hog the main thread (default: idle callback). */
   pause?: () => Promise<void>
@@ -348,6 +350,7 @@ export class Maintenance {
     const restored = considered.filter((id) => vault.getNote(id)?.deletedAt === null)
     const done = new Set([...ids, ...restored])
     await this.updatePending((list) => list.filter((x) => !done.has(x)))
+    if (ids.length) this.d.onNotesPurged?.(ids)
   }
 
   private async pendingPurges(): Promise<string[]> {

@@ -254,6 +254,17 @@ describe('attachment trash', () => {
 })
 
 describe('Maintenance.purge (I5)', () => {
+  it('reports the notes it deleted for good (so their share links stop)', async () => {
+    const purged: string[][] = []
+    const mm = new Maintenance({ db, storage, vault, notes, indexer, onError, onNotesPurged: (ids) => purged.push(ids) })
+    const gone = await noteWith('Gone', ['x'])
+    const other = await noteWith('Other', ['y'])
+    vault.trashNote(gone.id)
+    await mm.purge({ kind: 'note', id: gone.id })
+    expect(purged).toEqual([[gone.id]])
+    expect(vault.getNote(other.id)).toBeDefined()
+  })
+
   it('removes doc, index rows and attachments no other note references', async () => {
     const own = await attachment(0)
     const shared = await attachment(0)

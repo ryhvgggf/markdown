@@ -17,6 +17,7 @@ const NoteEditor = lazy(() => import('@/features/editor/NoteEditor').then((m) =>
 const QuickSwitcher = lazy(() => import('@/features/search/QuickSwitcher').then((m) => ({ default: m.QuickSwitcher })))
 const ImportDialog = lazy(() => import('@/features/transfer/ImportDialog').then((m) => ({ default: m.ImportDialog })))
 const DataDialog = lazy(() => import('@/features/settings/DataDialog').then((m) => ({ default: m.DataDialog })))
+const ShareDialog = lazy(() => import('@/features/share/ShareDialog').then((m) => ({ default: m.ShareDialog })))
 const SettingsDialog = lazy(() => import('@/features/settings/SettingsDialog').then((m) => ({ default: m.SettingsDialog })))
 
 type State =
@@ -64,6 +65,17 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
     return account.subscribe(check)
   }, [services])
 
+  // Links of notes deleted for good while signed out or offline are stopped once the account is back.
+  useEffect(() => {
+    if (!services) return
+    const { account, share } = services
+    const run = () => {
+      if (account.getState().status === 'unlocked') void share.flushPending()
+    }
+    run()
+    return account.subscribe(run)
+  }, [services])
+
   if (state.status === 'loading') {
     return <div className="grid min-h-screen place-items-center">正在開啟筆記…</div>
   }
@@ -92,6 +104,7 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
         <QuickSwitcher />
         <SettingsDialog />
         <DataDialog />
+        <ShareDialog />
         <ImportDialog />
       </Suspense>
     </ServicesProvider>
