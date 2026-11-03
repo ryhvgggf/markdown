@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useServices } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
 import { ShareError, type ShareRecord } from '@/adapters/share/types'
 import { Button } from '@/ui/components/Button'
 import { Dialog } from '@/ui/components/Dialog'
+import { Share } from '@/ui/icons'
 import { snapshotOfNote } from './note-snapshot'
 
 type View =
@@ -28,9 +29,23 @@ export function ShareDialog() {
   )
 }
 
+/** The first screen: a round icon over the note's title, then what can be done. */
+function Intro({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col items-center px-2 pt-3 pb-1 text-center">
+      <span className="grid size-14 place-items-center rounded-full bg-[var(--accent-soft)] text-accent">
+        <Share size={26} />
+      </span>
+      <p className="mt-3 max-w-full truncate text-base font-medium text-fg">{title}</p>
+      <div className="mt-1 w-full">{children}</div>
+    </div>
+  )
+}
+
 function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void }) {
   const services = useServices()
   const { share } = services
+  const title = services.vault.getNote(noteId)?.title.trim() || '未命名'
   const [view, setView] = useState<View>({ s: 'loading' })
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -103,33 +118,30 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
   if (view.s === 'loading') return <p className="text-sm text-fg-tertiary">載入中…</p>
   if (view.s === 'signed-out') {
     return (
-      <div className="flex flex-col gap-3">
+      <Intro title={title}>
         <p className="text-sm text-fg-secondary">登入後即可分享</p>
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            onClick={() => {
-              onClose()
-              useUi.getState().setSettings(true, 'account')
-            }}
-          >
-            前往登入
-          </Button>
-        </div>
-      </div>
+        <Button
+          variant="primary"
+          className="mt-4 h-9 w-full"
+          onClick={() => {
+            onClose()
+            useUi.getState().setSettings(true, 'account')
+          }}
+        >
+          前往登入
+        </Button>
+      </Intro>
     )
   }
   if (view.s === 'error') return <p className="text-sm text-fg-secondary">{view.text}</p>
   if (view.s === 'none') {
     return (
-      <div className="flex flex-col gap-3">
+      <Intro title={title}>
         {notice && <p className="text-sm text-red-700">{notice}</p>}
-        <div className="flex justify-end">
-          <Button variant="primary" disabled={busy} onClick={() => void create()}>
-            建立連結
-          </Button>
-        </div>
-      </div>
+        <Button variant="primary" className="mt-4 h-9 w-full" disabled={busy} onClick={() => void create()}>
+          建立連結
+        </Button>
+      </Intro>
     )
   }
   const { record, url } = view
