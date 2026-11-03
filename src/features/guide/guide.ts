@@ -5,11 +5,12 @@ import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
 import type { NotesDb } from '@/adapters/storage/db'
 import type { StorageAdapter } from '@/adapters/storage/types'
 import { newId } from '@/core/ids'
+import type { PMNode } from '@/core/markdown/types'
 import { DIRTY_PREFIX } from '@/core/indexer/indexer'
 import { dedupeTitle } from '@/core/vault/titles'
 import type { Vault } from '@/core/vault/vault'
 import { BLOCK_TYPES, createExtensions, type EditorContext } from '@/features/editor/extensions'
-import { GUIDE_FOLDER, GUIDE_NOTES, guideDoc, type GuideKey, type GuideRefs } from './guide-content'
+import { GUIDE_FOLDER, GUIDE_NOTES, GUIDE_VERSION, guideDoc, type GuideKey, type GuideRefs } from './guide-content'
 import { assignBlockIds } from './pm-json'
 
 export { GUIDE_FOLDER }
@@ -39,6 +40,9 @@ export function untouchedGuideFolderIds(vault: Vault): string[] {
 
 /** meta flag: the guide was seeded once on this device (deleting it must not bring it back). */
 export const GUIDE_SEEDED_KEY = 'guideSeeded'
+/** meta: the `GUIDE_VERSION` this device's guide notes were written at (missing: written before versions existed = 1). */
+export const GUIDE_VERSION_KEY = 'guideVersion'
+const DEMO_IMAGE_NAME = '範例圖片.png'
 
 /** 192 × 108 PNG (sky, sun, two hills) for the image demo. */
 const DEMO_PNG_B64 =
@@ -58,7 +62,7 @@ function base64Bytes(b64: string): Uint8Array {
 
 async function storeDemoImage(vault: Vault, storage: StorageAdapter): Promise<string | null> {
   const bytes = base64Bytes(DEMO_PNG_B64)
-  const meta = vault.addAttachment({ filename: '範例圖片.png', mimeType: 'image/png', size: bytes.length })
+  const meta = vault.addAttachment({ filename: DEMO_IMAGE_NAME, mimeType: 'image/png', size: bytes.length })
   try {
     await storage.putBlob(meta.id, new Blob([bytes as BlobPart], { type: 'image/png' }))
     return meta.id
@@ -110,5 +114,72 @@ export async function addGuide(deps: { vault: Vault; storage: StorageAdapter; db
     await db.meta.put({ key: DIRTY_PREFIX + noteId, value: 1 })
   }
   await vault.flushWrites()
+  await db.meta.put({ key: GUIDE_VERSION_KEY, value: GUIDE_VERSION })
   return { folderId: folder.id, noteIds: GUIDE_NOTES.map((n) => ids.get(n.key)!) }
+}
+
+export type GuideUpdate = 'updated' | 'current' | 'none' | 'skipped'
+
+/**
+ * Brings an older guide on this device up to `GUIDE_VERSION`, so people who started before a feature existed
+ * also find it described. Only a guide nobody has touched is rewritten (`untouchedGuideFolderIds`: top-level
+ * 功能導覽 folder, only guide notes, none edited, none synced, so devices never rewrite the same note and
+ * duplicate it); the notes keep their ids, missing guide notes are added to that folder. Nothing happens when
+ * the guide was deleted (it must not come back), was edited or synced, or when one of its notes is open in
+ * an editor right now ('skipped': tried again on the next start). A guide the user changed stays as it is;
+ * 資料 → 加入功能導覽筆記 adds a fresh copy.
+ */
+export async function updateGuide(deps: {
+  vault: Vault
+  storage: StorageAdapter
+  db: NotesDb
+  /** Replaces a note's content (`DocIO.replace`: no change of the note's modified time). */
+  replace: (noteId: string, doc: PMNode) => Promise<void>
+  isOpen: (noteId: string) => boolean
+}): Promise<GuideUpdate> {
+  const { vault, storage, db } = deps
+  if (!(await db.meta.get(GUIDE_SEEDED_KEY))?.value) return 'none'
+  const have = (await db.meta.get(GUIDE_VERSION_KEY))?.value
+  if (typeof have === 'number' && have >= GUIDE_VERSION) return 'current'
+  const folderIds = untouchedGuideFolderIds(vault)
+  if (!folderIds.length) return 'none'
+  const base = (t: string) => t.replace(/ \(\d+\)$/, '')
+  const inFolder = (id: string) => vault.listNotes().filter((n) => n.folderId === id)
+  if (folderIds.some((id) => inFolder(id).some((n) => deps.isOpen(n.id)))) return 'skipped'
+
+  const schema = guideSchema()
+  const image =
+    vault.listAttachments().find((a) => a.filename === DEMO_IMAGE_NAME && a.mimeType === 'image/png')?.id ?? (await storeDemoImage(vault, storage))
+  for (const folderId of folderIds) {
+    const ids = new Map<GuideKey, string>()
+    for (const n of inFolder(folderId)) {
+      const key = GUIDE_NOTES.find((g) => g.title === base(n.title))?.key
+      if (key && !ids.has(key)) ids.set(key, n.id)
+    }
+    const taken = new Set(vault.listNotes().map((n) => n.title))
+    for (const { key, title } of GUIDE_NOTES) {
+      if (ids.has(key)) continue
+      const unique = dedupeTitle(title, taken)
+      taken.add(unique)
+      ids.set(key, vault.createNote({ title: unique, folderId }).id)
+    }
+    const blockIds = new Map<string, string>()
+    const refs: GuideRefs = {
+      note: (key) => ids.get(key)!,
+      block: (key, name) => {
+        const k = `${key}#${name}`
+        if (!blockIds.has(k)) blockIds.set(k, newId())
+        return blockIds.get(k)!
+      },
+      image,
+    }
+    for (const { key } of GUIDE_NOTES) {
+      const json = assignBlockIds(guideDoc(key, refs), BLOCK_TYPES, newId)
+      schema.nodeFromJSON(json).check() // never store a document the editor cannot open
+      await deps.replace(ids.get(key)!, json)
+    }
+  }
+  await vault.flushWrites()
+  await db.meta.put({ key: GUIDE_VERSION_KEY, value: GUIDE_VERSION })
+  return 'updated'
 }

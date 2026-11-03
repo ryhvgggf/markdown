@@ -8,7 +8,10 @@ import { createDb, type NotesDb } from '@/adapters/storage/db'
 import { Vault } from '@/core/vault/vault'
 import { NoteDocCache } from '@/core/note-doc/cache'
 import { Indexer } from '@/core/indexer/indexer'
-import { addGuide, GUIDE_FOLDER, GUIDE_TITLES, guideSchema, untouchedGuideFolderIds } from './guide'
+import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
+import type { PMNode as Json } from '@/core/markdown/types'
+import { addGuide, GUIDE_FOLDER, GUIDE_SEEDED_KEY, GUIDE_TITLES, GUIDE_VERSION_KEY, guideSchema, untouchedGuideFolderIds, updateGuide } from './guide'
+import { GUIDE_VERSION } from './guide-content'
 
 const fakeChannel = () =>
   ({ postMessage() {}, close() {}, onmessage: null, addEventListener() {}, removeEventListener() {} }) as unknown as BroadcastChannel
@@ -175,5 +178,90 @@ describe('untouchedGuideFolderIds', () => {
     const f = vault.createFolder({ name: GUIDE_FOLDER, parentId: null })
     vault.createNote({ title: '日記', folderId: f.id })
     expect(untouchedGuideFolderIds(vault)).toEqual([])
+  })
+})
+
+describe('updateGuide', () => {
+  /** What `DocIO.replace` does, on the storage alone. */
+  const replace = async (noteId: string, json: Json) => {
+    const doc = new Y.Doc()
+    for (const u of await storage.loadDoc(noteId)) Y.applyUpdate(doc, u)
+    const before = Y.encodeStateVector(doc)
+    const frag = doc.getXmlFragment('content')
+    doc.transact(() => {
+      frag.delete(0, frag.length)
+      prosemirrorJSONToYXmlFragment(guideSchema(), json, frag)
+    })
+    await storage.appendUpdate(noteId, Y.encodeStateAsUpdate(doc, before))
+  }
+  const run = (isOpen: (id: string) => boolean = () => false) => updateGuide({ vault, storage, db, replace, isOpen })
+  const seeded = () => db.meta.put({ key: GUIDE_SEEDED_KEY, value: 1 })
+
+  /** A guide as an older version made it: no version mark, without the notes added since, old welcome text. */
+  async function oldGuide() {
+    const g = await addGuide({ vault, storage, db })
+    await seeded()
+    await db.meta.delete(GUIDE_VERSION_KEY)
+    for (const key of ['帳號與同步', '分享筆記']) {
+      const n = vault.listNotes().find((x) => x.title === key)!
+      vault.trashNote(n.id)
+      vault.purgeNote(n.id)
+    }
+    await replace(g.noteIds[0], { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '舊的歡迎' }] }] })
+    return g
+  }
+
+  it('does nothing on a current guide or before any guide was made', async () => {
+    expect(await run()).toBe('none')
+    await addGuide({ vault, storage, db })
+    await seeded()
+    expect(await run()).toBe('current')
+  })
+
+  it('rewrites an untouched old guide in place, adds the new notes, keeps ids and the untouched state', async () => {
+    const g = await oldGuide()
+    const welcomeBefore = vault.getNote(g.noteIds[0])!
+    expect(await run()).toBe('updated')
+    const inFolder = vault.listNotes().filter((n) => n.folderId === g.folderId)
+    expect(inFolder.map((n) => n.title).sort()).toEqual([...GUIDE_TITLES].sort())
+    expect(vault.getNote(g.noteIds[0])!.updatedAt).toBe(welcomeBefore.updatedAt) // still "untouched"
+    expect(untouchedGuideFolderIds(vault)).toEqual([g.folderId])
+    expect((await db.meta.get(GUIDE_VERSION_KEY))?.value).toBe(GUIDE_VERSION)
+    // the welcome note is the current text and links to the notes that were added
+    const welcome = collect(await loadNode(g.noteIds[0]))
+    const added = inFolder.filter((n) => ['帳號與同步', '分享筆記'].includes(n.title)).map((n) => n.id)
+    expect(added).toHaveLength(2)
+    for (const id of added) expect(welcome.links.map((l) => l.noteId)).toContain(id)
+    // every link in every note resolves and every block link points at a block that exists
+    const docs = new Map<string, ReturnType<typeof collect>>()
+    for (const n of inFolder) docs.set(n.id, collect(await loadNode(n.id)))
+    for (const { links } of docs.values())
+      for (const l of links) {
+        expect(docs.has(l.noteId)).toBe(true)
+        if (l.blockId) expect(docs.get(l.noteId)!.blockIds.has(l.blockId)).toBe(true)
+      }
+    // a second run has nothing to do
+    expect(await run()).toBe('current')
+  })
+
+  it('leaves a guide the user edited or synced alone', async () => {
+    const g = await oldGuide()
+    vault.touchNote(g.noteIds[1])
+    expect(await run()).toBe('none')
+    expect(await db.meta.get(GUIDE_VERSION_KEY)).toBeUndefined()
+    expect(vault.listNotes().filter((n) => n.folderId === g.folderId)).toHaveLength(GUIDE_TITLES.length - 2)
+  })
+
+  it('does not bring back a deleted guide', async () => {
+    const g = await oldGuide()
+    vault.trashFolder(g.folderId)
+    expect(await run()).toBe('none')
+  })
+
+  it('waits while one of its notes is open, and succeeds next time', async () => {
+    const g = await oldGuide()
+    expect(await run((id) => id === g.noteIds[2])).toBe('skipped')
+    expect(await db.meta.get(GUIDE_VERSION_KEY)).toBeUndefined()
+    expect(await run()).toBe('updated')
   })
 })

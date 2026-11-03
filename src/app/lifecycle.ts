@@ -26,6 +26,18 @@ export function startPageLifecycle(s: AppServices, win: Win = window, doc: Docum
     const run = () => {
       void s.maintenance.runStartup()
       void s.mirror?.init().catch((e) => console.warn('[mirror]', e))
+      // An older, untouched guide gets the text of features added since (see `updateGuide`).
+      void import('@/features/guide/guide')
+        .then((g) =>
+          g.updateGuide({
+            vault: s.vault,
+            storage: s.storage,
+            db: s.db,
+            replace: (id, doc) => s.transfer.docs.replace(id, doc),
+            isOpen: (id) => s.notes.isInUse(id),
+          }),
+        )
+        .catch((e) => console.warn('[guide]', e))
     }
     if (win.requestIdleCallback) idle = win.requestIdleCallback(run, { timeout: 5000 })
     else run()
