@@ -4,22 +4,22 @@ import { useServices } from '@/app/services-context'
 import { closeDataWindows } from '@/app/ui-store'
 import type { ImportPlan, ImportReport, ImportSource } from '@/core/transfer/types'
 import { Button } from '@/ui/components/Button'
-import { downloadBlob, pickInput } from './download'
+import { pickInput } from './download'
 import { ImportReportView } from './ImportReportView'
 
 type Step =
   | { kind: 'idle' }
   | { kind: 'reading' }
-  | { kind: 'choose'; src: ImportSource; plan: ImportPlan; savedCurrent: boolean }
+  | { kind: 'choose'; src: ImportSource; plan: ImportPlan }
   | { kind: 'running'; done: number; total: number }
   | { kind: 'done'; report: ImportReport }
   | { kind: 'error'; message: string }
 
 const message = (e: unknown) => (e instanceof Error && e.message ? e.message : '無法讀取這個備份。')
 
-/** Settings → 資料 → 從備份還原: a v2 ZIP or the mirror folder; the current vault is downloaded first. */
+/** Settings → 資料 → 從備份還原: a v2 ZIP or the mirror folder;  */
 export function RestoreSection() {
-  const { transfer, vault } = useServices()
+  const { transfer } = useServices()
   const [step, setStep] = useState<Step>({ kind: 'idle' })
   const [mode, setMode] = useState<'replace' | 'merge' | null>(null)
   const [onExisting, setOnExisting] = useState<'overwrite' | 'copy' | null>(null)
@@ -35,14 +35,7 @@ export function RestoreSection() {
       if (!src) return setStep({ kind: 'idle' })
       const plan = await transfer.plan(src)
       if (!plan.notes.length) return setStep({ kind: 'error', message: '這個備份裡沒有筆記。' })
-      // Never replace or merge without a copy of what is here now.
-      let savedCurrent = false
-      if (vault.listNotes({ includeTrashed: true }).length) {
-        const { blob, fileName } = await transfer.exportFile({ kind: 'vault' }, { includeUnusedAttachments: true })
-        downloadBlob(blob, fileName)
-        savedCurrent = true
-      }
-      setStep({ kind: 'choose', src, plan, savedCurrent })
+      setStep({ kind: 'choose', src, plan })
     } catch (e) {
       setStep({ kind: 'error', message: message(e) })
     }
@@ -99,7 +92,6 @@ export function RestoreSection() {
             void run(step.src, step.plan.notes.length + step.plan.attachments.length)
           }}
         >
-          {step.savedCurrent && <p role="status" className="text-fg">已先下載目前知識庫的備份。</p>}
           <p className="text-fg">備份中有 {step.plan.notes.length} 篇筆記、{step.plan.attachments.length} 個附件。</p>
           <label className="flex items-center gap-2">
             <input type="radio" name="restore-mode" checked={mode === 'replace'} onChange={() => (setMode('replace'), setConfirming(false))} />

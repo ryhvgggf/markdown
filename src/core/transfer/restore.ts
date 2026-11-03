@@ -47,6 +47,6 @@ export async function restoreBackup(
     for (const f of vault.listFolders().filter((x) => x.parentId === null)) vault.trashFolder(f.id)
     for (const n of vault.listNotes().filter((x) => x.folderId === null)) vault.trashNote(n.id)
   }
-  // Overwritten notes keep a 「（覆蓋前）」 copy in the trash: the safety download holds live notes only.
+  // Overwritten notes keep a 「（覆蓋前）」 copy in the trash.
   return applyImport(plan, src, choices, deps, onProgress)
 }

@@ -95,7 +95,7 @@ describe('export section', () => {
 })
 
 describe('restore section', () => {
-  it('downloads the current vault first, then asks; 取代 needs a second confirmation', async () => {
+  it('does not download anything first; 取代 needs a second confirmation', async () => {
     const n = vault.createNote({ title: '一' })
     await transfer.docs.write(n.id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '舊' }] }] })
     const { blob } = await transfer.exportFile({ kind: 'vault' }, { includeUnusedAttachments: false })
@@ -104,8 +104,8 @@ describe('restore section', () => {
     nextPick = [new File([blob], 'backup.zip')]
     mount(<RestoreSection />)
     fireEvent.click(screen.getByRole('button', { name: '選擇備份 ZIP' }))
-    expect(await screen.findByText('已先下載目前知識庫的備份。')).toBeInTheDocument()
-    expect(downloadBlob).toHaveBeenCalledTimes(1)
+    await screen.findByRole('radio', { name: /取代/ })
+    expect(downloadBlob).not.toHaveBeenCalled()
     const go = screen.getByRole('button', { name: '還原' })
     expect(go).toBeDisabled()
     fireEvent.click(screen.getByRole('radio', { name: /取代/ }))
