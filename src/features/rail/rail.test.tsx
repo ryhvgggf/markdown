@@ -6,13 +6,17 @@ import { DEFAULT_PREFS, type Prefs } from '@/core/preferences/preferences'
 import type { AppServices } from '@/app/bootstrap'
 import { Rail } from './Rail'
 
-function setup(railMode: Prefs['railMode'] = 'hover') {
+function renderRail(railMode: Prefs['railMode'] = 'hover') {
   const prefs = { get: () => ({ ...DEFAULT_PREFS, railMode }), observe: () => () => undefined }
-  render(
+  return render(
     <ServicesProvider services={{ prefs } as unknown as AppServices}>
       <Rail />
     </ServicesProvider>,
   )
+}
+
+function setup(railMode: Prefs['railMode'] = 'hover') {
+  renderRail(railMode)
   return screen.getByRole('navigation', { name: '主要功能' })
 }
 
@@ -99,8 +103,24 @@ describe('Rail 附件', () => {
     setup()
     fireEvent.click(screen.getByRole('button', { name: '附件' }))
     expect(useUi.getState().sidebarView).toBe('attachments')
-    fireEvent.click(screen.getByRole('button', { name: '檔案' }))
+    fireEvent.click(screen.getByRole('button', { name: '檔案' })) // narrow only: brings the sidebar back
     expect(useUi.getState().sidebarView).toBe('tree')
+  })
+
+  it('has no 標籤 button, and 檔案 only while the sidebar is tucked away (narrow)', () => {
+    const width = window.innerWidth
+    try {
+      window.innerWidth = 1500
+      const { unmount } = renderRail()
+      expect(screen.queryByRole('button', { name: '標籤' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '檔案' })).toBeNull()
+      unmount()
+      window.innerWidth = 900
+      renderRail()
+      expect(screen.getByRole('button', { name: '檔案' })).toBeInTheDocument()
+    } finally {
+      window.innerWidth = width
+    }
   })
 
   it('資料 opens its own window, apart from settings', () => {

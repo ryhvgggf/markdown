@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useUi } from '@/app/ui-store'
 import { IconButton } from '@/ui/components/IconButton'
-import { Download, Folder, Paperclip, Search, Settings, Tag } from '@/ui/icons'
+import { Download, Folder, Paperclip, Search, Settings } from '@/ui/icons'
 import { useLayoutMode } from '@/features/shell/layout-mode'
 import { useRail } from './use-rail'
 
@@ -45,11 +45,6 @@ export function Rail() {
     if (mode === 'narrow') s.setSidebarOverlay(s.sidebarView !== 'attachments' || !s.sidebarOverlayOpen)
     s.setSidebarView(s.sidebarView === 'attachments' && mode !== 'narrow' ? 'tree' : 'attachments')
   }
-  const tags = () => {
-    if (mode === 'narrow') ui.getState().setSidebarOverlay(true)
-    else ui.getState().setQuickSwitcher(true, '#')
-  }
-
   return (
     <>
       <div
@@ -89,14 +84,14 @@ export function Rail() {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false)
         }}
       >
-        <IconButton label="檔案" tooltip tooltipSide="right" className={RAIL_BTN} onClick={files}>
-          <Folder />
-        </IconButton>
+        {mode === 'narrow' && (
+          // Only when the sidebar is tucked away: wide windows always show it, so a button there did nothing.
+          <IconButton label="檔案" tooltip tooltipSide="right" className={RAIL_BTN} onClick={files}>
+            <Folder />
+          </IconButton>
+        )}
         <IconButton label="搜尋" tooltip tooltipSide="right" className={RAIL_BTN} onClick={() => ui.getState().setQuickSwitcher(true)}>
           <Search />
-        </IconButton>
-        <IconButton label="標籤" tooltip tooltipSide="right" className={RAIL_BTN} onClick={tags}>
-          <Tag />
         </IconButton>
         <IconButton label="附件" tooltip tooltipSide="right" className={RAIL_BTN} onClick={attachments}>
           <Paperclip />
