@@ -3,6 +3,8 @@ import { SyncError, type SyncAdapter } from '@/adapters/sync/types'
 import type { StorageAdapter } from '@/adapters/storage/types'
 import { extractNote } from '@/core/extract/extract'
 import type { NoteDocCache } from '@/core/note-doc/cache'
+import * as Y from 'yjs'
+import { dedupeTitle } from '@/core/vault/titles'
 import type { Vault } from '@/core/vault/vault'
 import type { Preferences } from '@/core/preferences/preferences'
 import { bindPrefsSync, type PrefsSyncBinding } from './prefs-sync'
@@ -229,6 +231,24 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     if (pushed) scheduleManifestPush() // its metadata goes into the manifest, so other devices can show it
   }
 
+  /**
+   * The cloud's copy of a note replaced this device's differing copy (they were made separately, so they can't
+   * be merged): the device's version is kept as a new, unsynced note next to it.
+   */
+  async function keepLocalVersion(noteId: string, state: Uint8Array): Promise<void> {
+    const original = deps.vault.getNote(noteId)
+    if (!original) return
+    const taken = new Set(deps.vault.listNotes({ includeTrashed: true }).map((n) => n.title))
+    const copy = deps.vault.createNote({ title: dedupeTitle(`${original.title.trim() || '未命名'}（本機版本）`, taken), folderId: original.folderId })
+    if (copy.synced) deps.vault.setNoteSynced(copy.id, false) // a synced folder would otherwise upload the copy
+    const doc = await deps.noteDocs.acquire(copy.id)
+    try {
+      Y.applyUpdate(doc, state)
+    } finally {
+      deps.noteDocs.release(copy.id)
+    }
+  }
+
   async function turnOn(noteId: string): Promise<void> {
     try {
       const doc = await deps.noteDocs.acquire(noteId)
@@ -239,7 +259,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       if (existing.length === 0) await pushInitialSnapshot(doc, cloudDeps)
       // Attachments the cloud already holds for this note (uploaded by any device) aren't uploaded again.
       const inCloud = existing.length === 0 ? [] : await deps.attachmentSync.listAttachments(deps.vaultId, noteId)
-      const binding = await bindCloudDoc(doc, { ...cloudDeps, initialChunks: existing.length > 0 ? existing : undefined, onError: (e) => reportError(e, noteId) })
+      const binding = await bindCloudDoc(doc, {
+        ...cloudDeps,
+        initialChunks: existing.length > 0 ? existing : undefined,
+        adoptCloudIfUnrelated: { fragment: 'content', onLocalDiverged: (state) => void keepLocalVersion(noteId, state).catch((e) => reportError(e, noteId)) },
+        onError: (e) => reportError(e, noteId),
+      })
       const nb: NoteBinding = { binding, pushedAttachments: new Set(inCloud) }
       noteBindings.set(noteId, nb)
       await pushNoteAttachments(noteId, nb)

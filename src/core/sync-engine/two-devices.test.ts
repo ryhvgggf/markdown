@@ -358,3 +358,83 @@ describe('a new device with many notes (3f-4)', () => {
     }
   })
 })
+
+describe('the same note created separately on two devices (3f-4)', () => {
+  /** Content as the import writes it: a fresh Yjs doc per device, so the two histories are unrelated. */
+  function body(...lines: string[]): Y.XmlElement[] {
+    return lines.map((l, i) => {
+      const p = new Y.XmlElement('paragraph')
+      p.setAttribute('id', `${l}-${Math.random()}-${i}`) // block ids differ between the two copies too
+      p.insert(0, [new Y.XmlText(l)])
+      return p
+    })
+  }
+  async function both(aLines: string[], bLines: string[]) {
+    const a = await device('A')
+    const b = await device('B')
+    const note = { id: 'same-note', title: 'T-code', createdAt: 100, updatedAt: 100 }
+    for (const d of [a, b]) {
+      d.vault.createNote(note)
+      const doc = await d.notes.acquire(note.id)
+      doc.getXmlFragment('content').insert(0, body(...(d === a ? aLines : bLines)))
+      d.notes.release(note.id)
+    }
+    a.vault.setNoteSynced(note.id, true)
+    await a.manager.start()
+    await until(() => !a.manager.hasPending())
+    b.vault.setNoteSynced(note.id, true)
+    await b.manager.start()
+    await until(() => !b.manager.hasPending())
+    await wait(200)
+    await until(() => !a.manager.hasPending() && !b.manager.hasPending())
+    return { a, b, note }
+  }
+  const paragraphs = async (d: Device, id: string) => {
+    const doc = await d.notes.acquire(id)
+    const out = doc.getXmlFragment('content').toArray().map((n) => (n as Y.XmlElement).toString().replace(/<paragraph[^>]*>|<\/paragraph>/g, ''))
+    d.notes.release(id)
+    return out
+  }
+
+  it('identical content is not doubled: the cloud version is adopted on both devices', async () => {
+    const { a, b, note } = await both(['ST22', 'SE01', 'STMS'], ['ST22', 'SE01', 'STMS'])
+    expect(await paragraphs(a, note.id)).toEqual(['ST22', 'SE01', 'STMS'])
+    expect(await paragraphs(b, note.id)).toEqual(['ST22', 'SE01', 'STMS'])
+    expect(a.errors).toEqual([])
+    expect(b.errors).toEqual([])
+  })
+
+  it('different content: the cloud version wins and the local one is kept as a separate note, nothing merged', async () => {
+    const { a, b, note } = await both(['cloud one', 'cloud two'], ['local only'])
+    expect(await paragraphs(a, note.id)).toEqual(['cloud one', 'cloud two'])
+    expect(await paragraphs(b, note.id)).toEqual(['cloud one', 'cloud two'])
+    const copy = b.vault.listNotes().find((n) => n.title === 'T-code（本機版本）')
+    expect(copy).toBeDefined()
+    expect(copy!.synced).toBe(false)
+    expect(await paragraphs(b, copy!.id)).toEqual(['local only'])
+    expect(a.vault.listNotes().map((n) => n.title)).toEqual(['T-code']) // A is not given B's copy
+  })
+
+  it('after adopting the cloud copy, edits made on either device reach the other', async () => {
+    const { a, b, note } = await both(['one', 'two'], ['one', 'two'])
+    const docA = await a.notes.acquire(note.id)
+    docA.getXmlFragment('content').insert(2, body('from A'))
+    await until(async () => (await paragraphs(b, note.id)).includes('from A'))
+    const docB = await b.notes.acquire(note.id)
+    docB.getXmlFragment('content').insert(0, body('from B'))
+    await until(async () => (await paragraphs(a, note.id)).includes('from B'))
+    expect(await paragraphs(a, note.id)).toEqual(await paragraphs(b, note.id))
+    expect(await paragraphs(a, note.id).then((p) => p.sort())).toEqual(['from A', 'from B', 'one', 'two'])
+    a.notes.release(note.id)
+    b.notes.release(note.id)
+  })
+
+  it('a note that was already in step is left alone (edits still merge normally)', async () => {
+    const { a, b, note } = await both(['one'], ['one'])
+    const docB = await b.notes.acquire(note.id)
+    docB.getXmlFragment('content').insert(1, body('added on B'))
+    await until(async () => (await paragraphs(a, note.id)).includes('added on B'))
+    expect(await paragraphs(a, note.id)).toEqual(['one', 'added on B'])
+    b.notes.release(note.id)
+  })
+})

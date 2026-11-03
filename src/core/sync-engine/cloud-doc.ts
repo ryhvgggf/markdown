@@ -21,6 +21,13 @@ export interface CloudDocDeps {
   compactAfter?: number
   /** What the caller just pulled for this doc, so attaching doesn't pull it a second time. */
   initialChunks?: Uint8Array[]
+  /**
+   * For note docs: when the cloud copy and this device's copy have nothing in common (the same note was made
+   * separately on each device, e.g. by importing the same export twice) and both have content, merging them
+   * would write the content twice. Instead the cloud copy is adopted. If the two differ, `onLocalDiverged`
+   * gets this device's version first so it can be kept as a note of its own.
+   */
+  adoptCloudIfUnrelated?: { fragment: string; onLocalDiverged?: (localState: Uint8Array) => void }
   onError?: (e: SyncError) => void
 }
 
@@ -162,6 +169,18 @@ export async function pushInitialSnapshot(doc: Y.Doc, deps: Omit<CloudDocDeps, '
   await deps.sync.pushSnapshot(deps.vaultId, deps.docId, ciphertext, 0)
 }
 
+/** True when the two state vectors have an author (Yjs client) in common, i.e. the docs descend from one another. */
+function shareHistory(a: Uint8Array, b: Uint8Array): boolean {
+  const other = Y.decodeStateVector(b)
+  for (const client of Y.decodeStateVector(a).keys()) if (other.has(client)) return true
+  return false
+}
+
+/** The content as text, without block ids (two separately made copies of one note differ only in those). */
+function shapeOf(fragment: Y.XmlFragment): string {
+  return fragment.toString().replace(/\s+id="[^"]*"/g, '')
+}
+
 async function pullAndApply(doc: Y.Doc, deps: CloudDocDeps): Promise<void> {
   const chunks = await deps.sync.pullDoc(deps.vaultId, deps.docId)
   if (chunks.length === 0) return
@@ -202,6 +221,25 @@ async function recoverLocalOnlyEdits(doc: Y.Doc, deps: CloudDocDeps): Promise<Ui
     for (const u of decrypted) Y.applyUpdate(cloudOnly, u)
   })
   const cloudStateVector = Y.encodeStateVector(cloudOnly)
+
+  const adopt = deps.adoptCloudIfUnrelated
+  if (adopt) {
+    const local = doc.getXmlFragment(adopt.fragment)
+    const cloud = cloudOnly.getXmlFragment(adopt.fragment)
+    if (local.length > 0 && cloud.length > 0 && !shareHistory(Y.encodeStateVector(doc), cloudStateVector)) {
+      if (shapeOf(local) !== shapeOf(cloud)) adopt.onLocalDiverged?.(Y.encodeStateAsUpdate(doc))
+      // Local content goes, the cloud copy comes in: the note ends up as the cloud has it, with no second copy
+      // of the text. The local items stay in the doc as deleted ones and ARE pushed (they carry no content any
+      // more): this device's later edits build on that history, and without it other devices could never apply them.
+      doc.transact(() => {
+        local.delete(0, local.length)
+        for (const u of decrypted) Y.applyUpdate(doc, u, CLOUD_ORIGIN)
+      }, CLOUD_ORIGIN)
+      cloudOnly.destroy()
+      const diff = Y.encodeStateAsUpdate(doc, cloudStateVector)
+      return diff.length > 2 ? diff : null
+    }
+  }
   cloudOnly.destroy()
 
   doc.transact(() => {

@@ -242,6 +242,15 @@ describe('SettingsDialog', () => {
       expect(within(dialog).queryByText(/boom/)).toBeNull()
     })
 
+    it('修復重複內容 reports how many notes were fixed, or that there was nothing to fix', async () => {
+      const { dialog, user, services } = await setupData()
+      services.maintenance.repairDuplicatedContent = vi.fn().mockResolvedValueOnce({ checked: 5, fixed: 2 }).mockResolvedValueOnce({ checked: 5, fixed: 0 })
+      await user.click(within(dialog).getByRole('button', { name: '修復重複內容' }))
+      expect(await within(dialog).findByText('已修復 2 篇筆記')).toBeInTheDocument()
+      await user.click(within(dialog).getByRole('button', { name: '修復重複內容' }))
+      expect(await within(dialog).findByText('沒有找到重複的內容')).toBeInTheDocument()
+    })
+
     it('skips unreadable notes and says how many were skipped (M9)', async () => {
       const { dialog, user, services } = await setupData()
       services.indexer.rebuildAll = vi.fn(async () => ({ failed: ['a', 'b'] }))

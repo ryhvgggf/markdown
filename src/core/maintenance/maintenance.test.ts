@@ -467,3 +467,20 @@ describe('Maintenance round 3', () => {
     expect(spy).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('Maintenance.repairDuplicatedContent', () => {
+  it('fixes doubled notes, leaves the others, and reports the counts', async () => {
+    const doubled = await noteWith('Doubled', ['a'])
+    await storage.appendUpdate(doubled.id, body(['a']))
+    const fine = await noteWith('Fine', ['x'])
+    const r = await m.repairDuplicatedContent()
+    expect(r).toEqual({ checked: 2, fixed: 1 })
+    const doc = await notes.acquire(doubled.id)
+    expect(doc.getXmlFragment('content').length).toBe(1)
+    notes.release(doubled.id)
+    const doc2 = await notes.acquire(fine.id)
+    expect(doc2.getXmlFragment('content').length).toBe(1)
+    notes.release(fine.id)
+    expect(await m.repairDuplicatedContent()).toEqual({ checked: 2, fixed: 0 })
+  })
+})

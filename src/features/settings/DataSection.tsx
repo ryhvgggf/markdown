@@ -19,9 +19,11 @@ const PERSISTENCE_COPY = {
 type Status = { kind: 'idle' } | { kind: 'running' } | { kind: 'done'; skipped: number } | { kind: 'error' }
 
 type GuideStatus = 'idle' | 'running' | 'done' | 'error'
+type DedupeStatus = { kind: 'idle' } | { kind: 'running' } | { kind: 'done'; fixed: number } | { kind: 'error' }
 
 export function DataSection() {
-  const { indexer, persistence, storageMode, vault, storage, db } = useServices()
+  const { indexer, persistence, storageMode, vault, storage, db, maintenance } = useServices()
+  const [dedupe, setDedupe] = useState<DedupeStatus>({ kind: 'idle' })
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [guide, setGuide] = useState<GuideStatus>('idle')
   const pendingImport = useLive(async () => {
@@ -40,6 +42,17 @@ export function DataSection() {
     } catch (e) {
       console.warn('[add guide]', e)
       setGuide('error')
+    }
+  }
+
+  async function repairDuplicates() {
+    setDedupe({ kind: 'running' })
+    try {
+      const { fixed } = await maintenance.repairDuplicatedContent()
+      setDedupe({ kind: 'done', fixed })
+    } catch (e) {
+      console.warn('[repair duplicates]', e)
+      setDedupe({ kind: 'error' })
     }
   }
 
@@ -104,6 +117,25 @@ export function DataSection() {
           {status.kind === 'error' && (
             <span role="alert" className="text-sm text-red-700">
               重建失敗，請稍後再試。
+            </span>
+          )}
+        </div>
+      </div>
+      <div>
+        <p className="pt-2 text-sm font-medium text-fg">重複的內容</p>
+        <p className="text-sm text-fg-secondary">筆記內容出現兩份時，刪除多的那一份。</p>
+        <div className="flex items-center gap-3 py-2">
+          <Button disabled={dedupe.kind === 'running'} onClick={() => void repairDuplicates()}>
+            {dedupe.kind === 'running' ? '正在修復…' : '修復重複內容'}
+          </Button>
+          {dedupe.kind === 'done' && (
+            <span role="status" className="text-sm text-fg-secondary">
+              {dedupe.fixed ? `已修復 ${dedupe.fixed} 篇筆記` : '沒有找到重複的內容'}
+            </span>
+          )}
+          {dedupe.kind === 'error' && (
+            <span role="alert" className="text-sm text-red-700">
+              修復失敗，請稍後再試。
             </span>
           )}
         </div>

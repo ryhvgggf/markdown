@@ -2,6 +2,7 @@ import * as Y from 'yjs'
 import type { NotesDb } from '@/adapters/storage/db'
 import { StorageError, toStorageError, type StorageAdapter } from '@/adapters/storage/types'
 import { extractNote } from '../extract/extract'
+import { removeDuplicatedContent } from './dedupe-content'
 import type { Indexer } from '../indexer/indexer'
 import type { NoteDocCache } from '../note-doc/cache'
 import type { Vault } from '../vault/vault'
@@ -130,6 +131,35 @@ export class Maintenance {
 
     if (unreadable.size) console.warn(`[maintenance] skipped ${unreadable.size} unreadable note(s)`, [...unreadable])
     return { unreadable: [...unreadable] }
+  }
+
+  /**
+   * Removes the second copy from notes whose content is written twice (see `removeDuplicatedContent`).
+   * Never rejects; a note that can't be read is skipped. Returns how many notes were fixed.
+   */
+  async repairDuplicatedContent(): Promise<{ checked: number; fixed: number }> {
+    const { vault, notes } = this.d
+    let checked = 0
+    let fixed = 0
+    for (const n of vault.listNotes()) {
+      try {
+        const doc = await notes.acquire(n.id)
+        try {
+          checked++
+          if (removeDuplicatedContent(doc)) fixed++
+        } finally {
+          notes.release(n.id)
+        }
+      } catch (e) {
+        this.report(e)
+      }
+    }
+    try {
+      await notes.flushAll()
+    } catch (e) {
+      this.report(e)
+    }
+    return { checked, fixed }
   }
 
   /**
