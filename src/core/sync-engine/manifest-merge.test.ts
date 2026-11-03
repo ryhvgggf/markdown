@@ -121,13 +121,24 @@ describe('mergeManifestIntoVault', () => {
     expect(vault.getNote(local.id)?.folderId).toBeNull()
   })
 
-  it('never updates a note whose sync was turned off on this device', () => {
+  it('a note this device has but does not sync is switched to synced when the manifest lists it', () => {
     const local = vault.createNote({ title: 'Mine', createdAt: 100, updatedAt: 100 })
+    mergeManifestIntoVault(vault, manifest({ notes: [note(local.id, { title: 'Mine', createdAt: 100 })] }))
+    expect(vault.getNote(local.id)?.synced).toBe(true)
+  })
+
+  it('...unless the user is turning it off right now, or the manifest lists it as removed, or it is another note with the same id', () => {
+    const a = vault.createNote({ title: 'A', createdAt: 100, updatedAt: 100 })
+    const b = vault.createNote({ title: 'B', createdAt: 100, updatedAt: 100 })
+    const c = vault.createNote({ title: 'C', createdAt: 100, updatedAt: 100 })
     mergeManifestIntoVault(
       vault,
-      manifest({ notes: [{ id: local.id, title: 'Remote', titleAt: Date.now() + 1000, folderId: null, order: 'a', createdAt: 100, updatedAt: 1, deletedAt: null, synced: true }] }),
+      manifest({ notes: [note(a.id, { createdAt: 100 }), note(b.id, { createdAt: 100 }), note(c.id, { createdAt: 999 })], removed: [{ id: b.id, at: 5 }] }),
+      { keepOff: new Set([a.id]) },
     )
-    expect(vault.getNote(local.id)?.title).toBe('Mine')
+    expect(vault.getNote(a.id)?.synced).toBe(false)
+    expect(vault.getNote(b.id)?.synced).toBe(false)
+    expect(vault.getNote(c.id)?.synced).toBe(false)
   })
 
   it('applies a newer folder name and parent, skipping a move that would make a cycle', () => {

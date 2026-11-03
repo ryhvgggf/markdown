@@ -543,3 +543,88 @@ describe('the trash across devices (3f-4)', () => {
     c.notes.release(n.id)
   })
 })
+
+describe('being synced follows the account (3f-4)', () => {
+  const para = (t: string) => {
+    const p = new Y.XmlElement('paragraph')
+    p.insert(0, [new Y.XmlText(t)])
+    return p
+  }
+  const content = async (d: Device, id: string) => {
+    const doc = await d.notes.acquire(id)
+    const out = doc.getXmlFragment('content').toArray().map((n) => (n as Y.XmlElement).toString().replace(/<[^>]+>/g, ''))
+    d.notes.release(id)
+    return out
+  }
+  async function pair() {
+    const a = await device('A')
+    const n = a.vault.createNote({ title: 'Shared' })
+    a.vault.setNoteSynced(n.id, true)
+    const doc = await a.notes.acquire(n.id)
+    doc.getXmlFragment('content').insert(0, [para('first')])
+    a.notes.release(n.id)
+    await a.manager.start()
+    const b = await device('B')
+    await b.manager.start()
+    await until(() => b.vault.getNote(n.id)?.synced === true)
+    await until(() => !a.manager.hasPending() && !b.manager.hasPending())
+    return { a, b, n }
+  }
+
+  it('turned off on one device and on again: the other device follows both ways and gets the new text', async () => {
+    const { a, b, n } = await pair()
+    a.vault.setNoteSynced(n.id, false)
+    await until(() => b.vault.getNote(n.id)?.synced === false)
+    await until(async () => ((await pullManifest(sync, kek, 'v1'))?.removed ?? []).length === 1)
+    const docA = await a.notes.acquire(n.id)
+    docA.getXmlFragment('content').insert(1, [para('written while off')])
+    a.notes.release(n.id)
+    a.vault.setNoteSynced(n.id, true)
+    await until(() => b.vault.getNote(n.id)?.synced === true) // B shows it as synced again, nobody turned it on there
+    await until(async () => (await content(b, n.id)).includes('written while off'))
+    expect(await content(b, n.id)).toEqual(['first', 'written while off'])
+    expect(b.errors).toEqual([])
+  })
+
+  it('a note this device already had (not synced) is synced when it signs in and the account has it', async () => {
+    const a = await device('A')
+    const n = a.vault.createNote({ id: 'same', title: 'Same', createdAt: 100, updatedAt: 500 })
+    a.vault.setNoteSynced(n.id, true)
+    const docA = await a.notes.acquire(n.id)
+    docA.getXmlFragment('content').insert(0, [para('123'), para('123'), para('123')])
+    a.notes.release(n.id)
+    await a.manager.start()
+    await until(() => !a.manager.hasPending())
+
+    const b = await device('B') // an older copy of the same note, never synced here
+    b.vault.createNote({ id: 'same', title: 'Same', createdAt: 100, updatedAt: 100 })
+    const docB = await b.notes.acquire('same')
+    docB.getXmlFragment('content').insert(0, [para('123')])
+    b.notes.release('same')
+    expect(b.vault.getNote('same')?.synced).toBe(false)
+    await b.manager.start()
+    await until(() => b.vault.getNote('same')?.synced === true)
+    await until(async () => (await content(b, 'same')).length === 3)
+    expect(await content(b, 'same')).toEqual(['123', '123', '123'])
+  })
+
+  it('the one who turns it off keeps it off: a manifest that does not know yet does not switch it back on', async () => {
+    const { a, b, n } = await pair()
+    b.vault.setNoteSynced(n.id, false)
+    await wait(300)
+    expect(b.vault.getNote(n.id)?.synced).toBe(false)
+    await until(() => a.vault.getNote(n.id)?.synced === false) // and A follows the removal
+    await wait(300)
+    expect(b.vault.getNote(n.id)?.synced).toBe(false)
+    expect(a.vault.getNote(n.id)?.synced).toBe(false)
+  })
+
+  it('turned off on B, later turned on again on A: B follows (it is the same note everywhere)', async () => {
+    const { a, b, n } = await pair()
+    b.vault.setNoteSynced(n.id, false)
+    await until(() => a.vault.getNote(n.id)?.synced === false)
+    await until(async () => ((await pullManifest(sync, kek, 'v1'))?.removed ?? []).length === 1)
+    a.vault.setNoteSynced(n.id, true)
+    await until(() => b.vault.getNote(n.id)?.synced === true)
+  })
+})

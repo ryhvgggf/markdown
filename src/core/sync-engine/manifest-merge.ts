@@ -18,6 +18,8 @@ export interface ManifestMergeResult {
 }
 
 export interface ManifestMergeOptions {
+  /** Notes this device is in the middle of taking out of the cloud (the user just turned sync off): not switched back on from a manifest that still lists them. */
+  keepOff?: ReadonlySet<string>
   /** Notes the user deliberately re-synced on this device this session: a removal mark for them is stale. */
   resynced?: ReadonlySet<string>
   /** Called just before a remotely removed note's `synced` flag is cleared (so the caller can tell it from the user's own toggle). */
@@ -37,8 +39,10 @@ const stateOf = (x: { stateAt?: number; deletedAt: number | null }) => x.stateAt
  *   alone and, for notes, reported in `conflicts`.
  * - For the same record, title and placement (folder + order) are last-writer-wins on their own stamps
  *   (`titleAt`/`placeAt`, folders `nameAt`/`placeAt`): the manifest's value is applied only when its stamp
- *   is strictly newer than the local one. Only notes that are synced here (`synced: true`) are updated — a
- *   note whose sync was turned off on this device is never touched.
+ *   is strictly newer than the local one.
+ * - Being synced belongs to the account, not to a device: a note the manifest lists (and nobody marked
+ *   removed) that this device has but does not sync is switched to synced here (it was turned on on another
+ *   device, or turned off and on again there) — except one the user is turning off right now (`keepOff`).
  * - A title that collides with another local note is kept with a ` (n)` suffix on this device (see
  *   `Vault.applyRemoteNote`), instead of the note not appearing at all.
  * - Trash state (into or out of the trash) is last-writer-wins too, on `stateAt`; a note arriving already in the
@@ -96,7 +100,13 @@ export function mergeManifestIntoVault(vault: Vault, manifest: StructureManifest
         conflicts.push({ noteId: note.id, reason: 'id-collision' }) // same id, unrelated note — leave it alone
         continue
       }
-      if (!local.synced) continue // sync turned off on this device: never touched
+      if (!local.synced) {
+        // Whether a note is synced belongs to the account, not to a device: the cloud lists it (and nobody marked
+        // it removed), so this device syncs it too — the same note on another device was turned on, or turned off
+        // and on again. Except one the user is just now turning off here.
+        if (opts.keepOff?.has(note.id)) continue
+        vault.setNoteSynced(note.id, true)
+      }
       if (stateOf(note) > stateOf(local)) vault.applyRemoteNoteState(note.id, { deletedAt: note.deletedAt, stateAt: stateOf(note) })
       const patch = notePatch(local, note)
       if (patch) vault.applyRemoteNote(note.id, patch)

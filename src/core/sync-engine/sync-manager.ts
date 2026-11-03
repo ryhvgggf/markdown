@@ -237,19 +237,24 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     manifestPullFailed = false
     cloudHasNotes = (manifest?.notes.length ?? 0) > 0
     if (!manifest) return
-    merging = true
-    let conflicts
-    try {
-      ;({ conflicts } = mergeManifestIntoVault(deps.vault, manifest, { resynced, onRemotelyRemoved: (id) => remotelyRemoved.add(id) }))
-    } finally {
-      merging = false
-    }
     const marked = new Set((manifest.removed ?? []).map((r) => r.id))
     for (const id of [...resynced]) if (!marked.has(id)) resynced.delete(id) // the mark is gone: no longer needs overriding
     for (const id of confirmedBefore) {
       if (marked.has(id)) continue
       confirmedMarks.delete(id) // the note was synced again elsewhere: our removal is over
       deliberatelyRemoved.delete(id)
+    }
+    merging = true
+    let conflicts
+    try {
+      ;({ conflicts } = mergeManifestIntoVault(deps.vault, manifest, {
+        resynced,
+        // a removal this device is still finishing must not be undone by a manifest that doesn't know about it yet
+        keepOff: new Set([...deliberatelyRemoved.keys(), ...pendingRemovals.keys()]),
+        onRemotelyRemoved: (id) => remotelyRemoved.add(id),
+      }))
+    } finally {
+      merging = false
     }
     for (const conflict of conflicts) {
       const message =
