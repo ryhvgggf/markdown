@@ -54,7 +54,22 @@ export const Settings = make(
     <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1" />
   </>,
 )
-export const Cloud = make('Cloud', <path d="M7 18a4.5 4.5 0 0 1-.6-8.96A5.5 5.5 0 0 1 17 8.5a4.75 4.75 0 0 1 .25 9.5z" />)
+const CLOUD = 'M7 18a4.5 4.5 0 0 1-.6-8.96A5.5 5.5 0 0 1 17 8.5a4.75 4.75 0 0 1 .25 9.5z'
+export const Cloud = make('Cloud', <path d={CLOUD} />)
+export const CloudCheck = make(
+  'CloudCheck',
+  <>
+    <path d={CLOUD} />
+    <path d="m9.5 13 2 2 3.5-3.5" />
+  </>,
+)
+export const CloudMinus = make(
+  'CloudMinus',
+  <>
+    <path d={CLOUD} />
+    <path d="M9.5 13.25h5" />
+  </>,
+)
 export const Plus = make('Plus', <path d="M12 5v14M5 12h14" />)
 export const ChevronDown = make('ChevronDown', <path d="m6 9 6 6 6-6" />)
 export const ChevronRight = make('ChevronRight', <path d="m9 6 6 6-6 6" />)

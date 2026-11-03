@@ -11,6 +11,7 @@ import { useUi } from '@/app/ui-store'
 import type { TreeNode } from '@/core/vault/tree'
 import { displayTitle } from '@/core/vault/titles'
 import { computeMove, dropZone, nodeRef, ROOT, type Ref, type Zone } from './dnd'
+import type { CloudState } from './sync-selection'
 import { TreeItem, type RowApi } from './TreeItem'
 import type { useActions } from './use-actions'
 
@@ -49,8 +50,8 @@ export interface FolderTreeProps {
   syncable?: boolean
   /** Opens the 同步到雲端 selection. */
   onSyncSelect?(): void
-  /** While selecting notes to sync: what each checkbox shows, and a click on a note ticks it. */
-  selection?: { has(id: string): boolean; toggle(id: string): void } | null
+  /** While choosing what to sync: each row's cloud state, and a click flips it. */
+  selection?: { state(id: string): CloudState; toggle(id: string): void } | null
 }
 
 export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRenamingId, syncable = false, onSyncSelect, selection = null }: FolderTreeProps) {
@@ -150,7 +151,7 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
           renaming={renamingId === ref.id}
           syncable={syncable}
           selecting={selection !== null}
-          checked={selection !== null && selection.has(ref.id)}
+          cloud={selection ? selection.state(ref.id) : null}
           api={api}
         />
       )

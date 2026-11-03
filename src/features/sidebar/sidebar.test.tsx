@@ -474,6 +474,47 @@ describe('同步到雲端 (3f-2)', () => {
     expect(vault.listFolders()[0].synced).toBe(true)
   })
 
+  it('全選 / 全不選 flips everything (folder rules too), the count line follows, and a partial folder goes fully on then off', async () => {
+    account = fakeAccount(unlocked)
+    const f = vault.createFolder({ name: 'Work', parentId: null })
+    const a = vault.createNote({ title: 'Alpha', folderId: f.id })
+    const b = vault.createNote({ title: 'Beta', folderId: f.id })
+    vault.setNoteSynced(a.id, true)
+    mount()
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Work/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '同步到雲端' }))
+    const row = () => screen.getByRole('treeitem', { name: /Work/ })
+    expect(within(row()).getByRole('checkbox')).toHaveAttribute('aria-checked', 'mixed')
+    expect(screen.getByText(/已同步 1／2 篇/)).toBeInTheDocument()
+
+    fireEvent.click(row()) // partial -> fully on
+    expect(within(row()).getByRole('checkbox')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText(/已同步 2／2 篇/)).toBeInTheDocument()
+    fireEvent.click(row()) // and again -> off
+    expect(within(row()).getByRole('checkbox')).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByText(/將停止 1 篇/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '全選' }))
+    expect(screen.getByRole('button', { name: '全不選' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    expect(vault.getNote(a.id)!.synced).toBe(true)
+    expect(vault.getNote(b.id)!.synced).toBe(true)
+    expect(vault.listFolders()[0].synced).toBe(true)
+  })
+
+  it('the stop-sync window lists the notes that will stop', async () => {
+    account = fakeAccount(unlocked)
+    const a = vault.createNote({ title: 'Alpha' })
+    vault.setNoteSynced(a.id, true)
+    mount()
+    fireEvent.contextMenu(await screen.findByRole('treeitem', { name: /Alpha/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '同步到雲端' }))
+    fireEvent.click(screen.getByRole('button', { name: '全不選' }))
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    const dialog = await screen.findByRole('dialog', { name: '停止同步 1 篇筆記？' })
+    expect(within(dialog).getByText('Alpha')).toBeInTheDocument()
+  })
+
   it('the 同步到雲端 item is offered on folders only when signed in', async () => {
     vault.createFolder({ name: 'Work', parentId: null })
     mount()

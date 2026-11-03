@@ -7,6 +7,8 @@ export interface DialogProps {
   open?: boolean
   onOpenChange?: (open: boolean) => void
   description?: string
+  /** A small round icon before the title (confirmations). */
+  icon?: ReactNode
   /** Top-anchored 560px command-palette layout with a visually hidden title. */
   palette?: boolean
   /** Large two-pane layout (settings): no padding, content fills the dialog. */
@@ -15,7 +17,7 @@ export interface DialogProps {
   children: ReactNode
 }
 
-export function Dialog({ title, trigger, description, palette, settings, onCloseAutoFocus, children, ...state }: DialogProps) {
+export function Dialog({ title, trigger, description, icon, palette, settings, onCloseAutoFocus, children, ...state }: DialogProps) {
   return (
     <RD.Root {...state}>
       {trigger && <RD.Trigger asChild>{trigger}</RD.Trigger>}
@@ -32,7 +34,14 @@ export function Dialog({ title, trigger, description, palette, settings, onClose
                 : 'glass-float dialog-pop fixed top-1/2 left-1/2 z-50 w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 p-5 outline-none'
           }
         >
-          <RD.Title className={palette ? 'sr-only' : settings ? 'px-6 pt-5 text-md font-semibold text-fg' : 'text-md font-semibold text-fg'}>{title}</RD.Title>
+          {icon && !palette && !settings ? (
+            <div className="flex items-center gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700">{icon}</span>
+              <RD.Title className="text-md font-semibold text-fg">{title}</RD.Title>
+            </div>
+          ) : (
+            <RD.Title className={palette ? 'sr-only' : settings ? 'px-6 pt-5 text-md font-semibold text-fg' : 'text-md font-semibold text-fg'}>{title}</RD.Title>
+          )}
           {description && (
             <RD.Description className="mt-1 text-sm text-fg-secondary">{description}</RD.Description>
           )}

@@ -3,7 +3,8 @@ import { useDraggable } from '@dnd-kit/core'
 import type { TreeNode } from '@/core/vault/tree'
 import { displayTitle } from '@/core/vault/titles'
 import { isComposingEvent } from '@/features/editor/ime'
-import { ChevronRight, Cloud } from '@/ui/icons'
+import { ChevronRight, Cloud, CloudCheck, CloudMinus } from '@/ui/icons'
+import type { CloudState } from './sync-selection'
 import { nodeRef, type Zone } from './dnd'
 import { RowMenu, type RowMenuActions } from './RowMenu'
 import type { RenameResult } from './use-actions'
@@ -29,10 +30,10 @@ export interface TreeItemProps {
   renaming: boolean
   /** Signed in, so notes can be synced (shows the cloud mark). */
   syncable: boolean
-  /** 同步到雲端 selection: note rows show a checkbox and a click ticks it. */
+  /** 同步到雲端 selection: rows show a cloud switch and a click flips it. */
   selecting: boolean
-  /** The checkbox, while selecting. */
-  checked: boolean
+  /** The cloud switch, while selecting (null otherwise). */
+  cloud: CloudState | null
   api: RowApi
 }
 
@@ -53,7 +54,7 @@ const same = (a: TreeItemProps, b: TreeItemProps) =>
   a.renaming === b.renaming &&
   a.syncable === b.syncable &&
   a.selecting === b.selecting &&
-  a.checked === b.checked &&
+  a.cloud === b.cloud &&
   synced(a.node) === synced(b.node) &&
   a.api === b.api &&
   a.node.kind === b.node.kind &&
@@ -156,25 +157,30 @@ function TreeItemRow(props: TreeItemProps) {
           />
         )}
       </span>
-      {p.selecting && (
-        <span
-          role="checkbox"
-          aria-checked={p.checked}
-          aria-label={name}
-          className={`grid size-4 shrink-0 place-items-center rounded-[4px] text-[11px] leading-none text-white ${
-            p.checked ? 'bg-accent' : 'shadow-[inset_0_0_0_1.5px_rgba(0,0,0,0.25)]'
-          }`}
-        >
-          {p.checked ? '✓' : ''}
-        </span>
-      )}
       {p.renaming ? (
         <RenameInput initial={p.node.kind === 'folder' ? p.node.folder.name : p.node.note.title} onCommit={p.onRename} onDone={p.onRenameDone} />
       ) : (
         <span className="min-w-0 flex-1 truncate">{name}</span>
       )}
       {cloudMark && !p.renaming && (
-        <Cloud size={13} aria-hidden={false} role="img" aria-label={isNote ? '已同步到雲端' : '資料夾已同步到雲端'} className="shrink-0 text-fg-tertiary" />
+        <CloudCheck size={14} aria-hidden={false} role="img" aria-label={isNote ? '已同步到雲端' : '資料夾已同步到雲端'} className="shrink-0 text-fg-tertiary" />
+      )}
+      {p.cloud !== null && !p.renaming && (
+        // While choosing what to sync the cloud at the right end is the switch (the same spot as the mark above).
+        <span
+          role="checkbox"
+          aria-checked={p.cloud === 'on' ? true : p.cloud === 'partial' ? 'mixed' : false}
+          aria-label={name}
+          className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-black/5"
+        >
+          {p.cloud === 'on' ? (
+            <CloudCheck size={16} className="text-accent" />
+          ) : p.cloud === 'partial' ? (
+            <CloudMinus size={16} className="text-accent" />
+          ) : (
+            <Cloud size={16} className="text-fg-tertiary opacity-60" />
+          )}
+        </span>
       )}
       {!p.renaming && !p.selecting && <RowMenu kind={ref.kind} open={menuOpen} onOpenChange={setMenuOpen} actions={p.menu} />}
     </div>

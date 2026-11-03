@@ -10,7 +10,8 @@ import { useUi } from '@/app/ui-store'
 import { usePrefs } from '@/app/use-prefs'
 import { sortTree } from '@/core/vault/tree'
 import { IconButton } from '@/ui/components/IconButton'
-import { ChevronRight, FolderPlus, Plus, Trash } from '@/ui/icons'
+import { ChevronRight, CloudMinus, FolderPlus, Plus, Trash } from '@/ui/icons'
+import { createSelectionModel } from './sync-selection'
 import { FolderTree } from './FolderTree'
 import { TrashView } from './TrashView'
 import { AttachmentsView } from './AttachmentsView'
@@ -33,52 +34,20 @@ export function Sidebar() {
   const setView = useUi((s) => s.setSidebarView)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const trashCount = trashRoots(trashed).length
-  // 同步到雲端 selection: the boxes that were clicked (notes and folders), with the state each should end up in.
+  // 同步到雲端 selection: the clicks so far (notes and folders), with the state each should end up in.
   const [picks, setPicks] = useState<Map<string, boolean> | null>(null)
   const [confirmUnsync, setConfirmUnsync] = useState(false)
   const selecting = picks !== null && signedIn && view === 'tree'
-  const folderById = new Map(vault.listFolders().map((f) => [f.id, f]))
-  const folderOn = (id: string) => picks?.get(id) ?? folderById.get(id)?.synced === true
-  // A note's box: its own click wins; else the nearest folder above it that was clicked decides (ticked, or
-  // unticked unless a folder further up still holds it); else it keeps its current state.
-  const noteOn = (id: string): boolean => {
-    const own = picks?.get(id)
-    if (own !== undefined) return own
-    const note = vault.getNote(id)
-    if (!note) return false
-    let clicked = false
-    let held = false
-    for (let f = note.folderId, guard = 0; f !== null && guard < 10000; guard++) {
-      const folder = folderById.get(f)
-      if (!folder) break
-      if (picks?.has(f)) {
-        if (picks.get(f)) return true
-        clicked = true
-      } else if (folder.synced === true) held = true
-      f = folder.parentId
-    }
-    return clicked ? held : note.synced === true
-  }
-  const selection = selecting
+  const model = selecting ? createSelectionModel(vault, picks) : null
+  const selection = model
     ? {
-        has: (id: string) => (folderById.has(id) ? folderOn(id) : noteOn(id)),
-        toggle: (id: string) =>
-          setPicks((m) => {
-            const next = new Map(m)
-            next.set(id, !(folderById.has(id) ? m?.get(id) ?? folderById.get(id)?.synced === true : noteOn(id)))
-            return next
-          }),
+        state: (id: string) => model.state(id),
+        toggle: (id: string) => setPicks((m) => createSelectionModel(vault, m ?? new Map()).toggled(id)),
       }
     : null
-  const liveNotes = selecting ? vault.listNotes() : []
-  const unsyncCount = liveNotes.filter((n) => n.synced && !noteOn(n.id)).length
-  const applyPicks = () => {
-    // Folders first (they set their notes), then the notes whose own state still differs.
-    for (const [id, on] of picks ?? []) if (folderById.has(id) && on !== (folderById.get(id)?.synced === true)) vault.setFolderSynced(id, on)
-    for (const n of vault.listNotes()) {
-      const want = noteOn(n.id)
-      if (n.synced !== want) vault.setNoteSynced(n.id, want)
-    }
+  const stopping = model?.counts.stopping ?? 0
+  const finish = () => {
+    model?.apply()
     setPicks(null)
     setConfirmUnsync(false)
   }
@@ -118,13 +87,14 @@ export function Sidebar() {
         <>
           {selecting ? (
             <div className="flex items-center gap-1 px-3 pt-2.5 pb-1.5">
-              <h2 className="min-w-0 flex-1 truncate pl-1 text-[13px] font-semibold text-fg-secondary">點選要同步的筆記</h2>
-              <Button variant="ghost" onClick={() => setPicks(null)}>
-                取消
-              </Button>
-              <Button variant="primary" onClick={() => (unsyncCount > 0 ? setConfirmUnsync(true) : applyPicks())}>
-                完成
-              </Button>
+              <h2 className="min-w-0 flex-1 truncate pl-1 text-[13px] font-semibold text-fg-secondary">同步到雲端</h2>
+              <button
+                type="button"
+                onClick={() => setPicks(model!.allToggled())}
+                className="rounded-full px-2.5 py-1 text-xs font-medium text-accent hover:bg-fill"
+              >
+                {model!.allOn ? '全不選' : '全選'}
+              </button>
             </div>
           ) : (
             <div className="flex items-center gap-1 px-4 pt-3 pb-2">
@@ -171,6 +141,20 @@ export function Sidebar() {
           />
         </SubView>
       )}
+      {selecting && model && (
+        <div className="mx-2 mt-1 flex items-center gap-2 rounded-[10px] bg-fill px-3 py-2">
+          <p className="min-w-0 flex-1 text-xs text-fg-secondary">
+            已同步 {model.counts.on}／{model.counts.total} 篇
+            {stopping > 0 && <span className="text-amber-600"> · 將停止 {stopping} 篇</span>}
+          </p>
+          <Button variant="ghost" onClick={() => setPicks(null)}>
+            取消
+          </Button>
+          <Button variant="primary" onClick={() => (stopping > 0 ? setConfirmUnsync(true) : finish())}>
+            完成
+          </Button>
+        </div>
+      )}
       <div className="px-2 pt-1">
         <button
           type="button"
@@ -197,13 +181,28 @@ export function Sidebar() {
           </>
         )}
       </p>
-      <Dialog title={`停止同步 ${unsyncCount} 篇筆記？`} open={selecting && confirmUnsync} onOpenChange={setConfirmUnsync}>
-        <p className="text-sm text-fg-secondary">雲端副本會被刪除，其他裝置保留目前的內容但不再更新。這台裝置上的筆記不受影響。</p>
+      <Dialog
+        title={`停止同步 ${stopping} 篇筆記？`}
+        icon={<CloudMinus size={18} />}
+        open={selecting && confirmUnsync}
+        onOpenChange={setConfirmUnsync}
+      >
+        <p className="text-sm text-fg-secondary">雲端的副本會被刪除，其他裝置保留目前的內容但不再更新。這台裝置上的筆記不受影響。</p>
+        {model && model.stoppingTitles(5).titles.length > 0 && (
+          <ul className="mt-3 space-y-1 rounded-lg bg-fill px-3 py-2 text-[13px] text-fg">
+            {model.stoppingTitles(5).titles.map((t, i) => (
+              <li key={i} className="truncate">
+                {t}
+              </li>
+            ))}
+            {model.stoppingTitles(5).more > 0 && <li className="text-fg-tertiary">還有 {model.stoppingTitles(5).more} 篇</li>}
+          </ul>
+        )}
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setConfirmUnsync(false)}>
+          <Button variant="secondary" onClick={() => setConfirmUnsync(false)}>
             取消
           </Button>
-          <Button variant="primary" onClick={applyPicks}>
+          <Button variant="danger" onClick={finish}>
             停止同步
           </Button>
         </div>
