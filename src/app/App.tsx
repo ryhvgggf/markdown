@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { TitleBlock } from '@/features/editor/TitleBlock'
+import { IconButton } from '@/ui/components/IconButton'
+import { Share } from '@/ui/icons'
 import { BacklinksLayer } from '@/features/panel/BacklinksPanel'
 import { OutlineTicks } from '@/features/panel/OutlineTicks'
 import { Sidebar } from '@/features/sidebar/Sidebar'
@@ -139,6 +141,15 @@ function MainNote() {
   )
 }
 
+/** The icon at the card's top right that opens the 分享 dialog for the open note. */
+function ShareButton({ noteId }: { noteId: string }) {
+  return (
+    <IconButton label="分享" tooltip tooltipSide="bottom" className="share-button" onClick={() => useUi.getState().setShareNote(noteId)}>
+      <Share size={16} />
+    </IconButton>
+  )
+}
+
 /** Floating layers over the note card: the 反向連結 pill + panel and the outline ticks. */
 function NoteOverlay() {
   const { vault } = useServices()
@@ -149,6 +160,7 @@ function NoteOverlay() {
   return (
     <>
       <OutlineTicks key={openNoteId} noteId={openNoteId} />
+      <ShareButton noteId={openNoteId} />
       <BacklinksLayer noteId={openNoteId} />
     </>
   )

@@ -8,8 +8,8 @@ test.beforeEach(async ({ context }) => {
 })
 
 async function share(page: import('@playwright/test').Page, title: string) {
-  await item(page, title).click({ button: 'right' })
-  await page.getByRole('menuitem', { name: '分享…' }).click()
+  await item(page, title).click()
+  await page.getByRole('button', { name: '分享', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '分享' })
   await dialog.getByRole('button', { name: '建立連結' }).click()
   const url = await dialog.getByLabel('分享連結').inputValue()
@@ -40,8 +40,7 @@ test('分享：建立連結、別人開得到唯讀內容、停止後失效', as
   await page.keyboard.type('，第二版')
   await viewer.reload()
   await expect(viewer.getByLabel('筆記內容')).not.toContainText('第二版')
-  await item(page, '分享測試').click({ button: 'right' })
-  await page.getByRole('menuitem', { name: '分享…' }).click()
+  await page.getByRole('button', { name: '分享', exact: true }).click()
   await page.getByRole('button', { name: '更新快照' }).click()
   await viewer.reload()
   await expect(viewer.getByLabel('筆記內容')).toContainText('第二版')

@@ -73,7 +73,6 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
         newSubfolder: () => setRenamingId(actions.createFolder(id)),
         exportMd: () => node && void actions.exportMarkdown(nodeRef(node)),
         syncSelect: syncable && onSyncSelect ? onSyncSelect : undefined,
-        share: () => useUi.getState().setShareNote(id),
         trash: () => node && actions.trash(node),
       }
     },
@@ -106,7 +105,6 @@ export function FolderTree({ tree, expanded, actions, toggle, renamingId, setRen
           newSubfolder: () => m().newSubfolder?.(),
           exportMd: () => m().exportMd?.(),
           syncSelect: () => m().syncSelect?.(),
-          share: () => m().share?.(),
           trash: () => m().trash(),
         }
       },

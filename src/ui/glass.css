@@ -265,11 +265,19 @@ html[data-reduce-transparency='true'] :is(.glass, .glass-card, .glass-float, .gl
   opacity: 0;
 }
 
+/* ---------- 分享 icon (top right of the note card; the 反向連結 pill sits to its left) ---------- */
+.share-button {
+  position: absolute;
+  top: 7px;
+  right: 14px;
+  z-index: 7;
+}
+
 /* ---------- 反向連結 pill and panel ---------- */
 .backlinks-pill {
   position: absolute;
   top: 10px;
-  right: 16px;
+  right: 50px;
   z-index: 7;
   border-radius: 999px;
   padding: 5px 12px;
