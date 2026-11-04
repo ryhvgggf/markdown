@@ -8,6 +8,8 @@ import {
   wrapShareKey,
 } from '@/core/sync-engine/doc-crypto'
 import { buildShareUrl, exportShareKey, importShareKey, newShareId, parseShareUrl } from './link'
+import type { PMNode } from '@/core/markdown/types'
+import { sanitizeShareDoc } from './sanitize'
 import { decodeSnapshot, encodeSnapshot, type ShareSnapshot } from './snapshot'
 
 /** The unlocked account sharing needs; null when signed out (sharing needs an account, opening a link does not). */
@@ -75,9 +77,15 @@ export type ShareService = ReturnType<typeof createShareService>
 
 /**
  * Viewer side: opens a link without any account. `ShareError('not-found')` when the link does not exist (or
- * was stopped), `'invalid'` when the link is malformed or its key does not open the snapshot.
+ * was stopped), `'invalid'` when the link is malformed or its key does not open the snapshot. The content is
+ * untrusted: it is run through the allow-list, then through `check` (the editor's schema check, which throws
+ * for a document the editor cannot show); either failing gives `ShareError('unknown')`.
  */
-export async function openSharedLink(adapter: Pick<ShareAdapter, 'getPublic'>, url: URL): Promise<ShareSnapshot> {
+export async function openSharedLink(
+  adapter: Pick<ShareAdapter, 'getPublic'>,
+  url: URL,
+  check?: (doc: PMNode) => void,
+): Promise<ShareSnapshot> {
   const parsed = parseShareUrl(url)
   if (!parsed) throw new ShareError('invalid', 'not a share link')
   let key: CryptoKey
@@ -94,5 +102,12 @@ export async function openSharedLink(adapter: Pick<ShareAdapter, 'getPublic'>, u
   } catch (e) {
     throw new ShareError('invalid', 'cannot decrypt', { cause: e })
   }
-  return decodeSnapshot(bytes)
+  const snapshot = decodeSnapshot(bytes)
+  const doc = sanitizeShareDoc(snapshot.doc)
+  try {
+    check?.(doc)
+  } catch (e) {
+    throw new ShareError('unknown', 'content cannot be shown', { cause: e })
+  }
+  return { ...snapshot, doc }
 }

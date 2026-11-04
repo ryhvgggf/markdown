@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Component, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import * as Y from 'yjs'
 import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
@@ -24,7 +24,7 @@ export function SharePage({ adapter }: { adapter: ShareAdapter | (() => Promise<
     void (async () => {
       try {
         const a = typeof adapter === 'function' ? await adapter() : adapter
-        const snapshot = await openSharedLink(a, new URL(location.href))
+        const snapshot = await openSharedLink(a, new URL(location.href), (doc) => void editorSchema().nodeFromJSON(doc).check())
         if (!cancelled) setState({ s: 'ready', snapshot })
       } catch (e) {
         if (!cancelled) setState({ s: 'error', text: shareErrorText(e) })
@@ -41,7 +41,22 @@ export function SharePage({ adapter }: { adapter: ShareAdapter | (() => Promise<
 
   if (state.s === 'loading') return <div className="grid min-h-dvh place-items-center text-fg-tertiary">載入中…</div>
   if (state.s === 'error') return <div role="alert" className="grid min-h-dvh place-items-center px-6 text-center text-fg-secondary">{state.text}</div>
-  return <SharedNote snapshot={state.snapshot} />
+  return (
+    <ShowErrors>
+      <SharedNote snapshot={state.snapshot} />
+    </ShowErrors>
+  )
+}
+
+/** A shared note the editor still cannot render must not leave a blank page. */
+class ShowErrors extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  render() {
+    return this.state.failed ? <div role="alert" className="grid min-h-dvh place-items-center px-6 text-center text-fg-secondary">{UNREACHABLE}</div> : this.props.children
+  }
 }
 
 function SharedNote({ snapshot }: { snapshot: ShareSnapshot }) {

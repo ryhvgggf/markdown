@@ -1,6 +1,7 @@
 import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate'
 import { ShareError } from '@/adapters/share/types'
 import type { PMNode } from '@/core/markdown/types'
+import { ATTACHMENT_OMITTED_TEXT, sanitizeShareDoc } from './sanitize'
 
 export { ShareError }
 
@@ -17,8 +18,7 @@ export interface ShareSnapshot {
   doc: PMNode
 }
 
-/** Shown where an attachment was. */
-export const ATTACHMENT_OMITTED_TEXT = '附件未包含'
+export { ATTACHMENT_OMITTED_TEXT }
 /** Upper bound for the compressed snapshot (also enforced by the database). */
 export const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
 /** Upper bound for the inflated JSON, against forged sizes. */
@@ -47,7 +47,8 @@ export function buildShareSnapshot(input: {
   }
 
   const [doc] = visit(input.doc)
-  return { v: 1, title: input.title, sharedAt: input.sharedAt, doc }
+  // The same allow-list the share page applies on opening (belt and braces).
+  return { v: 1, title: input.title, sharedAt: input.sharedAt, doc: sanitizeShareDoc(doc) }
 }
 
 /** gzip(JSON). Throws `ShareError('too-large')` past `MAX_SNAPSHOT_BYTES`. */

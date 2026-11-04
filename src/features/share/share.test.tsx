@@ -123,6 +123,24 @@ describe('分享 dialog', () => {
     expect(await screen.findByRole('button', { name: '建立連結' })).toBeInTheDocument()
     expect(adapter.rows.size).toBe(0)
   })
+
+  it('stopping sharing stops every link of the note, not only the newest', async () => {
+    const { adapter, services, note } = await setup()
+    show(services)
+    const user = userEvent.setup()
+    act(() => useUi.getState().setShareNote(note.id))
+    const dialog = await screen.findByRole('dialog', { name: '分享' })
+    await user.click(await within(dialog).findByRole('button', { name: '建立連結' }))
+    await within(dialog).findByLabelText('分享連結')
+    // a second link for the same note, as when two devices create one at the same time
+    const [first] = [...adapter.rows.values()]
+    adapter.rows.set('other-link', { ...first!, id: 'other-link', createdAt: first!.createdAt - 1 })
+    adapter.rows.set('someone-else', { ...first!, id: 'someone-else', noteId: 'another-note' })
+    await user.click(within(dialog).getByRole('button', { name: '停止分享' }))
+    await user.click(within(dialog).getAllByRole('button', { name: '停止分享' }).at(-1)!)
+    expect(await within(dialog).findByRole('button', { name: '建立連結' })).toBeInTheDocument()
+    expect([...adapter.rows.keys()]).toEqual(['someone-else'])
+  })
 })
 
 describe('分享頁', () => {
@@ -158,6 +176,46 @@ describe('分享頁', () => {
     at(url)
     render(<SharePage adapter={adapter} />)
     expect(await screen.findByRole('alert')).toHaveTextContent('連結無效或已停止分享')
+  })
+
+  it('content the page cannot show gives a message, never a blank page', async () => {
+    const { adapter, svc } = await link()
+    const hostile = (d: unknown) => ({ v: 1 as const, title: '壞的', sharedAt: 1, doc: d as never })
+    const cases: unknown[] = [
+      { type: 'doc', content: [{ type: 'mystery' }, { type: 'paragraph', content: [{ type: 'text', text: '還在' }] }] },
+      { type: 'doc', content: [{ type: 'media', attrs: { attachmentId: 'a', kind: 'image' } }] },
+      { type: 'doc', content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] }, // structurally wrong
+    ]
+    for (const [i, d] of cases.entries()) {
+      const { url } = await svc.create(`bad${i}`, hostile(d))
+      at(new URL(url))
+      const { unmount } = render(<SharePage adapter={adapter} />)
+      await waitFor(() => expect(document.body.textContent?.trim()).not.toBe(''))
+      await screen.findByText(/還在|附件未包含|無法開啟此連結/)
+      unmount()
+    }
+  })
+
+  it('a script link or odd colour in a shared note never reaches the page', async () => {
+    const { adapter, svc } = await link()
+    const bad = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: '點我', marks: [{ type: 'link', attrs: { href: 'javascript:alert(1)' } }, { type: 'textStyle', attrs: { color: 'url(//e.example)' } }] },
+          ],
+        },
+      ],
+    }
+    const { url } = await svc.create('evil', { v: 1, title: 't', sharedAt: 1, doc: bad as never })
+    at(new URL(url))
+    render(<SharePage adapter={adapter} />)
+    const body = await screen.findByLabelText('筆記內容')
+    expect(body).toHaveTextContent('點我')
+    expect(body.innerHTML).not.toMatch(/javascript:|url\(/)
+    expect(body.querySelector('a')).toBeNull()
   })
 
   it('a link that cannot be reached says so without the error text', async () => {

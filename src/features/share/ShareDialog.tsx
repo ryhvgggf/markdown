@@ -102,9 +102,9 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
       await share.run((svc) => svc.update(record, snapshot))
       return { s: 'link', record: { ...record, updatedAt: snapshot.sharedAt }, url }
     })
-  const stop = (record: ShareRecord) =>
+  const stopAll = () =>
     act(async () => {
-      await share.run((svc) => svc.stop(record.id))
+      await share.run((svc) => svc.removeForNotes([noteId]))
       setConfirmStop(false)
       return { s: 'none' }
     })
@@ -171,7 +171,7 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
           <p className="text-sm text-fg">停止分享？連結將立即失效。</p>
           <div className="flex justify-end gap-2">
             <Button onClick={() => setConfirmStop(false)}>取消</Button>
-            <Button variant="danger" disabled={busy} onClick={() => void stop(record)}>
+            <Button variant="danger" disabled={busy} onClick={() => void stopAll()}>
               停止分享
             </Button>
           </div>
