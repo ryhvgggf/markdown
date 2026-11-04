@@ -22,9 +22,10 @@ export async function pushManifest(
   folders: readonly FolderMeta[],
   attachments: readonly AttachmentMeta[] = [],
   removed: ReadonlyArray<{ id: string; at: number }> = [],
+  removedAttachments: ReadonlyArray<{ id: string; at: number }> = [],
 ): Promise<void> {
   const docId = manifestDocId(vaultId)
-  const manifest = { ...deriveManifest(notes, folders), attachments: [...attachments], removed: [...removed] }
+  const manifest = { ...deriveManifest(notes, folders), attachments: [...attachments], removed: [...removed], removedAttachments: [...removedAttachments] }
   const ciphertext = await encryptDocChunk(kek, vaultId, docId, encodeManifest(manifest))
   await sync.pushSnapshot(vaultId, docId, ciphertext, 0)
 }

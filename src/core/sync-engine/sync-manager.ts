@@ -38,6 +38,13 @@ export interface SyncManagerDeps {
    * offline must still delete its cloud copy, and leave its removal mark, after a restart).
    */
   pendingRemovals?: { read(): Promise<PendingRemoval[]>; write(items: PendingRemoval[]): Promise<void> }
+  /**
+   * Attachments deleted for good on this device whose cloud half (removal mark and cloud copy) is not done yet,
+   * kept between sessions by the app (also while sync is not running). `remove` once both are done.
+   */
+  purgedAttachments?: { read(): Promise<Array<{ id: string; at: number }>>; remove(ids: string[]): Promise<void> }
+  /** Another device deleted these attachments for good; this device still has them (it decides what to keep). */
+  onAttachmentsRemovedElsewhere?: (ids: string[]) => Promise<void> | void
   onError?: (e: SyncError, info: { docId: string }) => void
 }
 
@@ -113,6 +120,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // Removal marks this device saw reach the cloud. Once the cloud manifest loses one of them, someone synced
   // that note again, so this device's own removal is over and must not be re-marked.
   const confirmedMarks = new Set<string>()
+  // Attachments deleted for good here whose removal mark / cloud copy delete is not finished (id → when).
+  const attachmentsRemovedHere = new Map<string, number>()
+  // Every attachment known to be deleted for good (here or anywhere): never listed, uploaded or downloaded again.
+  const goneAttachments = new Set<string>()
+  let unwatchAttachmentPurge: (() => void) | null = null
+  let attachmentRemovalChain: Promise<void> = Promise.resolve()
   let merging = false // true while a pulled manifest is being applied: vault changes then are not the user's
 
   // Things that failed and are tried again (back online, or on a timer with growing waits): notes whose cloud
@@ -150,9 +163,11 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // A failed read must fail the push (it is retried): treating it as "nothing in the cloud" would overwrite the
     // cloud manifest with only this device's notes, dropping everyone else's and every removal mark (3f review B1).
     const cloud = await pullManifest(deps.sync, deps.kek, deps.vaultId)
-    const c = combineManifests(localView(), cloud, { removed: deliberatelyRemoved, resynced })
-    await pushManifest(deps.sync, deps.kek, deps.vaultId, c.notes, c.folders, c.attachments, c.removed)
+    const c = combineManifests(localView(), cloud, { removed: deliberatelyRemoved, resynced, removedAttachments: attachmentsRemovedHere })
+    await pushManifest(deps.sync, deps.kek, deps.vaultId, c.notes, c.folders, c.attachments, c.removed, c.removedAttachments)
     manifestFailed = false
+    for (const r of c.removedAttachments) goneAttachments.add(r.id)
+    if (attachmentsRemovedHere.size) finishAttachmentRemovals()
     for (const r of c.removed) {
       if (!deliberatelyRemoved.has(r.id)) continue
       confirmedMarks.add(r.id)
@@ -166,7 +181,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     const seen = new Set<string>()
     for (const nb of noteBindings.values()) {
       for (const id of nb.pushedAttachments) {
-        const a = seen.has(id) ? undefined : deps.vault.getAttachment(id)
+        const a = seen.has(id) || goneAttachments.has(id) ? undefined : deps.vault.getAttachment(id)
         seen.add(id)
         if (a) attachments.push({ id: a.id, filename: a.filename, mimeType: a.mimeType, size: a.size, createdAt: a.createdAt, deletedAt: null })
       }
@@ -206,7 +221,27 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     for (const id of failedNotes) enqueue(id, () => reconcile(id))
     for (const p of pendingRemovals.values()) if (!p.docDeleted) enqueue(p.id, () => finishRemoval(p.id))
     if (manifestPullFailed) scheduleManifestMerge()
-    if (manifestFailed || [...pendingRemovals.values()].some((p) => !confirmedMarks.has(p.id))) scheduleManifestPush()
+    if (manifestFailed || attachmentsRemovedHere.size > 0 || [...pendingRemovals.values()].some((p) => !confirmedMarks.has(p.id))) scheduleManifestPush()
+  }
+  // The cloud copy of attachments deleted here, once their removal mark is in the cloud manifest (so no device
+  // that still lists them tries to download what is about to go). Kept until it works.
+  function finishAttachmentRemovals(): void {
+    attachmentRemovalChain = attachmentRemovalChain.then(async () => {
+      const done: string[] = []
+      for (const id of [...attachmentsRemovedHere.keys()]) {
+        if (closed) break
+        try {
+          await deps.attachmentSync.deleteAttachment(deps.vaultId, id)
+          attachmentsRemovedHere.delete(id)
+          done.push(id)
+        } catch (e) {
+          reportError(e, manifestDocId(deps.vaultId))
+          scheduleRetry()
+          break
+        }
+      }
+      if (done.length) await deps.purgedAttachments?.remove(done).catch(() => {})
+    })
   }
   // The cloud half of a removal: the note's cloud doc and attachments. Kept on the pending list until it works.
   async function deleteCloudCopy(noteId: string): Promise<void> {
@@ -272,11 +307,17 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           : 'could not create a note pulled from the manifest (e.g. its folder could not be created) — left uncreated'
       reportError(new SyncError('conflict', message), conflict.noteId)
     }
+    const removedAttachments = manifest.removedAttachments ?? []
+    for (const r of removedAttachments) goneAttachments.add(r.id)
+    const deletedElsewhere = removedAttachments.map((r) => r.id).filter((id) => !attachmentsRemovedHere.has(id) && deps.vault.getAttachment(id))
+    if (deletedElsewhere.length && deps.onAttachmentsRemovedElsewhere) {
+      await Promise.resolve(deps.onAttachmentsRemovedElsewhere(deletedElsewhere)).catch((e) => reportError(e, manifestDocId(deps.vaultId)))
+    }
     downloadAttachments(manifest)
     // Another device's push may have raced ours and dropped something this device contributed: push again.
     const view = localView()
     const derived = { ...deriveManifest(view.notes, view.folders), attachments: view.attachments }
-    if (!closed && cloudIsBehind(derived, manifest, deliberatelyRemoved.keys())) scheduleManifestPush()
+    if (!closed && cloudIsBehind(derived, manifest, deliberatelyRemoved.keys(), attachmentsRemovedHere.keys())) scheduleManifestPush()
   }
 
   // Attachments other devices synced (3f-3): the bytes are downloaded and stored before the metadata is
@@ -287,14 +328,15 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let downloadChain: Promise<void> = Promise.resolve()
   function downloadAttachments(manifest: StructureManifest): void {
     for (const a of missingAttachments(deps.vault, manifest)) {
-      if (downloading.has(a.id) || notInCloud.has(a.id)) continue
+      if (downloading.has(a.id) || notInCloud.has(a.id) || goneAttachments.has(a.id)) continue
       downloading.add(a.id)
       downloadChain = downloadChain
         .then(async () => {
-          if (closed || deps.vault.getAttachment(a.id)) return
+          if (closed || goneAttachments.has(a.id) || deps.vault.getAttachment(a.id)) return
           const bytes = await pullAttachment(deps.attachmentSync, deps.kek, deps.vaultId, a.id)
           if (!bytes) return void notInCloud.add(a.id)
           await deps.storage.putBlob(a.id, new Blob([bytes as BlobPart], { type: a.mimeType }))
+          if (goneAttachments.has(a.id)) return void (await deps.storage.deleteBlob(a.id)) // deleted while downloading
           if (!deps.vault.getAttachment(a.id)) {
             deps.vault.addAttachment({ id: a.id, filename: a.filename, mimeType: a.mimeType, size: a.size, createdAt: a.createdAt })
           }
@@ -329,7 +371,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     const { attachmentIds } = extractNote(doc.getXmlFragment('content'))
     let pushed = false
     for (const attachmentId of attachmentIds) {
-      if (nb.pushedAttachments.has(attachmentId)) continue
+      if (nb.pushedAttachments.has(attachmentId) || goneAttachments.has(attachmentId)) continue // a deleted one never goes back up
       const blob = await deps.storage.getBlob(attachmentId)
       if (!blob) continue // not stored locally (e.g. still downloading from another device's upload): nothing to upload
       const bytes = new Uint8Array(await blob.arrayBuffer())
@@ -522,6 +564,15 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         deliberatelyRemoved.set(p.id, p.at)
       }
       persistPending()
+      for (const r of (await deps.purgedAttachments?.read().catch(() => [])) ?? []) {
+        attachmentsRemovedHere.set(r.id, r.at)
+        goneAttachments.add(r.id)
+      }
+      unwatchAttachmentPurge = deps.vault.onAttachmentPurged((id) => {
+        attachmentsRemovedHere.set(id, Date.now())
+        goneAttachments.add(id)
+        scheduleManifestPush()
+      })
       try {
         await pullAndMergeManifest()
         await deps.onFirstMerge?.({ cloudHasNotes })
@@ -590,6 +641,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     hasPending() {
       if (manifestIdle !== null || manifestMergeIdle !== null || downloading.size > 0) return true
       if (prefsBinding?.hasPending()) return true
+      if (attachmentsRemovedHere.size > 0) return true
       if (failedNotes.size > 0 || manifestFailed || manifestPullFailed || [...pendingRemovals.values()].some((p) => !p.docDeleted)) return true
       for (const nb of noteBindings.values()) if (nb.binding.hasPending()) return true
       return false
@@ -631,6 +683,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       unwatchContent = null
       unwatchPurge?.()
       unwatchPurge = null
+      unwatchAttachmentPurge?.()
+      unwatchAttachmentPurge = null
       // Let every already-queued reconcile finish first (a not-yet-started one bails out immediately via
       // `reconcile`'s own `closed` check; one already mid-`turnOn`/`turnOff` still needs to run to
       // completion) — otherwise closing `noteBindings` here and having `turnOn` register one into it a
@@ -644,6 +698,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       )
       noteBindings.clear()
       await downloadChain
+      await attachmentRemovalChain
       await prefsBinding?.close()
       prefsBinding = null
     },

@@ -17,6 +17,13 @@ describe('manifest codec', () => {
 
   it('round-trips an empty manifest', () => {
     const decoded = decodeManifest(encodeManifest({ notes: [], folders: [] }))
-    expect(decoded).toEqual({ notes: [], folders: [], attachments: [], removed: [] })
+    expect(decoded).toEqual({ notes: [], folders: [], attachments: [], removed: [], removedAttachments: [] })
+  })
+})
+
+describe('attachment removal marks', () => {
+  it('round-trip', () => {
+    const m = { notes: [], folders: [], attachments: [], removed: [], removedAttachments: [{ id: 'att1', at: 5 }] }
+    expect(decodeManifest(encodeManifest(m))).toEqual(m)
   })
 })

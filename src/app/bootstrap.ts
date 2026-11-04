@@ -1,3 +1,4 @@
+import { recordPurgedAttachments } from './purged-attachments'
 import { createDeferredAccount, createUnavailableAccount, type AccountService } from './account-service'
 import { createShareFacade, type ShareFacade } from './share-facade'
 import { createMirrorService, type MirrorService } from './mirror-service'
@@ -205,6 +206,8 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<AppService
   const persistence = mode === 'memory' ? 'unsupported' : await requestPersistence()
   if (mode === 'persistent') await recoverStashed(storage, db, 'meta')
   const vault = await Vault.open(storage, VAULT_ID, common)
+  // Before anything can delete an attachment: the cloud half of each permanent delete is finished by sync later.
+  recordPurgedAttachments(db, vault, (e) => console.warn('[sync]', e))
   if (mode === 'persistent') await recoverStashed(storage, db, 'notes', vault)
   const notes = new NoteDocCache(storage, { ...common, clearStash: clearStashed })
   const prefs = await Preferences.open(storage, PREFS_USER, common)

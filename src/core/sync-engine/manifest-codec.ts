@@ -14,11 +14,13 @@ export function encodeManifest(manifest: StructureManifest): Uint8Array {
   const folders = doc.getMap<Y.Map<unknown>>('folders')
   const attachments = doc.getMap<Y.Map<unknown>>('attachments')
   const removed = doc.getMap<number>('removed')
+  const removedAttachments = doc.getMap<number>('removedAttachments')
   doc.transact(() => {
     for (const n of manifest.notes) notes.set(n.id, new Y.Map(Object.entries(n)))
     for (const f of manifest.folders) folders.set(f.id, new Y.Map(Object.entries(f)))
     for (const a of manifest.attachments ?? []) attachments.set(a.id, new Y.Map(Object.entries(a)))
     for (const r of manifest.removed ?? []) removed.set(r.id, r.at)
+    for (const r of manifest.removedAttachments ?? []) removedAttachments.set(r.id, r.at)
   })
   return Y.encodeStateAsUpdate(doc)
 }
@@ -35,5 +37,6 @@ export function decodeManifest(update: Uint8Array): StructureManifest {
     (m) => Object.fromEntries(m.entries()) as AttachmentMeta,
   )
   const removed = [...doc.getMap<number>('removed').entries()].map(([id, at]) => ({ id, at }))
-  return { notes, folders, attachments, removed }
+  const removedAttachments = [...doc.getMap<number>('removedAttachments').entries()].map(([id, at]) => ({ id, at }))
+  return { notes, folders, attachments, removed, removedAttachments }
 }

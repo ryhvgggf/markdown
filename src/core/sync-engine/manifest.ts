@@ -10,6 +10,9 @@ export interface StructureManifest {
    *  A device that still has such a note marked synced stops syncing it (keeping its content) instead of
    *  uploading it again. Kept for good (until the note is synced again). Absent in manifests pushed before 3f-4. */
   removed?: Array<{ id: string; at: number }>
+  /** Attachments someone deleted for good, with when: no device lists, uploads or downloads them again, and a
+   *  device that still has an unused copy deletes it. Kept for good. Absent in manifests from before. */
+  removedAttachments?: Array<{ id: string; at: number }>
 }
 
 /**

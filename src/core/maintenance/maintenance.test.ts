@@ -151,6 +151,29 @@ describe('Maintenance.runStartup (C1, I4, M5, M11)', () => {
 })
 
 describe('attachment trash', () => {
+  it('purgeAttachment tells the vault it was a deliberate delete (sync deletes the cloud copy too)', async () => {
+    const att = await attachment(0)
+    const purged: string[] = []
+    vault.onAttachmentPurged((id) => purged.push(id))
+    vault.trashAttachment(att)
+    await m.purgeAttachment(att)
+    expect(purged).toEqual([att])
+  })
+
+  it('deleted on another device: unused copies go, one a note here still uses stays', async () => {
+    const unused = await attachment(0)
+    const used = await attachment(0)
+    await noteWith('Uses it', ['x', media(used)])
+    await m.runStartup()
+    const purged: string[] = []
+    vault.onAttachmentPurged((id) => purged.push(id))
+    await m.removeAttachmentsDeletedElsewhere([unused, used, 'not-here'])
+    expect(vault.getAttachment(unused)).toBeUndefined()
+    expect(await storage.getBlob(unused)).toBeUndefined()
+    expect(vault.getAttachment(used)).toBeDefined()
+    expect(purged).toEqual([]) // not a delete of this device's own: no new removal mark
+  })
+
   it('purgeAttachment deletes blob and metadata at once, even when a note still uses it', async () => {
     const att = await attachment(0)
     await noteWith('Uses it', ['x', media(att)])

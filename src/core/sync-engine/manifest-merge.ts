@@ -147,7 +147,8 @@ function notePatch(local: NoteMeta, remote: NoteMeta): Parameters<Vault['applyRe
 
 /** Attachment metadata in the manifest that this vault doesn't have yet (the caller downloads the bytes first). */
 export function missingAttachments(vault: Vault, manifest: StructureManifest): AttachmentMeta[] {
-  return (manifest.attachments ?? []).filter((a) => !vault.getAttachment(a.id))
+  const gone = new Set((manifest.removedAttachments ?? []).map((r) => r.id))
+  return (manifest.attachments ?? []).filter((a) => !gone.has(a.id) && !vault.getAttachment(a.id))
 }
 
 export interface CombineOptions {
@@ -155,6 +156,8 @@ export interface CombineOptions {
   removed: ReadonlyMap<string, number>
   /** Notes the user deliberately re-synced this session: any removal mark for them is dropped. */
   resynced: ReadonlySet<string>
+  /** Attachments this device deleted for good (id → when). */
+  removedAttachments?: ReadonlyMap<string, number>
 }
 
 /**
@@ -174,7 +177,13 @@ export function combineManifests(
   local: { notes: readonly NoteMeta[]; folders: readonly FolderMeta[]; attachments: readonly AttachmentMeta[] },
   cloud: StructureManifest | null,
   opts: CombineOptions,
-): { notes: NoteMeta[]; folders: FolderMeta[]; attachments: AttachmentMeta[]; removed: Array<{ id: string; at: number }> } {
+): {
+  notes: NoteMeta[]
+  folders: FolderMeta[]
+  attachments: AttachmentMeta[]
+  removed: Array<{ id: string; at: number }>
+  removedAttachments: Array<{ id: string; at: number }>
+} {
   const marks = new Map<string, number>()
   for (const r of cloud?.removed ?? []) marks.set(r.id, r.at)
   for (const [id, at] of opts.removed) marks.set(id, Math.max(at, marks.get(id) ?? 0))
@@ -210,10 +219,22 @@ export function combineManifests(
   })
   for (const c of cloudFolders.values()) if (!localFolderIds.has(c.id)) folders.push(c)
 
+  // Attachment removal marks, like the notes' but never undone: an attachment id is never used again.
+  const goneAttachments = new Map<string, number>()
+  for (const r of cloud?.removedAttachments ?? []) goneAttachments.set(r.id, r.at)
+  for (const [id, at] of opts.removedAttachments ?? []) goneAttachments.set(id, Math.max(at, goneAttachments.get(id) ?? 0))
   const localAttachmentIds = new Set(local.attachments.map((a) => a.id))
-  const attachments = [...local.attachments, ...(cloud?.attachments ?? []).filter((a) => !localAttachmentIds.has(a.id))]
+  const attachments = [...local.attachments, ...(cloud?.attachments ?? []).filter((a) => !localAttachmentIds.has(a.id))].filter(
+    (a) => !goneAttachments.has(a.id),
+  )
 
-  return { notes, folders, attachments, removed: [...marks].map(([id, at]) => ({ id, at })) }
+  return {
+    notes,
+    folders,
+    attachments,
+    removed: [...marks].map(([id, at]) => ({ id, at })),
+    removedAttachments: [...goneAttachments].map(([id, at]) => ({ id, at })),
+  }
 }
 
 /** Yjs maps can't hold `undefined`; drop keys a cloud entry without stamps would have set to it. */
@@ -227,9 +248,16 @@ function dropUndefined<T extends object>(o: T): T {
  * note or folder it lacks, or a field this device changed more recently. Lets a device whose push lost a
  * read-modify-write race (two devices pushing at once) notice on the next pull and push again.
  */
-export function cloudIsBehind(derived: StructureManifest, cloud: StructureManifest, removedHere: Iterable<string> = []): boolean {
+export function cloudIsBehind(
+  derived: StructureManifest,
+  cloud: StructureManifest,
+  removedHere: Iterable<string> = [],
+  attachmentsRemovedHere: Iterable<string> = [],
+): boolean {
   const marked = new Set((cloud.removed ?? []).map((r) => r.id))
   for (const id of removedHere) if (!marked.has(id)) return true // this device's removal mark never made it up
+  const goneAttachments = new Set((cloud.removedAttachments ?? []).map((r) => r.id))
+  for (const id of attachmentsRemovedHere) if (!goneAttachments.has(id)) return true
   const cloudNotes = new Map(cloud.notes.map((n) => [n.id, n]))
   const cloudFolders = new Map(cloud.folders.map((f) => [f.id, f]))
   for (const n of derived.notes) {
@@ -245,6 +273,6 @@ export function cloudIsBehind(derived: StructureManifest, cloud: StructureManife
     if (at(f.nameAt) > at(c.nameAt) || at(f.placeAt) > at(c.placeAt) || stateOf(f) > stateOf(c)) return true
   }
   const cloudAttachments = new Set((cloud.attachments ?? []).map((a) => a.id))
-  for (const a of derived.attachments ?? []) if (!cloudAttachments.has(a.id)) return true
+  for (const a of derived.attachments ?? []) if (!cloudAttachments.has(a.id) && !goneAttachments.has(a.id)) return true
   return false
 }

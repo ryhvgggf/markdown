@@ -236,13 +236,35 @@ export class Maintenance {
         await this.updatePendingBlobs((ids) => ids.filter((x) => x !== id)) // restored meanwhile
         return false
       }
-      vault.removeAttachment(id)
+      vault.purgeAttachment(id)
       await storage.deleteBlob(id)
       await this.updatePendingBlobs((ids) => ids.filter((x) => x !== id))
       return true
     } catch (e) {
       this.report(e)
       return false
+    }
+  }
+
+  /**
+   * Another device deleted these attachments for good: the copies here go too, unless a note on this device
+   * still uses one (then it stays, local only: sync never uploads a deleted attachment again). Not a purge of
+   * its own (no new removal mark). Never rejects.
+   */
+  async removeAttachmentsDeletedElsewhere(ids: string[]): Promise<void> {
+    const { vault, storage, indexer } = this.d
+    try {
+      const present = ids.filter((id) => vault.getAttachment(id))
+      if (!present.length) return
+      const refs = await indexer.referencedAttachmentIds()
+      if (!refs) return // can't tell which are used: keep them (asked again on the next manifest pull)
+      for (const id of present) {
+        if (refs.has(id) || !vault.getAttachment(id)) continue
+        await storage.deleteBlob(id)
+        vault.removeAttachment(id)
+      }
+    } catch (e) {
+      this.report(e)
     }
   }
 
@@ -258,7 +280,7 @@ export class Maintenance {
         done.push(id) // restored before its metadata went: keep it
         continue
       }
-      if (a) vault.removeAttachment(id)
+      if (a) vault.purgeAttachment(id)
       await storage.deleteBlob(id)
       done.push(id)
     }
@@ -408,7 +430,7 @@ export class Maintenance {
     for (const id of ids) {
       await this.step(async () => {
         await this.d.storage.deleteBlob(id)
-        this.d.vault.removeAttachment(id)
+        this.d.vault.purgeAttachment(id)
         deleted.push(id)
       })
     }

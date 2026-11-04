@@ -628,3 +628,85 @@ describe('being synced follows the account (3f-4)', () => {
     await until(() => b.vault.getNote(n.id)?.synced === true)
   })
 })
+
+describe('permanently deleting an attachment', () => {
+  async function shared() {
+    const a = await device('A')
+    const n = a.vault.createNote({ title: 'Pics' })
+    const doc = await a.notes.acquire(n.id)
+    doc.getXmlFragment('content').insert(0, [mediaEl('att1')])
+    await a.storage.putBlob('att1', new Blob(['png-bytes'], { type: 'image/png' }))
+    a.vault.addAttachment({ id: 'att1', filename: 'shot.png', mimeType: 'image/png', size: 9 })
+    a.vault.setNoteSynced(n.id, true)
+    await a.manager.start()
+    await until(async () => ((await pullManifest(sync, kek, 'v1'))?.attachments ?? []).length === 1)
+    // the image is taken out of the note, so it is unused (then trashed and deleted for good)
+    doc.getXmlFragment('content').delete(0, 1)
+    a.notes.release(n.id)
+    return { a, n }
+  }
+  const purge = async (d: Device, id: string) => {
+    d.vault.purgeAttachment(id)
+    await d.storage.deleteBlob(id)
+  }
+
+  it('does not come back on the next sync, and is gone from the cloud', async () => {
+    const { a } = await shared()
+    await until(async () => !a.manager.hasPending())
+    await purge(a, 'att1')
+    await until(async () => ((await pullManifest(sync, kek, 'v1'))?.attachments ?? []).length === 0)
+    await until(async () => (await attachmentSync.downloadAttachment('v1', 'att1')) === null)
+    expect((await pullManifest(sync, kek, 'v1'))!.removedAttachments?.map((r) => r.id)).toEqual(['att1'])
+    // a fresh start (what brought it back before) does not download it again
+    await a.manager.close()
+    const again = createSyncManager({ sync, attachmentSync, storage: a.storage, noteDocs: a.notes, vault: a.vault, vaultId: 'v1', kek, deviceId: 'A' })
+    a.manager = again
+    await again.start()
+    await until(async () => !again.hasPending())
+    await wait(100)
+    expect(a.vault.getAttachment('att1')).toBeUndefined()
+  })
+
+  it('another device that still has it is told, and a stale copy is not uploaded again', async () => {
+    const { a, n } = await shared()
+    const removedElsewhere: string[][] = []
+    const storage = new MemoryStorage()
+    const vault = await Vault.open(storage, 'v1', { channelFactory: isolated })
+    const notes = new NoteDocCache(storage, { channelFactory: isolated })
+    const manager = createSyncManager({
+      sync, attachmentSync, storage, noteDocs: notes, vault, vaultId: 'v1', kek, deviceId: 'B',
+      onAttachmentsRemovedElsewhere: (ids) => void removedElsewhere.push(ids),
+    })
+    const b: Device = { storage, vault, notes, manager, errors: [] }
+    devices.push(b)
+    await b.manager.start()
+    await until(() => !!b.vault.getAttachment('att1'))
+    await until(async () => !a.manager.hasPending() && !b.manager.hasPending())
+
+    await purge(a, 'att1')
+    await until(() => removedElsewhere.flat().includes('att1'))
+    // B's note still has the image in its (older) content: it must not put it back into the cloud
+    const docB = await b.notes.acquire(n.id)
+    docB.getXmlFragment('content').insert(0, [mediaEl('att1')])
+    b.notes.release(n.id)
+    await wait(200)
+    await until(async () => !b.manager.hasPending())
+    expect((await pullManifest(sync, kek, 'v1'))!.attachments ?? []).toEqual([])
+    expect(await attachmentSync.downloadAttachment('v1', 'att1')).toBeNull()
+  })
+
+  it('deleted while sync is not running: the mark and the cloud delete happen at the next start', async () => {
+    const { a } = await shared()
+    await until(async () => !a.manager.hasPending())
+    await a.manager.close()
+    await purge(a, 'att1')
+    const again = createSyncManager({
+      sync, attachmentSync, storage: a.storage, noteDocs: a.notes, vault: a.vault, vaultId: 'v1', kek, deviceId: 'A',
+      purgedAttachments: { read: async () => [{ id: 'att1', at: 5 }], remove: async () => {} },
+    })
+    a.manager = again
+    await again.start()
+    await until(async () => ((await pullManifest(sync, kek, 'v1'))?.removedAttachments ?? []).length === 1)
+    await until(async () => (await attachmentSync.downloadAttachment('v1', 'att1')) === null)
+  })
+})

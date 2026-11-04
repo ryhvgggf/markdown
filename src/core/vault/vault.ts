@@ -96,6 +96,9 @@ export class Vault {
    * just as easily mean an unrelated bug or local data loss — only this explicit call means "really gone,
    * on purpose"). `core/sync-engine` uses this as the one safe signal to also delete a note's cloud copy. */
   private readonly notePurgedHandlers = new Set<(id: string) => void>()
+  /** Fired by `purgeAttachment` only: the user (or the trash expiry) deleted an attachment for good. Never for
+   *  `removeAttachment` (rolling back a failed insert / import, or applying a delete made on another device). */
+  private readonly attachmentPurgedHandlers = new Set<(id: string) => void>()
 
   private constructor(
     private readonly id: string,
@@ -502,6 +505,17 @@ export class Vault {
   /** Drops attachment metadata only (the blob is the caller's concern). */
   removeAttachment(id: string): void {
     this.attachments.delete(id)
+  }
+  /** A deliberate permanent delete of an attachment's metadata (the blob is the caller's concern): sync deletes
+   *  the cloud copy too and marks it removed, so no device brings it back. */
+  purgeAttachment(id: string): void {
+    if (!this.attachments.has(id)) return
+    this.attachments.delete(id)
+    for (const h of this.attachmentPurgedHandlers) h(id)
+  }
+  onAttachmentPurged(cb: (id: string) => void): () => void {
+    this.attachmentPurgedHandlers.add(cb)
+    return () => this.attachmentPurgedHandlers.delete(cb)
   }
   resolveDuplicateTitles(): string[] {
     const live = this.listNotes()
