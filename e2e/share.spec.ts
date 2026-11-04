@@ -93,7 +93,7 @@ test('分享：到期、密碼（錯誤／正確／改密碼後舊密碼失效�
 
   const viewer = await context.newPage()
   await viewer.goto(url)
-  await expect(viewer.getByText('這篇筆記需要密碼')).toBeVisible()
+  await expect(viewer.getByText('此文件受到密碼保護。請輸入密碼以開啟文件。')).toBeVisible()
   await viewer.getByLabel('密碼').fill('nope-nope')
   await viewer.getByRole('button', { name: '開啟' }).click()
   await expect(viewer.getByText('密碼錯誤')).toBeVisible()
@@ -115,7 +115,8 @@ test('分享：到期、密碼（錯誤／正確／改密碼後舊密碼失效�
   await expect(viewer.getByLabel('筆記內容')).toContainText('機密內容')
 
   // expiry
-  await dialog.getByLabel('到期').selectOption('86400')
+  await dialog.getByRole('button', { name: '到期' }).click()
+  await page.getByRole('menuitem', { name: /1 天/ }).click()
   await expect(dialog.getByText(/到期時間/)).toBeVisible()
 
   // renew: the old link dies, the new one keeps the password

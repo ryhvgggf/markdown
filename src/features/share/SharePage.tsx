@@ -6,6 +6,8 @@ import { editorSchema } from '@/app/doc-io'
 import { ShareError, type ShareAdapter } from '@/adapters/share/types'
 import { openSharedLink } from '@/core/share/share-service'
 import type { ShareSnapshot } from '@/core/share/snapshot'
+import { OutlineView, type OutlineEntry } from '@/features/panel/OutlineTicks'
+import { extractHeadings, READ_LINE, reducedMotion } from '@/features/panel/use-outline'
 import { createExtensions, type EditorContext } from '@/features/editor/extensions'
 
 type State =
@@ -17,6 +19,7 @@ type State =
 const INVALID = '連結無效或已停止分享'
 const UNREACHABLE = '無法開啟此連結'
 const EXPIRED = '連結已過期'
+const TITLE = '\u0000title'
 
 /** What the 分享頁 shows for each failure; no error text from the server or the browser is displayed. */
 export const shareErrorText = (e: unknown) =>
@@ -70,7 +73,7 @@ function PasswordForm({ wrong, onSubmit }: { wrong: boolean; onSubmit: (password
           if (value) onSubmit(value)
         }}
       >
-        <p className="text-base text-fg">這篇筆記需要密碼</p>
+        <p className="text-base text-fg">此文件受到密碼保護。請輸入密碼以開啟文件。</p>
         <input
           type="password"
           aria-label="密碼"
@@ -112,7 +115,41 @@ function SharedNote({ snapshot }: { snapshot: ShareSnapshot }) {
     return createExtensions(ydoc, { noteId: '' } as unknown as EditorContext)
   }, [snapshot])
   const editor = useEditor({ extensions, editable: false, editorProps: { attributes: { class: 'note-editor', 'aria-label': '筆記內容' } } }, [extensions])
+  const entries = useMemo<OutlineEntry[]>(
+    () => [{ id: TITLE, level: 0, text: snapshot.title }, ...extractHeadings(editorSchema().nodeFromJSON(snapshot.doc))],
+    [snapshot],
+  )
+  const [activeId, setActiveId] = useState<string | null>(null)
+  useEffect(() => {
+    let frame = 0
+    const compute = () => {
+      frame = 0
+      let current: string | null = null
+      for (const e of entries) {
+        if (e.id === TITLE) continue
+        const el = document.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(e.id)}"]`)
+        if (el && el.getBoundingClientRect().top <= READ_LINE) current = e.id
+      }
+      setActiveId(current)
+    }
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(compute)
+    }
+    compute()
+    window.addEventListener('scroll', schedule, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', schedule)
+      if (frame) cancelAnimationFrame(frame)
+    }
+  }, [entries])
+  const pick = (id: string) => {
+    const el = id === TITLE ? document.querySelector<HTMLElement>('[data-share-title]') : document.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(id)}"]`)
+    el?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' })
+    setActiveId(id === TITLE ? null : id)
+  }
   return (
+    <>
+    <OutlineView entries={entries} activeId={activeId} onPick={pick} fixed />
     <main className="note-card mx-auto min-h-dvh max-w-[920px] bg-surface px-6 pb-32 pt-12 sm:my-4 sm:min-h-0 sm:rounded-card sm:shadow-card">
       <div className="mx-auto" style={{ maxWidth: 'var(--editor-width, 680px)' }}>
         <h1 data-share-title className="mb-4 font-semibold text-fg" style={{ fontSize: 'var(--text-display)', letterSpacing: '-0.022em', lineHeight: 1.25 }}>
@@ -121,5 +158,6 @@ function SharedNote({ snapshot }: { snapshot: ShareSnapshot }) {
         <EditorContent editor={editor} />
       </div>
     </main>
+    </>
   )
 }

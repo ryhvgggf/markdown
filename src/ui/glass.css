@@ -433,6 +433,11 @@ html[data-reduce-transparency='true'] :is(.glass, .glass-card, .glass-float, .gl
   color: var(--accent);
   font-weight: 500;
 }
+/* the shared page scrolls the window: the ticks stay in view */
+.outline-layer[data-fixed='true'] .outline-ticks,
+.outline-layer[data-fixed='true'] .outline-card {
+  position: fixed;
+}
 @media (max-width: 860px) {
   .outline-layer {
     display: none;

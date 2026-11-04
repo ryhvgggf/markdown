@@ -159,10 +159,12 @@ describe('分享對話框：到期、密碼、換新連結', () => {
   it('sets and clears the expiry', async () => {
     const { user, dialog, row } = await open()
     expect(row().expiresAt).toBeNull()
-    await user.selectOptions(within(dialog).getByLabelText('到期'), '604800')
+    await user.click(within(dialog).getByRole('button', { name: '到期' }))
+    await user.click(await screen.findByRole('menuitem', { name: /7 天/ }))
     await within(dialog).findByText(/到期時間/)
     expect(row().expiresAt).not.toBeNull()
-    await user.selectOptions(within(dialog).getByLabelText('到期'), 'never')
+    await user.click(within(dialog).getByRole('button', { name: '到期' }))
+    await user.click(await screen.findByRole('menuitem', { name: /永久/ }))
     await waitFor(() => expect(row().expiresAt).toBeNull())
     expect(within(dialog).queryByText(/到期時間/)).toBeNull()
   })
@@ -324,7 +326,7 @@ describe('分享頁', () => {
     at(url)
     render(<SharePage adapter={adapter} />)
     const user = userEvent.setup()
-    expect(await screen.findByText('這篇筆記需要密碼')).toBeInTheDocument()
+    expect(await screen.findByText('此文件受到密碼保護。請輸入密碼以開啟文件。')).toBeInTheDocument()
     expect(screen.queryByText('公開的筆記')).toBeNull()
     await user.type(screen.getByLabelText('密碼'), 'wrong one')
     await user.click(screen.getByRole('button', { name: '開啟' }))
@@ -342,5 +344,30 @@ describe('分享頁', () => {
     at(url)
     render(<SharePage adapter={adapter} />)
     expect(await screen.findByRole('alert')).toHaveTextContent('連結已過期')
+  })
+
+  it('shows the outline for a note with headings, and none without', async () => {
+    const { adapter, svc } = await link()
+    const withHeadings = {
+      type: 'doc',
+      content: [
+        { type: 'heading', attrs: { level: 1, id: 'h-a' }, content: [{ type: 'text', text: '第一章' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: '內文' }] },
+        { type: 'heading', attrs: { level: 2, id: 'h-b' }, content: [{ type: 'text', text: '小節' }] },
+      ],
+    }
+    const { url } = await svc.create('with-h', { v: 1, title: '有大綱', sharedAt: 1, doc: withHeadings as never })
+    at(new URL(url))
+    const { unmount } = render(<SharePage adapter={adapter} />)
+    await screen.findByLabelText('筆記內容')
+    expect(screen.getByRole('button', { name: '大綱' })).toBeInTheDocument()
+    const nav = screen.getByRole('navigation', { name: '大綱', hidden: true })
+    expect(within(nav).getAllByRole('button', { hidden: true }).map((b) => b.textContent)).toEqual(['有大綱', '第一章', '小節'])
+    unmount()
+    const plain = await svc.create('no-h', { v: 1, title: '沒大綱', sharedAt: 1, doc: doc('只有段落') })
+    at(new URL(plain.url))
+    render(<SharePage adapter={adapter} />)
+    await screen.findByLabelText('筆記內容')
+    expect(screen.queryByRole('button', { name: '大綱' })).toBeNull()
   })
 })

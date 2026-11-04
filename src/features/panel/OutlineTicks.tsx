@@ -11,15 +11,39 @@ import { useOutline } from './use-outline'
 export const OUTLINE_HIDE_MS = 220
 const TITLE = '\u0000title'
 
-/**
- * Outline as short ticks at the note card's right edge (title, then H1–H3; width shows the level, the one
- * in view is the accent colour). Hovering — or pressing the ticks button — shows a glass card listing them.
- */
+export interface OutlineEntry {
+  id: string
+  level: 0 | 1 | 2 | 3
+  text: string
+}
+
+/** The note's outline: ticks and card for the note being edited. */
 export function OutlineTicks({ noteId }: { noteId: string }) {
   const { vault } = useServices()
   useVaultSnapshot()
   const title = displayTitle(vault.getNote(noteId)?.title ?? '')
   const { items, activeId, select, selectTitle } = useOutline(noteId)
+  if (items.length === 0) return null
+  const entries: OutlineEntry[] = [{ id: TITLE, level: 0, text: title }, ...items]
+  return (
+    <OutlineView
+      entries={entries}
+      activeId={activeId}
+      onPick={(id) => {
+        if (id === TITLE) {
+          selectTitle()
+          focusTitleEnd(noteId)
+        } else select(id)
+      }}
+    />
+  )
+}
+
+/**
+ * Outline as short ticks at the note card's right edge (title, then H1–H3; width shows the level, the one
+ * in view is the accent colour). Hovering — or pressing the ticks button — shows a glass card listing them.
+ */
+export function OutlineView({ entries, activeId, onPick, fixed }: { entries: OutlineEntry[]; activeId: string | null; onPick: (id: string) => void; fixed?: boolean }) {
   const typing = useTyping((t) => t.typing)
   const [wanted, setOpen] = useState(false)
   const open = wanted && !typing // typing mode: the ticks and their card step aside
@@ -41,8 +65,7 @@ export function OutlineTicks({ noteId }: { noteId: string }) {
     card.current?.querySelector<HTMLButtonElement>('button[aria-current]')?.focus()
   }, [open])
 
-  if (items.length === 0) return null
-  const entries = [{ id: TITLE, level: 0 as const, text: title }, ...items]
+  if (entries.length <= 1) return null
   const current = Math.max(0, activeId ? entries.findIndex((e) => e.id === activeId) : 0)
 
   const show = () => {
@@ -61,10 +84,7 @@ export function OutlineTicks({ noteId }: { noteId: string }) {
   }
   const pick = (id: string) => {
     close(false)
-    if (id === TITLE) {
-      selectTitle()
-      focusTitleEnd(noteId)
-    } else select(id)
+    onPick(id)
   }
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== 'Escape' || isComposingEvent(e.nativeEvent)) return
@@ -73,7 +93,7 @@ export function OutlineTicks({ noteId }: { noteId: string }) {
   }
 
   return (
-    <div className="outline-layer" data-typing={typing ? 'true' : undefined} onKeyDown={onKeyDown}>
+    <div className="outline-layer" data-typing={typing ? 'true' : undefined} data-fixed={fixed ? 'true' : undefined} onKeyDown={onKeyDown}>
       <button
         ref={button}
         type="button"

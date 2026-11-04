@@ -4,7 +4,8 @@ import { useUi } from '@/app/ui-store'
 import { MIN_SHARE_PASSWORD, SHARE_EXPIRY_CHOICES, ShareError, type ShareRecord } from '@/adapters/share/types'
 import { Button } from '@/ui/components/Button'
 import { Dialog } from '@/ui/components/Dialog'
-import { Share } from '@/ui/icons'
+import { Menu } from '@/ui/components/Menu'
+import { ChevronDown, Share } from '@/ui/icons'
 import { snapshotOfNote } from './note-snapshot'
 
 type View =
@@ -198,23 +199,29 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
 
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-3">
-          <label htmlFor="share-expiry" className="text-sm text-fg">
-            到期
-          </label>
-          <select
-            id="share-expiry"
-            value={expiryValue}
-            disabled={busy}
-            onChange={(e) => void changeExpiry(record, url, e.target.value)}
-            className="h-8 rounded-control border border-black/10 bg-white/70 px-2 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          <span className="text-sm text-fg">到期</span>
+          <Menu
+            align="end"
+            trigger={
+              <button
+                type="button"
+                id="share-expiry"
+                aria-label="到期"
+                disabled={busy}
+                className="flex h-8 min-w-24 items-center justify-between gap-2 rounded-control border border-black/10 bg-white/70 px-3 text-sm text-fg outline-none transition-colors hover:bg-white focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 data-[state=open]:bg-white"
+              >
+                {expiryValue === 'current' ? '目前設定' : EXPIRY_LABEL[expiryValue]}
+                <ChevronDown size={14} className="text-fg-tertiary" />
+              </button>
+            }
           >
-            {expiryValue === 'current' && <option value="current">目前設定</option>}
             {SHARE_EXPIRY_CHOICES.map((c) => (
-              <option key={expiryKey(c)} value={expiryKey(c)}>
+              <Menu.Item key={expiryKey(c)} onSelect={() => void changeExpiry(record, url, expiryKey(c))}>
+                <span className="w-4 text-accent">{expiryValue === expiryKey(c) ? '✓' : ''}</span>
                 {EXPIRY_LABEL[expiryKey(c)]}
-              </option>
+              </Menu.Item>
             ))}
-          </select>
+          </Menu>
         </div>
         {record.expiresAt !== null && (
           <p className="text-xs text-fg-tertiary">{expired ? '已過期' : `到期時間 ${formatTime(record.expiresAt)}`}</p>
