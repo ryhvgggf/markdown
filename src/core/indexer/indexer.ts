@@ -135,7 +135,8 @@ export class Indexer {
    * Attachment ids referenced by ALL notes, trashed-but-unexpired included, read from the cached doc
    * when loaded (it may hold references not yet persisted) and from storage otherwise. Ids are not stored
    * in a table, so this is O(vault): run it in the background only. Returns `undefined` when any note
-   * cannot be read, because that note may reference attachments (callers must then purge nothing).
+   * cannot be read, or is a synced note whose content has not arrived on this device yet, because that note may
+   * reference attachments (callers must then purge nothing).
    */
   async referencedAttachmentIds(opts: BulkOptions = {}): Promise<Set<string> | undefined> {
     const ids = new Set<string>()
@@ -145,6 +146,12 @@ export class Indexer {
       let doc: Y.Doc
       try {
         doc = cached ?? (await this.loadTemp(n.id))
+        // A synced note that was edited somewhere (its `updatedAt` is past its creation) but has no content stored
+        // here has not been downloaded yet: it reads as an empty doc, yet it may use any attachment. Not "unused".
+        if (!cached && n.synced && n.updatedAt > n.createdAt && (await this.storage.loadDoc(n.id)).length === 0) {
+          doc.destroy()
+          return undefined
+        }
       } catch {
         return undefined
       }

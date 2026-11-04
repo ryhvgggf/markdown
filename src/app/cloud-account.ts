@@ -14,7 +14,7 @@ import type { Vault } from '@/core/vault/vault'
 import { useUi } from './ui-store'
 import type { Maintenance } from '@/core/maintenance/maintenance'
 import { createAccountService, FIRST_SYNC_KEY, type AccountService } from './account-service'
-import { purgedAttachmentStore } from './purged-attachments'
+import { locallyDroppedStore, purgedAttachmentStore } from './purged-attachments'
 import { runAsSyncLeader } from './sync-leader'
 import { reportingProgress } from './sync-status'
 
@@ -78,6 +78,7 @@ export function createCloudAccount(d: CloudAccountDeps): AccountService {
                 write: async (items) => void (await d.db.meta.put({ key: PENDING_KEY, value: { vaultId, items } })),
               },
               purgedAttachments: purgedAttachmentStore(d.db, vaultId),
+              locallyDropped: locallyDroppedStore(d.db),
               onAttachmentsRemovedElsewhere: (ids) => d.maintenance.removeAttachmentsDeletedElsewhere(ids),
               vaultId,
               kek,

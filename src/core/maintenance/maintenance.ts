@@ -16,6 +16,13 @@ export const PENDING_PURGE_KEY = 'pendingPurge'
 export const LAST_ATTACHMENT_GC_KEY = 'lastAttachmentGc'
 export const ATTACHMENT_GC_INTERVAL_MS = 24 * 60 * 60 * 1000
 /** meta: attachments of permanently deleted notes → time after which the GC may delete them. */
+/**
+ * db.meta: attachments the daily GC removed from this device only (unused here, older than 30 days) while the
+ * cloud still lists them. Sync must not download them again until a synced note here uses one
+ * (`SyncManagerDeps.locallyDropped`); otherwise it would fetch them on every manifest pull and the GC would remove
+ * them again the next day.
+ */
+export const ATTACHMENT_LOCAL_DROPS_KEY = 'attachmentLocalDrops'
 export const ATTACHMENT_DELETE_AFTER_KEY = 'attachmentDeleteAfter'
 /** Grace period: another note's undo history may still bring a deleted note's image back. */
 export const ATTACHMENT_GRACE_MS = 24 * 60 * 60 * 1000
@@ -423,6 +430,16 @@ export class Maintenance {
     return v && typeof v === 'object' ? { ...(v as Record<string, number>) } : {}
   }
 
+  /** Remembers attachments removed from this device only, so sync does not bring them back (see `ATTACHMENT_LOCAL_DROPS_KEY`). */
+  private async addLocalDrops(ids: string[]): Promise<void> {
+    const { db } = this.d
+    await db.transaction('rw', db.meta, async () => {
+      const v = (await db.meta.get(ATTACHMENT_LOCAL_DROPS_KEY))?.value
+      const have = Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+      await db.meta.put({ key: ATTACHMENT_LOCAL_DROPS_KEY, value: [...new Set([...have, ...ids])] })
+    })
+  }
+
   private async updateMarks(fn: (m: Record<string, number>) => void): Promise<void> {
     const { db } = this.d
     await db.transaction('rw', db.meta, async () => {
@@ -444,7 +461,10 @@ export class Maintenance {
       await this.step(async () => {
         await this.d.storage.deleteBlob(id)
         if (how === 'purge') this.d.vault.purgeAttachment(id)
-        else this.d.vault.removeAttachment(id)
+        else {
+          this.d.vault.removeAttachment(id)
+          await this.addLocalDrops([id])
+        }
         deleted.push(id)
       })
     }

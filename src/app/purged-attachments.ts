@@ -1,5 +1,6 @@
 import type { NotesDb } from '@/adapters/storage/db'
 import type { Vault } from '@/core/vault/vault'
+import { ATTACHMENT_LOCAL_DROPS_KEY } from '@/core/maintenance/maintenance'
 import { SYNC_VAULT_KEY } from './account-service'
 
 /**
@@ -55,6 +56,25 @@ export function purgedAttachmentStore(db: NotesDb, vaultId: string) {
       await update(db, (list) => {
         const have = new Set(list.filter((x) => x.vaultId === vaultId).map((x) => x.id))
         return [...list, ...marks.filter((m) => !have.has(m.id)).map(({ id, at }) => ({ id, at, vaultId, done: true }))]
+      })
+    },
+  }
+}
+
+/** Attachments the daily cleanup removed from this device only (`SyncManagerDeps.locallyDropped`). */
+export function locallyDroppedStore(db: NotesDb) {
+  const read = async (): Promise<string[]> => {
+    const v = (await db.meta.get(ATTACHMENT_LOCAL_DROPS_KEY))?.value
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  }
+  return {
+    read,
+    remove: async (ids: string[]) => {
+      await db.transaction('rw', db.meta, async () => {
+        const gone = new Set(ids)
+        const after = (await read()).filter((x) => !gone.has(x))
+        if (after.length) await db.meta.put({ key: ATTACHMENT_LOCAL_DROPS_KEY, value: after })
+        else await db.meta.delete(ATTACHMENT_LOCAL_DROPS_KEY)
       })
     },
   }

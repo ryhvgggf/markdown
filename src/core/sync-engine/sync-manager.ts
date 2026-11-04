@@ -52,6 +52,11 @@ export interface SyncManagerDeps {
     known(): Promise<Array<{ id: string; at: number }>>
     remember(marks: Array<{ id: string; at: number }>): Promise<void>
   }
+  /**
+   * Attachments the daily cleanup removed from this device only (unused here) while the cloud still lists them:
+   * not downloaded again until a synced note here uses one, then `remove` forgets it and it is downloaded.
+   */
+  locallyDropped?: { read(): Promise<string[]>; remove(ids: string[]): Promise<void> }
   /** Another device deleted these attachments for good; this device still has them (it decides what to keep).
    *  Returns false when it could not decide yet (asked again on a later manifest pull). */
   onAttachmentsRemovedElsewhere?: (ids: string[]) => Promise<boolean | void> | boolean | void
@@ -138,6 +143,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // Removed elsewhere and already handed to `onAttachmentsRemovedElsewhere` this session (it keeps the ones a
   // note here still uses; asking again on every pull would scan the whole vault each time).
   const settledElsewhere = new Set<string>()
+  // Attachments removed from this device only by the daily cleanup (`SyncManagerDeps.locallyDropped`).
+  const droppedHere = new Set<string>()
   /** Adds marks seen in the cloud (or made here) to what this device knows, and saves the new ones. */
   const learnMarks = (marks: ReadonlyArray<{ id: string; at: number }>) => {
     const fresh = marks.filter((r) => !goneAttachments.has(r.id))
@@ -184,8 +191,14 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // cloud manifest with only this device's notes, dropping everyone else's and every removal mark (3f review B1).
     const cloud = await pullManifest(deps.sync, deps.kek, deps.vaultId)
     const c = combineManifests(localView(), cloud, { removed: deliberatelyRemoved, resynced, removedAttachments: goneAttachments })
+    // Marks this device knows that the cloud manifest no longer has (lost in a race, or by an older app version): in
+    // that time a device that never saw them may have uploaded the attachment again, so once the marks are back the
+    // cloud copy goes again (deleting what is not there is harmless).
+    const inCloud = new Set((cloud?.removedAttachments ?? []).map((r) => r.id))
+    const lost = cloud ? [...goneAttachments].filter(([id]) => !inCloud.has(id)) : []
     await pushManifest(deps.sync, deps.kek, deps.vaultId, c.notes, c.folders, c.attachments, c.removed, c.removedAttachments)
     manifestFailed = false
+    for (const [id, at] of lost) if (!attachmentsRemovedHere.has(id)) attachmentsRemovedHere.set(id, at)
     learnMarks(c.removedAttachments)
     // Only the ones whose mark this push carried: one deleted here after `combine` ran waits for the next push.
     if (attachmentsRemovedHere.size) finishAttachmentRemovals(new Set(c.removedAttachments.map((r) => r.id)))
@@ -357,7 +370,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let downloadChain: Promise<void> = Promise.resolve()
   function downloadAttachments(manifest: StructureManifest): void {
     for (const a of missingAttachments(deps.vault, manifest)) {
-      if (downloading.has(a.id) || notInCloud.has(a.id) || goneAttachments.has(a.id)) continue
+      if (downloading.has(a.id) || notInCloud.has(a.id) || goneAttachments.has(a.id) || droppedHere.has(a.id)) continue
       downloading.add(a.id)
       downloadChain = downloadChain
         .then(async () => {
@@ -399,7 +412,13 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     if (!doc) return
     const { attachmentIds } = extractNote(doc.getXmlFragment('content'))
     let pushed = false
+    let wanted = false
     for (const attachmentId of attachmentIds) {
+      if (droppedHere.delete(attachmentId)) {
+        // A synced note here uses an attachment the cleanup had removed: it is wanted again, so fetch it.
+        void deps.locallyDropped?.remove([attachmentId]).catch(() => {})
+        wanted = true
+      }
       if (nb.pushedAttachments.has(attachmentId) || goneAttachments.has(attachmentId)) continue // a deleted one never goes back up
       const blob = await deps.storage.getBlob(attachmentId)
       if (!blob) continue // not stored locally (e.g. still downloading from another device's upload): nothing to upload
@@ -408,6 +427,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       nb.pushedAttachments.add(attachmentId)
       pushed = true
     }
+    if (wanted) scheduleManifestMerge() // pulls the manifest and downloads what is missing
     if (pushed) scheduleManifestPush() // its metadata goes into the manifest, so other devices can show it
   }
 
@@ -593,6 +613,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         deliberatelyRemoved.set(p.id, p.at)
       }
       persistPending()
+      for (const id of (await deps.locallyDropped?.read().catch(() => [])) ?? []) droppedHere.add(id)
       for (const r of (await deps.purgedAttachments?.known().catch(() => [])) ?? []) goneAttachments.set(r.id, r.at)
       for (const r of (await deps.purgedAttachments?.read().catch(() => [])) ?? []) {
         attachmentsRemovedHere.set(r.id, r.at)

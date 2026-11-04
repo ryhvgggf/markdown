@@ -517,3 +517,16 @@ describe('which deletes are deliberate (4b review, finding 1)', () => {
     expect(purged).toEqual([ofNote])
   })
 })
+
+describe('what the daily GC leaves for sync (4b review, finding 2)', () => {
+  it('an attachment it removes from this device is remembered, so sync does not fetch it again; a purge is not', async () => {
+    const old = await attachment(60)
+    const trashed = await attachment(0)
+    vault.trashAttachment(trashed)
+    await m.runStartup()
+    expect(vault.getAttachment(old)).toBeUndefined()
+    expect((await db.meta.get('attachmentLocalDrops'))?.value).toEqual([old])
+    await m.purgeAttachment(trashed)
+    expect((await db.meta.get('attachmentLocalDrops'))?.value).toEqual([old]) // a deliberate delete is not a "local drop"
+  })
+})
