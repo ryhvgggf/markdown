@@ -3,14 +3,18 @@ import type { Vault } from '@/core/vault/vault'
 import { SYNC_VAULT_KEY } from './account-service'
 
 /**
- * db.meta: attachments deleted for good whose cloud half (removal mark in the manifest, cloud copy) is not done
- * yet (`SyncManagerDeps.purgedAttachments`). Recorded at the moment of the delete, also while signed out or
- * offline, so the next sync still finishes it. Each item remembers its account's vault: another account's
- * list never touches this one. A device that never signed in records nothing (nothing of it is in any cloud).
+ * db.meta: attachments deleted for good (`SyncManagerDeps.purgedAttachments`).
+ * - Deletes made here are recorded at the moment of the delete, also while signed out or offline, so the next
+ *   sync still finishes their cloud half (removal mark in the manifest, cloud copy); then they are marked `done`.
+ * - Every item stays for good, together with the marks this device learned from the cloud: removal marks are
+ *   permanent, and if the cloud manifest ever loses one (a manifest race, an older app version), this device
+ *   puts it back on its next push.
+ * Each item remembers its account's vault: another account's list never touches this one. A device that never
+ * signed in records nothing (nothing of it is in any cloud).
  */
 export const PURGED_ATTACHMENTS_KEY = 'syncPurgedAttachments'
 
-type Item = { id: string; at: number; vaultId: string }
+type Item = { id: string; at: number; vaultId: string; done?: boolean }
 
 async function items(db: NotesDb): Promise<Item[]> {
   const v = (await db.meta.get(PURGED_ATTACHMENTS_KEY))?.value
@@ -37,13 +41,21 @@ export function recordPurgedAttachments(db: NotesDb, vault: Vault, onError: (e: 
   })
 }
 
-/** The store the sync manager of `vaultId` reads and clears. */
+/** The store the sync manager of `vaultId` reads and updates. */
 export function purgedAttachmentStore(db: NotesDb, vaultId: string) {
+  const mine = async () => (await items(db)).filter((x) => x.vaultId === vaultId)
   return {
-    read: async () => (await items(db)).filter((x) => x.vaultId === vaultId).map(({ id, at }) => ({ id, at })),
-    remove: async (ids: string[]) => {
+    read: async () => (await mine()).filter((x) => !x.done).map(({ id, at }) => ({ id, at })),
+    known: async () => (await mine()).map(({ id, at }) => ({ id, at })),
+    markDone: async (ids: string[]) => {
       const done = new Set(ids)
-      await update(db, (list) => list.filter((x) => !(x.vaultId === vaultId && done.has(x.id))))
+      await update(db, (list) => list.map((x) => (x.vaultId === vaultId && done.has(x.id) ? { ...x, done: true } : x)))
+    },
+    remember: async (marks: Array<{ id: string; at: number }>) => {
+      await update(db, (list) => {
+        const have = new Set(list.filter((x) => x.vaultId === vaultId).map((x) => x.id))
+        return [...list, ...marks.filter((m) => !have.has(m.id)).map(({ id, at }) => ({ id, at, vaultId, done: true }))]
+      })
     },
   }
 }

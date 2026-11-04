@@ -33,25 +33,32 @@ describe('SupabaseShare', () => {
     ])
   })
 
-  it('update is guarded on the password salt; when nothing matched it tells "gone" from "password changed"', async () => {
-    const { client, calls } = fakeClient([{ data: [{ id: 's1' }] }, { data: [] }, { data: [] }, { data: [] }, { data: [{ id: 's1' }] }])
+  it('update goes through update_share_snapshot (guarded on the password salt) and passes its status through', async () => {
+    const { client, calls } = fakeClient([{ data: 'ok' }, { data: 'not-found' }, { data: 'changed' }, { data: 'nonsense' }])
     const share = new SupabaseShare(client)
     expect(await share.update('s1', new Uint8Array([1]), null)).toBe('ok')
-    expect(calls).toEqual([['from', 'share_links'], ['update', { ciphertext: '\\x01' }], ['eq', 'id', 's1'], ['is', 'pw_salt', null], ['select', 'id']])
+    expect(calls).toEqual([['rpc', 'update_share_snapshot', { p_id: 's1', p_ciphertext: '\\x01', p_expected_salt: null }]])
     expect(await share.update('s1', new Uint8Array([1]), 'salt')).toBe('not-found')
-    expect(calls).toContainEqual(['eq', 'pw_salt', 'salt'])
     expect(await share.update('s1', new Uint8Array([1]), 'salt')).toBe('changed')
+    await expect(share.update('s1', new Uint8Array([1]), null)).rejects.toBeInstanceOf(ShareError)
   })
 
-  it('setPassword writes ciphertext and every password column in one guarded update; null clears them', async () => {
-    const { client, calls } = fakeClient([{ data: [{ id: 's1' }] }, { data: [{ id: 's1' }] }])
+  it('setPassword sends ciphertext, every password field and both guards to set_share_password; null clears them', async () => {
+    const { client, calls } = fakeClient([{ data: 'ok' }, { data: 'ok' }])
     const share = new SupabaseShare(client)
-    await share.setPassword('s1', new Uint8Array([2]), { saltB64: 'c2FsdA==', iterations: 600000, verifier: new Uint8Array([0xab]), pwKey: 'pk' }, null)
-    expect(calls[1]).toEqual(['update', { ciphertext: '\\x02', pw_salt: 'c2FsdA==', pw_iterations: 600000, pw_verifier: '\\xab', pw_key: 'pk' }])
-    calls.length = 0
-    await share.setPassword('s1', new Uint8Array([3]), null, 'c2FsdA==')
-    expect(calls[1]).toEqual(['update', { ciphertext: '\\x03', pw_salt: null, pw_iterations: null, pw_verifier: null, pw_key: null }])
-    expect(calls[3]).toEqual(['eq', 'pw_salt', 'c2FsdA=='])
+    const hash = new Uint8Array([0xee])
+    await share.setPassword('s1', new Uint8Array([2]), { saltB64: 'c2FsdA==', iterations: 600000, verifier: new Uint8Array([0xab]), pwKey: 'pk' }, null, hash)
+    expect(calls[0]).toEqual([
+      'rpc',
+      'set_share_password',
+      { p_id: 's1', p_ciphertext: '\\x02', p_salt: 'c2FsdA==', p_iterations: 600000, p_verifier: '\\xab', p_key: 'pk', p_expected_salt: null, p_expected_hash: '\\xee' },
+    ])
+    await share.setPassword('s1', new Uint8Array([3]), null, 'c2FsdA==', hash)
+    expect(calls[1]).toEqual([
+      'rpc',
+      'set_share_password',
+      { p_id: 's1', p_ciphertext: '\\x03', p_salt: null, p_iterations: null, p_verifier: null, p_key: null, p_expected_salt: 'c2FsdA==', p_expected_hash: '\\xee' },
+    ])
   })
 
   it('getPublic maps the three statuses and never expects ciphertext for expired or protected links', async () => {
@@ -92,14 +99,15 @@ describe('SupabaseShare', () => {
     const { client, calls } = fakeClient([{ data: 'ok' }, { data: 'changed' }, { data: 'nonsense' }])
     const share = new SupabaseShare(client)
     const next = { id: 's2', wrappedKey: 'w', ciphertext: new Uint8Array([1]), verifier: null, pwKey: null }
-    expect(await share.renew('s1', next, null)).toBe('ok')
+    const hash = new Uint8Array([0xee])
+    expect(await share.renew('s1', next, null, hash)).toBe('ok')
     expect(calls[0]).toEqual([
       'rpc',
       'renew_share_link',
-      { p_old: 's1', p_new: 's2', p_wrapped_key: 'w', p_ciphertext: '\\x01', p_pw_verifier: null, p_pw_key: null, p_expected_salt: null },
+      { p_old: 's1', p_new: 's2', p_wrapped_key: 'w', p_ciphertext: '\\x01', p_pw_verifier: null, p_pw_key: null, p_expected_salt: null, p_expected_hash: '\\xee' },
     ])
-    expect(await share.renew('s1', next, 'x')).toBe('changed')
-    await expect(share.renew('s1', next, null)).rejects.toBeInstanceOf(ShareError)
+    expect(await share.renew('s1', next, 'x', hash)).toBe('changed')
+    await expect(share.renew('s1', next, null, hash)).rejects.toBeInstanceOf(ShareError)
   })
 
   it('getOwn returns the record and the ciphertext; listForVault maps password and expiry', async () => {

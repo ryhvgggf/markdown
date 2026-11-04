@@ -42,9 +42,19 @@ export interface SyncManagerDeps {
    * Attachments deleted for good on this device whose cloud half (removal mark and cloud copy) is not done yet,
    * kept between sessions by the app (also while sync is not running). `remove` once both are done.
    */
-  purgedAttachments?: { read(): Promise<Array<{ id: string; at: number }>>; remove(ids: string[]): Promise<void> }
-  /** Another device deleted these attachments for good; this device still has them (it decides what to keep). */
-  onAttachmentsRemovedElsewhere?: (ids: string[]) => Promise<void> | void
+  purgedAttachments?: {
+    /** Deletes made here whose cloud half is not done yet. */
+    read(): Promise<Array<{ id: string; at: number }>>
+    /** Their cloud half is done (the mark is in the cloud manifest and the cloud copy is deleted); they stay known. */
+    markDone(ids: string[]): Promise<void>
+    /** Every removal mark this device has seen (here or from the cloud), kept for good: if the cloud manifest
+     *  ever loses one (a race with a device pushing an older manifest, or an older app version), it is put back. */
+    known(): Promise<Array<{ id: string; at: number }>>
+    remember(marks: Array<{ id: string; at: number }>): Promise<void>
+  }
+  /** Another device deleted these attachments for good; this device still has them (it decides what to keep).
+   *  Returns false when it could not decide yet (asked again on a later manifest pull). */
+  onAttachmentsRemovedElsewhere?: (ids: string[]) => Promise<boolean | void> | boolean | void
   onError?: (e: SyncError, info: { docId: string }) => void
 }
 
@@ -122,8 +132,18 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   const confirmedMarks = new Set<string>()
   // Attachments deleted for good here whose removal mark / cloud copy delete is not finished (id → when).
   const attachmentsRemovedHere = new Map<string, number>()
-  // Every attachment known to be deleted for good (here or anywhere): never listed, uploaded or downloaded again.
-  const goneAttachments = new Set<string>()
+  // Every attachment known to be deleted for good (here or anywhere, id → when): never listed, uploaded or
+  // downloaded again, and every manifest push carries all of them (a mark the cloud lost is put back).
+  const goneAttachments = new Map<string, number>()
+  // Removed elsewhere and already handed to `onAttachmentsRemovedElsewhere` this session (it keeps the ones a
+  // note here still uses; asking again on every pull would scan the whole vault each time).
+  const settledElsewhere = new Set<string>()
+  /** Adds marks seen in the cloud (or made here) to what this device knows, and saves the new ones. */
+  const learnMarks = (marks: ReadonlyArray<{ id: string; at: number }>) => {
+    const fresh = marks.filter((r) => !goneAttachments.has(r.id))
+    for (const r of marks) goneAttachments.set(r.id, Math.max(r.at, goneAttachments.get(r.id) ?? 0))
+    if (fresh.length) void deps.purgedAttachments?.remember(fresh).catch(() => {})
+  }
   let unwatchAttachmentPurge: (() => void) | null = null
   let attachmentRemovalChain: Promise<void> = Promise.resolve()
   let merging = false // true while a pulled manifest is being applied: vault changes then are not the user's
@@ -163,11 +183,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // A failed read must fail the push (it is retried): treating it as "nothing in the cloud" would overwrite the
     // cloud manifest with only this device's notes, dropping everyone else's and every removal mark (3f review B1).
     const cloud = await pullManifest(deps.sync, deps.kek, deps.vaultId)
-    const c = combineManifests(localView(), cloud, { removed: deliberatelyRemoved, resynced, removedAttachments: attachmentsRemovedHere })
+    const c = combineManifests(localView(), cloud, { removed: deliberatelyRemoved, resynced, removedAttachments: goneAttachments })
     await pushManifest(deps.sync, deps.kek, deps.vaultId, c.notes, c.folders, c.attachments, c.removed, c.removedAttachments)
     manifestFailed = false
-    for (const r of c.removedAttachments) goneAttachments.add(r.id)
-    if (attachmentsRemovedHere.size) finishAttachmentRemovals()
+    learnMarks(c.removedAttachments)
+    // Only the ones whose mark this push carried: one deleted here after `combine` ran waits for the next push.
+    if (attachmentsRemovedHere.size) finishAttachmentRemovals(new Set(c.removedAttachments.map((r) => r.id)))
     for (const r of c.removed) {
       if (!deliberatelyRemoved.has(r.id)) continue
       confirmedMarks.add(r.id)
@@ -225,11 +246,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   }
   // The cloud copy of attachments deleted here, once their removal mark is in the cloud manifest (so no device
   // that still lists them tries to download what is about to go). Kept until it works.
-  function finishAttachmentRemovals(): void {
+  function finishAttachmentRemovals(markedInCloud: ReadonlySet<string>): void {
     attachmentRemovalChain = attachmentRemovalChain.then(async () => {
       const done: string[] = []
       for (const id of [...attachmentsRemovedHere.keys()]) {
         if (closed) break
+        if (!markedInCloud.has(id)) continue
         try {
           await deps.attachmentSync.deleteAttachment(deps.vaultId, id)
           attachmentsRemovedHere.delete(id)
@@ -240,7 +262,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           break
         }
       }
-      if (done.length) await deps.purgedAttachments?.remove(done).catch(() => {})
+      if (done.length) await deps.purgedAttachments?.markDone(done).catch(() => {})
     })
   }
   // The cloud half of a removal: the note's cloud doc and attachments. Kept on the pending list until it works.
@@ -308,16 +330,23 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       reportError(new SyncError('conflict', message), conflict.noteId)
     }
     const removedAttachments = manifest.removedAttachments ?? []
-    for (const r of removedAttachments) goneAttachments.add(r.id)
-    const deletedElsewhere = removedAttachments.map((r) => r.id).filter((id) => !attachmentsRemovedHere.has(id) && deps.vault.getAttachment(id))
+    learnMarks(removedAttachments)
+    const deletedElsewhere = removedAttachments
+      .map((r) => r.id)
+      .filter((id) => !attachmentsRemovedHere.has(id) && !settledElsewhere.has(id) && deps.vault.getAttachment(id))
     if (deletedElsewhere.length && deps.onAttachmentsRemovedElsewhere) {
-      await Promise.resolve(deps.onAttachmentsRemovedElsewhere(deletedElsewhere)).catch((e) => reportError(e, manifestDocId(deps.vaultId)))
+      try {
+        const decided = await deps.onAttachmentsRemovedElsewhere(deletedElsewhere)
+        if (decided !== false) for (const id of deletedElsewhere) settledElsewhere.add(id)
+      } catch (e) {
+        reportError(e, manifestDocId(deps.vaultId))
+      }
     }
     downloadAttachments(manifest)
     // Another device's push may have raced ours and dropped something this device contributed: push again.
     const view = localView()
     const derived = { ...deriveManifest(view.notes, view.folders), attachments: view.attachments }
-    if (!closed && cloudIsBehind(derived, manifest, deliberatelyRemoved.keys(), attachmentsRemovedHere.keys())) scheduleManifestPush()
+    if (!closed && cloudIsBehind(derived, manifest, deliberatelyRemoved.keys(), goneAttachments.keys())) scheduleManifestPush()
   }
 
   // Attachments other devices synced (3f-3): the bytes are downloaded and stored before the metadata is
@@ -564,13 +593,15 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         deliberatelyRemoved.set(p.id, p.at)
       }
       persistPending()
+      for (const r of (await deps.purgedAttachments?.known().catch(() => [])) ?? []) goneAttachments.set(r.id, r.at)
       for (const r of (await deps.purgedAttachments?.read().catch(() => [])) ?? []) {
         attachmentsRemovedHere.set(r.id, r.at)
-        goneAttachments.add(r.id)
+        goneAttachments.set(r.id, Math.max(r.at, goneAttachments.get(r.id) ?? 0))
       }
       unwatchAttachmentPurge = deps.vault.onAttachmentPurged((id) => {
-        attachmentsRemovedHere.set(id, Date.now())
-        goneAttachments.add(id)
+        const at = Date.now()
+        attachmentsRemovedHere.set(id, at)
+        goneAttachments.set(id, at) // the recorder (`recordPurgedAttachments`) saves it; no `remember` here
         scheduleManifestPush()
       })
       try {

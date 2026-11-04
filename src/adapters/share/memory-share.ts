@@ -36,9 +36,11 @@ export class MemoryShare implements ShareAdapter {
     return out
   }
   private expired = (r: MemoryShareRow) => r.expiresAt !== null && r.expiresAt <= this.now()
-  private guard(r: MemoryShareRow | undefined, expectedSalt: string | null): GuardedWrite {
+  private async guard(r: MemoryShareRow | undefined, expectedSalt: string | null, expectedHash?: Uint8Array): Promise<GuardedWrite> {
     if (!r) return 'not-found'
-    return (r.password?.saltB64 ?? null) === expectedSalt ? 'ok' : 'changed'
+    if ((r.password?.saltB64 ?? null) !== expectedSalt) return 'changed'
+    if (expectedHash && !same(await sha256(r.ciphertext), expectedHash)) return 'changed'
+    return 'ok'
   }
 
   create(s: NewShare): Promise<void> {
@@ -49,9 +51,9 @@ export class MemoryShare implements ShareAdapter {
     })
   }
   update(id: string, ciphertext: Uint8Array, expectedSalt: string | null): Promise<GuardedWrite> {
-    return this.tx((rows) => {
+    return this.tx(async (rows) => {
       const r = rows.get(id)
-      const g = this.guard(r, expectedSalt)
+      const g = await this.guard(r, expectedSalt)
       if (g === 'ok') Object.assign(r!, { ciphertext: ciphertext.slice(), updatedAt: this.now() })
       return g
     })
@@ -89,10 +91,16 @@ export class MemoryShare implements ShareAdapter {
       return { expiresAt: r.expiresAt }
     })
   }
-  setPassword(id: string, ciphertext: Uint8Array, password: NewSharePassword | null, expectedSalt: string | null): Promise<GuardedWrite> {
-    return this.tx((rows) => {
+  setPassword(
+    id: string,
+    ciphertext: Uint8Array,
+    password: NewSharePassword | null,
+    expectedSalt: string | null,
+    expectedHash: Uint8Array,
+  ): Promise<GuardedWrite> {
+    return this.tx(async (rows) => {
       const r = rows.get(id)
-      const g = this.guard(r, expectedSalt)
+      const g = await this.guard(r, expectedSalt, expectedHash)
       if (g !== 'ok') return g
       r!.ciphertext = ciphertext.slice()
       r!.password = password && { saltB64: password.saltB64, iterations: password.iterations, pwKey: password.pwKey }
@@ -104,10 +112,11 @@ export class MemoryShare implements ShareAdapter {
     oldId: string,
     next: { id: string; wrappedKey: string; ciphertext: Uint8Array; verifier: Uint8Array | null; pwKey: string | null },
     expectedSalt: string | null,
+    expectedHash: Uint8Array,
   ): Promise<GuardedWrite> {
-    return this.tx((rows) => {
+    return this.tx(async (rows) => {
       const r = rows.get(oldId)
-      const g = this.guard(r, expectedSalt)
+      const g = await this.guard(r, expectedSalt, expectedHash)
       if (g !== 'ok') return g
       if (rows.has(next.id)) throw new ShareError('unknown', 'duplicate share id')
       if (!r!.password !== !next.verifier || !r!.password !== !next.pwKey) throw new ShareError('unknown', 'password fields do not match the link')

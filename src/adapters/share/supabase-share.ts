@@ -33,7 +33,7 @@ const toRecord = (r: Row): ShareRecord => ({
 })
 
 /**
- * `ShareAdapter` on Supabase's `share_links` table (migrations 0004, 0005). The owner reads and writes through
+ * `ShareAdapter` on Supabase's `share_links` table (migrations 0004–0006). The owner reads and writes through
  * RLS (own rows only); expiry and renewal go through functions so the database clock and one transaction decide.
  * Viewers are anonymous and never select from the table — they call `get_shared_snapshot` and, for a protected
  * link, `open_protected_snapshot`, which return one row's data by id, so links cannot be listed.
@@ -53,33 +53,35 @@ export class SupabaseShare implements ShareAdapter {
     if (error) throw toError(error)
   }
 
-  /** An update guarded on the password salt; when nothing matched, tells "gone" from "password changed". */
-  private async guarded(id: string, values: Record<string, unknown>, expectedSalt: string | null): Promise<GuardedWrite> {
-    const q = this.client.from('share_links').update(values).eq('id', id)
-    const { data, error } = await (expectedSalt === null ? q.is('pw_salt', null) : q.eq('pw_salt', expectedSalt)).select('id')
+  /** A guarded owner write done by a database function (migration 0006) that answers ok／changed／not-found. */
+  private async guarded(fn: string, args: Record<string, unknown>): Promise<GuardedWrite> {
+    const { data, error } = await this.client.rpc(fn, args)
     if (error) throw toError(error)
-    if ((data ?? []).length > 0) return 'ok'
-    const { data: still, error: e2 } = await this.client.from('share_links').select('id').eq('id', id)
-    if (e2) throw toError(e2)
-    return (still ?? []).length > 0 ? 'changed' : 'not-found'
+    if (data === 'ok' || data === 'not-found' || data === 'changed') return data
+    throw new ShareError('unknown', `unexpected ${fn} result`)
   }
 
   update(id: string, ciphertext: Uint8Array, expectedSalt: string | null): Promise<GuardedWrite> {
-    return this.guarded(id, { ciphertext: bytesToPgHex(ciphertext) }, expectedSalt)
+    return this.guarded('update_share_snapshot', { p_id: id, p_ciphertext: bytesToPgHex(ciphertext), p_expected_salt: expectedSalt })
   }
 
-  setPassword(id: string, ciphertext: Uint8Array, password: NewSharePassword | null, expectedSalt: string | null): Promise<GuardedWrite> {
-    return this.guarded(
-      id,
-      {
-        ciphertext: bytesToPgHex(ciphertext),
-        pw_salt: password?.saltB64 ?? null,
-        pw_iterations: password?.iterations ?? null,
-        pw_verifier: password ? bytesToPgHex(password.verifier) : null,
-        pw_key: password?.pwKey ?? null,
-      },
-      expectedSalt,
-    )
+  setPassword(
+    id: string,
+    ciphertext: Uint8Array,
+    password: NewSharePassword | null,
+    expectedSalt: string | null,
+    expectedHash: Uint8Array,
+  ): Promise<GuardedWrite> {
+    return this.guarded('set_share_password', {
+      p_id: id,
+      p_ciphertext: bytesToPgHex(ciphertext),
+      p_salt: password?.saltB64 ?? null,
+      p_iterations: password?.iterations ?? null,
+      p_verifier: password ? bytesToPgHex(password.verifier) : null,
+      p_key: password?.pwKey ?? null,
+      p_expected_salt: expectedSalt,
+      p_expected_hash: bytesToPgHex(expectedHash),
+    })
   }
 
   async remove(id: string): Promise<void> {
@@ -129,8 +131,9 @@ export class SupabaseShare implements ShareAdapter {
     oldId: string,
     next: { id: string; wrappedKey: string; ciphertext: Uint8Array; verifier: Uint8Array | null; pwKey: string | null },
     expectedSalt: string | null,
+    expectedHash: Uint8Array,
   ): Promise<GuardedWrite> {
-    const { data, error } = await this.client.rpc('renew_share_link', {
+    return this.guarded('renew_share_link', {
       p_old: oldId,
       p_new: next.id,
       p_wrapped_key: next.wrappedKey,
@@ -138,10 +141,8 @@ export class SupabaseShare implements ShareAdapter {
       p_pw_verifier: next.verifier ? bytesToPgHex(next.verifier) : null,
       p_pw_key: next.pwKey,
       p_expected_salt: expectedSalt,
+      p_expected_hash: bytesToPgHex(expectedHash),
     })
-    if (error) throw toError(error)
-    if (data === 'ok' || data === 'not-found' || data === 'changed') return data
-    throw new ShareError('unknown', 'unexpected renew result')
   }
 
   async getPublic(id: string): Promise<PublicShare | null> {

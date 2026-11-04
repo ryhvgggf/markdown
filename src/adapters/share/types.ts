@@ -49,8 +49,9 @@ export interface NewSharePassword {
 
 /**
  * The result of a guarded owner write. Writes that depend on the link's current key (snapshot, password,
- * renew) name the password salt they were computed for; `'changed'` means another device changed the password
- * meanwhile and nothing was written.
+ * renew) name the password salt they were computed for; password changes and renewals, which re-encrypt the
+ * current snapshot, also name that snapshot (SHA-256 of its ciphertext). `'changed'` means another device changed
+ * the password or the snapshot meanwhile and nothing was written.
  */
 export type GuardedWrite = 'ok' | 'not-found' | 'changed'
 
@@ -84,12 +85,17 @@ export interface ShareAdapter {
   /** Sets the expiry to server time + `seconds` (null = never). Returns the new expiry, or `'not-found'`. */
   setExpiry(id: string, seconds: number | null): Promise<{ expiresAt: number | null } | 'not-found'>
   /** Sets, changes (`password`) or removes (null) the password, replacing the ciphertext in the same write. */
-  setPassword(id: string, ciphertext: Uint8Array, password: NewSharePassword | null, expectedSalt: string | null): Promise<GuardedWrite>
+  setPassword(id: string, ciphertext: Uint8Array, password: NewSharePassword | null, expectedSalt: string | null, expectedHash: Uint8Array): Promise<GuardedWrite>
   /**
    * Renews a link in one transaction: `next` gets the old link's note, expiry, password settings and snapshot
    * time, and the old id stops working.
    */
-  renew(oldId: string, next: { id: string; wrappedKey: string; ciphertext: Uint8Array; verifier: Uint8Array | null; pwKey: string | null }, expectedSalt: string | null): Promise<GuardedWrite>
+  renew(
+    oldId: string,
+    next: { id: string; wrappedKey: string; ciphertext: Uint8Array; verifier: Uint8Array | null; pwKey: string | null },
+    expectedSalt: string | null,
+    expectedHash: Uint8Array,
+  ): Promise<GuardedWrite>
   /** What anyone with the link can fetch, signed in or not; null if there is no such link. */
   getPublic(id: string): Promise<PublicShare | null>
   /** A protected link's ciphertext for the right proof; null if there is no such link. */

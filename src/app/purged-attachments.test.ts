@@ -33,8 +33,18 @@ describe('permanently deleted attachments waiting for the cloud', () => {
     await until(async () => (await store.read()).length === 1)
     expect((await store.read()).map((x) => x.id)).toEqual([a.id])
     expect(await purgedAttachmentStore(db, 'vB').read()).toEqual([]) // another account's list stays its own
-    await store.remove([a.id])
+    await store.markDone([a.id])
     expect(await store.read()).toEqual([])
+    expect((await store.known()).map((x) => x.id)).toEqual([a.id]) // the mark itself is kept for good
+  })
+
+  it('remembers marks learned from the cloud, once, without making them pending', async () => {
+    const store = purgedAttachmentStore(db, 'vA')
+    await store.remember([{ id: 'x', at: 1 }, { id: 'y', at: 2 }])
+    await store.remember([{ id: 'x', at: 1 }])
+    expect((await store.known()).map((m) => m.id)).toEqual(['x', 'y'])
+    expect(await store.read()).toEqual([])
+    expect(await purgedAttachmentStore(db, 'vB').known()).toEqual([])
   })
 
   it('a device that never signed in records nothing; a rolled-back insert is not a delete', async () => {

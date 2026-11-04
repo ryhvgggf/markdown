@@ -39,12 +39,15 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
     const pwBits = await unwrapSharePwBits(a.kek, r.vaultId, r.id, fromB64(r.password.pwKey))
     return (await deriveSharePasswordSecrets(linkKey, r.id, pwBits)).contentKey
   }
-  /** The link's current state and plaintext snapshot, read back from the server (for re-encrypting it). */
+  /**
+   * The link's current state and plaintext snapshot, read back from the server (for re-encrypting it), and the
+   * SHA-256 of that ciphertext: the write is refused if another device replaced the snapshot meanwhile.
+   */
   const current = async (a: ShareAccount, id: string) => {
     const own = await adapter.getOwn(id)
     if (!own) throw new ShareError('not-found')
     const bytes = await decryptShareSnapshot(await contentKeyOf(a, own.record), id, own.ciphertext)
-    return { record: own.record, bytes }
+    return { record: own.record, bytes, hash: await shareProofVerifier(own.ciphertext) }
   }
   const settle = (g: GuardedWrite) => {
     if (g === 'not-found') throw new ShareError('not-found')
@@ -114,7 +117,7 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
       const a = need()
       if (password !== null && [...password].length < MIN_SHARE_PASSWORD) throw new ShareError('weak-password')
       for (let attempt = 0; ; attempt++) {
-        const { record, bytes } = await current(a, shareId)
+        const { record, bytes, hash } = await current(a, shareId)
         const linkKey = await linkKeyOf(a, record)
         let key = linkKey
         let next: NewSharePassword | null = null
@@ -130,7 +133,7 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
           }
         }
         const ciphertext = await encryptShareSnapshot(key, shareId, bytes)
-        const g = await adapter.setPassword(shareId, ciphertext, next, record.password?.saltB64 ?? null)
+        const g = await adapter.setPassword(shareId, ciphertext, next, record.password?.saltB64 ?? null, hash)
         if (settle(g))
           return { ...record, password: next && { saltB64: next.saltB64, iterations: next.iterations, pwKey: next.pwKey } }
         if (attempt > 0) throw new ShareError('unknown', 'the link keeps changing')
@@ -144,7 +147,7 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
     async renew(shareId: string): Promise<{ record: ShareRecord; url: string }> {
       const a = need()
       for (let attempt = 0; ; attempt++) {
-        const { record, bytes } = await current(a, shareId)
+        const { record, bytes, hash } = await current(a, shareId)
         const id = newShareId()
         const linkKey = await generateShareKey()
         let key = linkKey
@@ -159,7 +162,7 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
         }
         const ciphertext = await encryptShareSnapshot(key, id, bytes)
         const wrappedKey = toB64(await wrapShareKey(a.kek, record.vaultId, id, linkKey))
-        const g = await adapter.renew(shareId, { id, wrappedKey, ciphertext, verifier, pwKey }, record.password?.saltB64 ?? null)
+        const g = await adapter.renew(shareId, { id, wrappedKey, ciphertext, verifier, pwKey }, record.password?.saltB64 ?? null, hash)
         if (settle(g))
           return {
             record: { ...record, id, wrappedKey, createdAt: Date.now(), password: record.password && pwKey ? { ...record.password, pwKey } : null },

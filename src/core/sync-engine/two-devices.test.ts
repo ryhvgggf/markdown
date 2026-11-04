@@ -702,7 +702,7 @@ describe('permanently deleting an attachment', () => {
     await purge(a, 'att1')
     const again = createSyncManager({
       sync, attachmentSync, storage: a.storage, noteDocs: a.notes, vault: a.vault, vaultId: 'v1', kek, deviceId: 'A',
-      purgedAttachments: { read: async () => [{ id: 'att1', at: 5 }], remove: async () => {} },
+      purgedAttachments: { read: async () => [{ id: 'att1', at: 5 }], markDone: async () => {}, known: async () => [], remember: async () => {} },
     })
     a.manager = again
     await again.start()

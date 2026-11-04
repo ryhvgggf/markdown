@@ -501,3 +501,19 @@ describe('Maintenance round 3', () => {
     expect(spy).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('which deletes are deliberate (4b review, finding 1)', () => {
+  it('deleting a note forever removes its now-unused attachments everywhere; the daily GC only here', async () => {
+    const ofNote = await attachment(0)
+    const old = await attachment(60) // unused and older than 30 days: the daily GC's job
+    const n = await noteWith('Has a picture', ['x', media(ofNote)])
+    const purged: string[] = []
+    vault.onAttachmentPurged((id) => purged.push(id))
+    await m.runStartup()
+    expect(vault.getAttachment(old)).toBeUndefined()
+    expect(purged).toEqual([]) // the GC: gone here, no signal
+    vault.trashNote(n.id)
+    await m.purge({ kind: 'note', id: n.id })
+    expect(purged).toEqual([ofNote])
+  })
+})

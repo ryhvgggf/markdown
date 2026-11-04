@@ -116,15 +116,22 @@ export class Maintenance {
       await db.meta.put({ key: LAST_ATTACHMENT_GC_KEY, value: now })
       const refs = await indexer.referencedAttachmentIds({ pause: this.pause })
       if (!refs) return // some note is unreadable and may reference any of them: delete nothing
-      const ids = new Set(vault.unreferencedAttachmentIds(now, refs))
+      // Unreferenced and old: only "unused on this device", which can be wrong for a device that has not
+      // downloaded every note's content yet (or for notes that only exist on another device). So this deletes
+      // the local copy only — never the deliberate-delete signal that removes it from the cloud for everyone.
+      const stale = new Set(vault.unreferencedAttachmentIds(now, refs))
+      // Due marks come from a permanent note delete (a deliberate act) that could not decide at the time.
+      const purge = new Set<string>()
       const settled = new Set<string>() // due marks that are resolved (deleted, referenced or gone)
       for (const id of due) {
         const a = vault.getAttachment(id)
         // Settled: used again, gone, or restored from the trash after it was marked (the user wants it).
         if (refs.has(id) || !a || (a.restoredAt ?? 0) >= marks[id] - ATTACHMENT_GRACE_MS) settled.add(id)
-        else if (a.deletedAt === null) ids.add(id) // one in the trash waits for the trash's own expiry
+        else if (a.deletedAt === null) purge.add(id) // one in the trash waits for the trash's own expiry
       }
-      for (const id of await this.deleteAttachments([...ids])) if (due.includes(id)) settled.add(id)
+      for (const id of purge) stale.delete(id)
+      await this.deleteAttachments([...stale], 'local')
+      for (const id of await this.deleteAttachments([...purge], 'purge')) settled.add(id)
       await this.updateMarks((m) => {
         for (const id of settled) delete m[id]
       })
@@ -208,7 +215,7 @@ export class Maintenance {
       const a = vault.getAttachment(id)
       return a && a.deletedAt === null && !refs.has(id)
     })
-    const deleted = new Set(await this.deleteAttachments(ids))
+    const deleted = new Set(await this.deleteAttachments(ids, 'purge'))
     const failed = ids.filter((id) => !deleted.has(id))
     if (failed.length) {
       // Reported by deleteAttachments; the daily GC retries these after the grace period.
@@ -249,22 +256,24 @@ export class Maintenance {
   /**
    * Another device deleted these attachments for good: the copies here go too, unless a note on this device
    * still uses one (then it stays, local only: sync never uploads a deleted attachment again). Not a purge of
-   * its own (no new removal mark). Never rejects.
+   * its own (no new removal mark). Never rejects; returns false when it could not decide (asked again later).
    */
-  async removeAttachmentsDeletedElsewhere(ids: string[]): Promise<void> {
+  async removeAttachmentsDeletedElsewhere(ids: string[]): Promise<boolean> {
     const { vault, storage, indexer } = this.d
     try {
       const present = ids.filter((id) => vault.getAttachment(id))
-      if (!present.length) return
+      if (!present.length) return true
       const refs = await indexer.referencedAttachmentIds()
-      if (!refs) return // can't tell which are used: keep them (asked again on the next manifest pull)
+      if (!refs) return false // can't tell which are used: keep them (asked again on a later manifest pull)
       for (const id of present) {
         if (refs.has(id) || !vault.getAttachment(id)) continue
         await storage.deleteBlob(id)
         vault.removeAttachment(id)
       }
+      return true
     } catch (e) {
       this.report(e)
+      return false
     }
   }
 
@@ -424,13 +433,18 @@ export class Maintenance {
     })
   }
 
-  /** Blob first, metadata second: a crash in between leaves metadata the next GC removes, never a lost blob. */
-  private async deleteAttachments(ids: string[]): Promise<string[]> {
+  /**
+   * Blob first, metadata second: a crash in between leaves metadata the next GC removes, never a lost blob.
+   * `'purge'`: a deliberate permanent delete (sync removes it from the cloud for every device); `'local'`: this
+   * device's copy only (sync may download it again if a synced note still uses it).
+   */
+  private async deleteAttachments(ids: string[], how: 'purge' | 'local'): Promise<string[]> {
     const deleted: string[] = []
     for (const id of ids) {
       await this.step(async () => {
         await this.d.storage.deleteBlob(id)
-        this.d.vault.purgeAttachment(id)
+        if (how === 'purge') this.d.vault.purgeAttachment(id)
+        else this.d.vault.removeAttachment(id)
         deleted.push(id)
       })
     }

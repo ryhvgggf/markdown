@@ -168,6 +168,37 @@ describe('share options (phase 4b)', () => {
     })
   })
 
+  describe('a snapshot update from another device in the middle (4b review)', () => {
+    /** The adapter, with `between` run right after the first `getOwn` (another device acting meanwhile). */
+    const racing = (between: () => Promise<void>) => {
+      let once = true
+      const raced = Object.create(store) as MemoryShare
+      raced.getOwn = async (id: string) => {
+        const r = await store.getOwn(id)
+        if (once) {
+          once = false
+          await between()
+        }
+        return r
+      }
+      return createShareService({ adapter: raced, account: () => ({ userId: 'u1', vaultId: 'v1', kek }), origin: ORIGIN })
+    }
+
+    it('changing the password does not bring back the older snapshot', async () => {
+      const { url, record } = await service.create('n1', snap('舊', 1))
+      const slow = racing(async () => other.update((await other.listForNote('n1'))[0], snap('新', 2)))
+      await slow.setPassword(record.id, 'correct horse')
+      expect(await open(url, 'correct horse')).toEqual(snap('新', 2))
+    })
+
+    it('renewing the link does not bring back the older snapshot', async () => {
+      const { record } = await service.create('n1', snap('舊', 1))
+      const slow = racing(async () => other.update((await other.listForNote('n1'))[0], snap('新', 2)))
+      const renewed = await slow.renew(record.id)
+      expect(await open(renewed.url)).toEqual(snap('新', 2))
+    })
+  })
+
   describe('renew', () => {
     it('the old link stops at once; the new one shows the same snapshot, expiry and snapshot time', async () => {
       const { url, record } = await service.create('n1', snap('a'))
