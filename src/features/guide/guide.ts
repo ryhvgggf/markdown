@@ -10,6 +10,7 @@ import { DIRTY_PREFIX } from '@/core/indexer/indexer'
 import { dedupeTitle } from '@/core/vault/titles'
 import type { Vault } from '@/core/vault/vault'
 import { BLOCK_TYPES, createExtensions, type EditorContext } from '@/features/editor/extensions'
+import type { NoteDocCache } from '@/core/note-doc/cache'
 import { GUIDE_FOLDER, GUIDE_NOTES, GUIDE_VERSION, guideDoc, type GuideKey, type GuideRefs } from './guide-content'
 import { assignBlockIds } from './pm-json'
 
@@ -40,8 +41,10 @@ export function untouchedGuideFolderIds(vault: Vault): string[] {
 
 /** meta flag: the guide was seeded once on this device (deleting it must not bring it back). */
 export const GUIDE_SEEDED_KEY = 'guideSeeded'
-/** meta: the `GUIDE_VERSION` this device's guide notes were written at (missing: written before versions existed = 1). */
-export const GUIDE_VERSION_KEY = 'guideVersion'
+/** Key in a guide note's own document meta (Yjs): the `GUIDE_VERSION` its text was written at. Missing = older. */
+export const GUIDE_STAMP_KEY = 'guideVersion'
+/** meta: the version `updateGuide` last found this device's guide at (saves reading every guide note on each start). */
+export const GUIDE_CHECKED_KEY = 'guideChecked'
 const DEMO_IMAGE_NAME = '範例圖片.png'
 
 /** 192 × 108 PNG (sky, sun, two hills) for the image demo. */
@@ -108,60 +111,94 @@ export async function addGuide(deps: { vault: Vault; storage: StorageAdapter; db
     schema.nodeFromJSON(json).check() // never store a document the editor cannot open
     const ydoc = new Y.Doc()
     ydoc.getMap('meta').set('schemaVersion', 1)
+    ydoc.getMap('meta').set(GUIDE_STAMP_KEY, GUIDE_VERSION)
     prosemirrorJSONToYXmlFragment(schema, json, ydoc.getXmlFragment('content'))
     await storage.appendUpdate(noteId, Y.encodeStateAsUpdate(ydoc))
     ydoc.destroy()
     await db.meta.put({ key: DIRTY_PREFIX + noteId, value: 1 })
   }
   await vault.flushWrites()
-  await db.meta.put({ key: GUIDE_VERSION_KEY, value: GUIDE_VERSION })
   return { folderId: folder.id, noteIds: GUIDE_NOTES.map((n) => ids.get(n.key)!) }
 }
 
 export type GuideUpdate = 'updated' | 'current' | 'none' | 'skipped'
 
 /**
- * Brings an older guide on this device up to `GUIDE_VERSION`, so people who started before a feature existed
- * also find it described. Only a guide nobody has touched is rewritten (`untouchedGuideFolderIds`: top-level
- * 功能導覽 folder, only guide notes, none edited, none synced, so devices never rewrite the same note and
- * duplicate it); the notes keep their ids, missing guide notes are added to that folder. Nothing happens when
- * the guide was deleted (it must not come back), was edited or synced, or when one of its notes is open in
- * an editor right now ('skipped': tried again on the next start). A guide the user changed stays as it is;
- * 資料 → 加入功能導覽筆記 adds a fresh copy.
+ * The guide is the app's own documentation, so an older one is brought up to `GUIDE_VERSION` even where the
+ * user edited it (their own notes are never touched). It finds the guide by folder and title: every top-level
+ * 「功能導覽」 folder, and in it the notes whose title (without a ` (n)` suffix) is a guide title. A note keeps
+ * its id and title; a guide note that is missing is added to that folder. Each guide note carries the version
+ * of its text in its own document (`GUIDE_STAMP_KEY`), which travels with sync, so a copy another device
+ * already updated is not rewritten again. The whole folder is rewritten together (the notes link to each
+ * other's blocks). Not done, and tried again later ('skipped'):
+ * - while one of its notes is open in an editor;
+ * - while one of its notes is synced and sync is not up to date (signed out, or still catching up): two devices
+ *   rewriting the same synced note would end up with both texts.
+ * A deleted guide stays deleted (資料 → 加入功能導覽筆記 adds a fresh one).
  */
 export async function updateGuide(deps: {
   vault: Vault
   storage: StorageAdapter
   db: NotesDb
+  notes: NoteDocCache
   /** Replaces a note's content (`DocIO.replace`: no change of the note's modified time). */
   replace: (noteId: string, doc: PMNode) => Promise<void>
-  isOpen: (noteId: string) => boolean
+  /** Whether sync is running and has caught up with the cloud. */
+  syncSettled: () => boolean
 }): Promise<GuideUpdate> {
-  const { vault, storage, db } = deps
+  const { vault, storage, db, notes } = deps
   if (!(await db.meta.get(GUIDE_SEEDED_KEY))?.value) return 'none'
-  const have = (await db.meta.get(GUIDE_VERSION_KEY))?.value
-  if (typeof have === 'number' && have >= GUIDE_VERSION) return 'current'
-  const folderIds = untouchedGuideFolderIds(vault)
-  if (!folderIds.length) return 'none'
+  const checked = (await db.meta.get(GUIDE_CHECKED_KEY))?.value
+  if (typeof checked === 'number' && checked >= GUIDE_VERSION) return 'current'
   const base = (t: string) => t.replace(/ \(\d+\)$/, '')
-  const inFolder = (id: string) => vault.listNotes().filter((n) => n.folderId === id)
-  if (folderIds.some((id) => inFolder(id).some((n) => deps.isOpen(n.id)))) return 'skipped'
+  const keyOf = (title: string) => GUIDE_NOTES.find((g) => g.title === base(title))?.key
+  const guides = vault
+    .listFolders()
+    .filter((f) => f.parentId === null && base(f.name) === GUIDE_FOLDER)
+    .map((folder) => {
+      const ids = new Map<GuideKey, string>()
+      for (const n of vault.listNotes().filter((x) => x.folderId === folder.id)) {
+        const key = keyOf(n.title)
+        if (key && !ids.has(key)) ids.set(key, n.id)
+      }
+      return { folder, ids }
+    })
+    .filter((g) => g.ids.size > 0)
+  if (!guides.length) return 'none'
+  const matched = guides.flatMap((g) => [...g.ids.values()])
+  if (matched.some((id) => notes.isInUse(id))) return 'skipped'
+  if (matched.some((id) => vault.getNote(id)?.synced) && !deps.syncSettled()) return 'skipped'
+
+  const stampOf = async (id: string): Promise<number> => {
+    const ydoc = await notes.acquire(id)
+    try {
+      const v = ydoc.getMap('meta').get(GUIDE_STAMP_KEY)
+      return typeof v === 'number' ? v : 0
+    } finally {
+      notes.release(id)
+    }
+  }
+  const stale: typeof guides = []
+  for (const g of guides) {
+    let current = g.ids.size === GUIDE_NOTES.length
+    for (const id of g.ids.values()) if ((await stampOf(id)) < GUIDE_VERSION) current = false
+    if (!current) stale.push(g)
+  }
+  if (!stale.length) {
+    await db.meta.put({ key: GUIDE_CHECKED_KEY, value: GUIDE_VERSION })
+    return 'current'
+  }
 
   const schema = guideSchema()
   const image =
     vault.listAttachments().find((a) => a.filename === DEMO_IMAGE_NAME && a.mimeType === 'image/png')?.id ?? (await storeDemoImage(vault, storage))
-  for (const folderId of folderIds) {
-    const ids = new Map<GuideKey, string>()
-    for (const n of inFolder(folderId)) {
-      const key = GUIDE_NOTES.find((g) => g.title === base(n.title))?.key
-      if (key && !ids.has(key)) ids.set(key, n.id)
-    }
+  for (const { folder, ids } of stale) {
     const taken = new Set(vault.listNotes().map((n) => n.title))
     for (const { key, title } of GUIDE_NOTES) {
       if (ids.has(key)) continue
       const unique = dedupeTitle(title, taken)
       taken.add(unique)
-      ids.set(key, vault.createNote({ title: unique, folderId }).id)
+      ids.set(key, vault.createNote({ title: unique, folderId: folder.id }).id)
     }
     const blockIds = new Map<string, string>()
     const refs: GuideRefs = {
@@ -174,12 +211,20 @@ export async function updateGuide(deps: {
       image,
     }
     for (const { key } of GUIDE_NOTES) {
+      const id = ids.get(key)!
       const json = assignBlockIds(guideDoc(key, refs), BLOCK_TYPES, newId)
       schema.nodeFromJSON(json).check() // never store a document the editor cannot open
-      await deps.replace(ids.get(key)!, json)
+      await deps.replace(id, json)
+      const ydoc = await notes.acquire(id)
+      try {
+        ydoc.getMap('meta').set(GUIDE_STAMP_KEY, GUIDE_VERSION)
+      } finally {
+        notes.release(id)
+      }
     }
   }
+  await notes.flushAll()
   await vault.flushWrites()
-  await db.meta.put({ key: GUIDE_VERSION_KEY, value: GUIDE_VERSION })
+  await db.meta.put({ key: GUIDE_CHECKED_KEY, value: GUIDE_VERSION })
   return 'updated'
 }

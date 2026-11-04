@@ -26,23 +26,47 @@ export function startPageLifecycle(s: AppServices, win: Win = window, doc: Docum
     const run = () => {
       void s.maintenance.runStartup()
       void s.mirror?.init().catch((e) => console.warn('[mirror]', e))
-      // An older, untouched guide gets the text of features added since (see `updateGuide`).
-      void import('@/features/guide/guide')
-        .then((g) =>
-          g.updateGuide({
-            vault: s.vault,
-            storage: s.storage,
-            db: s.db,
-            replace: (id, doc) => s.transfer.docs.replace(id, doc),
-            isOpen: (id) => s.notes.isInUse(id),
-          }),
-        )
-        .catch((e) => console.warn('[guide]', e))
+      // The guide is our own documentation: an older one is updated to the current text (see `updateGuide`).
+      // When it has to wait for sync to catch up, it is tried again whenever the sync status changes.
+      const tryGuide = () =>
+        import('@/features/guide/guide')
+          .then((g) =>
+            g.updateGuide({
+              vault: s.vault,
+              storage: s.storage,
+              db: s.db,
+              notes: s.notes,
+              replace: (id, doc) => s.transfer.docs.replace(id, doc),
+              syncSettled: () => s.account.getSyncStatus().state === 'synced',
+            }),
+          )
+          .then((r) => {
+            if (r === 'skipped' && !stopGuide && !closed) stopGuide = s.account.subscribeSync(() => void retryGuide())
+            else if (r !== 'skipped') endGuide()
+          })
+          .catch((e) => console.warn('[guide]', e))
+      const retryGuide = async () => {
+        if (guideBusy) return
+        guideBusy = true
+        try {
+          await tryGuide()
+        } finally {
+          guideBusy = false
+        }
+      }
+      void retryGuide()
     }
     if (win.requestIdleCallback) idle = win.requestIdleCallback(run, { timeout: 5000 })
     else run()
   }, MAINTENANCE_DELAY_MS)
   const offDuplicates = s.maintenance.watchDuplicateTitles()
+  let stopGuide: (() => void) | null = null
+  let guideBusy = false
+  let closed = false
+  const endGuide = () => {
+    stopGuide?.()
+    stopGuide = null
+  }
 
   const flush = () => {
     s.stashUnsaved() // synchronous safety net: async writes below may be cut off by the unload
@@ -77,6 +101,8 @@ export function startPageLifecycle(s: AppServices, win: Win = window, doc: Docum
   doc.addEventListener('visibilitychange', onVisibility)
   win.addEventListener('online', retry)
   return () => {
+    closed = true
+    endGuide()
     clearTimeout(delay)
     if (idle !== null) win.cancelIdleCallback?.(idle)
     offDuplicates()

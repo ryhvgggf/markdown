@@ -10,7 +10,7 @@ import { NoteDocCache } from '@/core/note-doc/cache'
 import { Indexer } from '@/core/indexer/indexer'
 import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
 import type { PMNode as Json } from '@/core/markdown/types'
-import { addGuide, GUIDE_FOLDER, GUIDE_SEEDED_KEY, GUIDE_TITLES, GUIDE_VERSION_KEY, guideSchema, untouchedGuideFolderIds, updateGuide } from './guide'
+import { addGuide, GUIDE_FOLDER, GUIDE_CHECKED_KEY, GUIDE_SEEDED_KEY, GUIDE_STAMP_KEY, GUIDE_TITLES, guideSchema, untouchedGuideFolderIds, updateGuide } from './guide'
 import { GUIDE_VERSION } from './guide-content'
 
 const fakeChannel = () =>
@@ -194,14 +194,33 @@ describe('updateGuide', () => {
     })
     await storage.appendUpdate(noteId, Y.encodeStateAsUpdate(doc, before))
   }
-  const run = (isOpen: (id: string) => boolean = () => false) => updateGuide({ vault, storage, db, replace, isOpen })
+  let cache: NoteDocCache
+  let settled = true
+  beforeEach(() => {
+    cache = new NoteDocCache(storage, { channelFactory: fakeChannel })
+    settled = true
+  })
+  const run = () => updateGuide({ vault, storage, db, notes: cache, replace, syncSettled: () => settled })
   const seeded = () => db.meta.put({ key: GUIDE_SEEDED_KEY, value: 1 })
+  const stampOf = async (id: string) => {
+    const doc = new Y.Doc()
+    for (const u of await storage.loadDoc(id)) Y.applyUpdate(doc, u)
+    return doc.getMap('meta').get(GUIDE_STAMP_KEY)
+  }
+  const setStamp = async (id: string, v: number | null) => {
+    const doc = await cache.acquire(id)
+    if (v === null) doc.getMap('meta').delete(GUIDE_STAMP_KEY)
+    else doc.getMap('meta').set(GUIDE_STAMP_KEY, v)
+    cache.release(id)
+    await cache.flushAll()
+  }
+  const welcomeText = async (id: string) => (await loadNode(id)).textContent
 
-  /** A guide as an older version made it: no version mark, without the notes added since, old welcome text. */
+  /** A guide as an older version made it: no stamps, without the notes added since, old welcome text. */
   async function oldGuide() {
     const g = await addGuide({ vault, storage, db })
     await seeded()
-    await db.meta.delete(GUIDE_VERSION_KEY)
+    for (const id of g.noteIds) await setStamp(id, null)
     for (const key of ['帳號與同步', '分享筆記']) {
       const n = vault.listNotes().find((x) => x.title === key)!
       vault.trashNote(n.id)
@@ -211,28 +230,23 @@ describe('updateGuide', () => {
     return g
   }
 
-  it('does nothing on a current guide or before any guide was made', async () => {
+  it('does nothing before any guide was made, and nothing on a current guide', async () => {
     expect(await run()).toBe('none')
-    await addGuide({ vault, storage, db })
+    const g = await addGuide({ vault, storage, db })
     await seeded()
     expect(await run()).toBe('current')
+    expect(await stampOf(g.noteIds[0])).toBe(GUIDE_VERSION)
   })
 
-  it('rewrites an untouched old guide in place, adds the new notes, keeps ids and the untouched state', async () => {
+  it('rewrites an old guide in place, adds the new notes, keeps ids, titles and stamps every note', async () => {
     const g = await oldGuide()
-    const welcomeBefore = vault.getNote(g.noteIds[0])!
     expect(await run()).toBe('updated')
     const inFolder = vault.listNotes().filter((n) => n.folderId === g.folderId)
     expect(inFolder.map((n) => n.title).sort()).toEqual([...GUIDE_TITLES].sort())
-    expect(vault.getNote(g.noteIds[0])!.updatedAt).toBe(welcomeBefore.updatedAt) // still "untouched"
-    expect(untouchedGuideFolderIds(vault)).toEqual([g.folderId])
-    expect((await db.meta.get(GUIDE_VERSION_KEY))?.value).toBe(GUIDE_VERSION)
-    // the welcome note is the current text and links to the notes that were added
+    for (const n of inFolder) expect(await stampOf(n.id), n.title).toBe(GUIDE_VERSION)
+    expect(await welcomeText(g.noteIds[0])).not.toContain('舊的歡迎')
     const welcome = collect(await loadNode(g.noteIds[0]))
-    const added = inFolder.filter((n) => ['帳號與同步', '分享筆記'].includes(n.title)).map((n) => n.id)
-    expect(added).toHaveLength(2)
-    for (const id of added) expect(welcome.links.map((l) => l.noteId)).toContain(id)
-    // every link in every note resolves and every block link points at a block that exists
+    for (const n of inFolder.filter((x) => ['帳號與同步', '分享筆記'].includes(x.title))) expect(welcome.links.map((l) => l.noteId)).toContain(n.id)
     const docs = new Map<string, ReturnType<typeof collect>>()
     for (const n of inFolder) docs.set(n.id, collect(await loadNode(n.id)))
     for (const { links } of docs.values())
@@ -240,16 +254,40 @@ describe('updateGuide', () => {
         expect(docs.has(l.noteId)).toBe(true)
         if (l.blockId) expect(docs.get(l.noteId)!.blockIds.has(l.blockId)).toBe(true)
       }
-    // a second run has nothing to do
     expect(await run()).toBe('current')
+    expect((await db.meta.get(GUIDE_CHECKED_KEY))?.value).toBe(GUIDE_VERSION)
   })
 
-  it('leaves a guide the user edited or synced alone', async () => {
+  it('updates even a guide the user edited, but never their own notes in that folder', async () => {
     const g = await oldGuide()
     vault.touchNote(g.noteIds[1])
-    expect(await run()).toBe('none')
-    expect(await db.meta.get(GUIDE_VERSION_KEY)).toBeUndefined()
-    expect(vault.listNotes().filter((n) => n.folderId === g.folderId)).toHaveLength(GUIDE_TITLES.length - 2)
+    const mine = vault.createNote({ title: '我自己的筆記', folderId: g.folderId })
+    await replace(mine.id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '我的內容' }] }] })
+    expect(await run()).toBe('updated')
+    expect(await welcomeText(g.noteIds[0])).not.toContain('舊的歡迎')
+    expect(await welcomeText(mine.id)).toBe('我的內容')
+    expect(vault.getNote(mine.id)!.title).toBe('我自己的筆記')
+  })
+
+  it('leaves alone a copy another device already updated (the stamp came with sync)', async () => {
+    const g = await oldGuide()
+    expect(await run()).toBe('updated')
+    for (const id of g.noteIds) await setStamp(id, GUIDE_VERSION - 1)
+    for (const id of g.noteIds) await setStamp(id, GUIDE_VERSION)
+    await db.meta.delete(GUIDE_CHECKED_KEY) // as on a device that has not looked yet
+    await replace(g.noteIds[0], { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '別台寫的' }] }] })
+    expect(await run()).toBe('current')
+    expect(await welcomeText(g.noteIds[0])).toBe('別台寫的')
+  })
+
+  it('waits for sync to catch up when guide notes are synced, then updates', async () => {
+    const g = await oldGuide()
+    vault.setNoteSynced(g.noteIds[2], true)
+    settled = false
+    expect(await run()).toBe('skipped')
+    expect(await welcomeText(g.noteIds[0])).toBe('舊的歡迎')
+    settled = true
+    expect(await run()).toBe('updated')
   })
 
   it('does not bring back a deleted guide', async () => {
@@ -260,8 +298,9 @@ describe('updateGuide', () => {
 
   it('waits while one of its notes is open, and succeeds next time', async () => {
     const g = await oldGuide()
-    expect(await run((id) => id === g.noteIds[2])).toBe('skipped')
-    expect(await db.meta.get(GUIDE_VERSION_KEY)).toBeUndefined()
+    await cache.acquire(g.noteIds[2]) // open in an editor
+    expect(await run()).toBe('skipped')
+    cache.release(g.noteIds[2])
     expect(await run()).toBe('updated')
   })
 })
