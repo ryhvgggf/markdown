@@ -35,13 +35,6 @@ export function deriveManifest(notes: readonly NoteMeta[], folders: readonly Fol
   }
   return {
     notes: syncedNotes,
-    // A folder's own sync rule stays on this device, so it isn't part of what the cloud sees.
-    folders: folders.filter((f) => neededFolderIds.has(f.id)).map((f) => withoutSyncRule(f)),
+    folders: folders.filter((f) => neededFolderIds.has(f.id)),
   }
-}
-
-function withoutSyncRule(f: FolderMeta): FolderMeta {
-  const out = { ...f }
-  delete out.synced
-  return out
 }

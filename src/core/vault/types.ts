@@ -31,9 +31,6 @@ export type FolderMeta = {
   placeAt?: number
   /** When the folder was last moved to the trash or taken out of it (absent = never). */
   stateAt?: number
-  /** 3f-4: notes in this folder (and its subfolders) follow cloud sync — they are synced when put or created here
-   *  and unsynced when moved out. A rule of this device only: never sent to the cloud or other devices. */
-  synced?: boolean
 }
 export type AttachmentMeta = {
   id: string

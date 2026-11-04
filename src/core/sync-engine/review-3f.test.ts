@@ -180,21 +180,19 @@ describe('3f review', () => {
     expect(await lines(c, 'n')).toEqual(await lines(b, 'n')) // the devices show the same note
   })
 
-  it('C1 [誤開關] taking a note out of a synced folder while signed out is not undone at the next sign-in', async () => {
+  it('C1 [誤開關] turning a note off while signed out is not undone at the next sign-in', async () => {
     const a = await device('A')
     const f = a.vault.createFolder({ name: 'F', parentId: null })
     const n = a.vault.createNote({ title: 'N', folderId: f.id })
     a.vault.setNoteSynced(n.id, true)
     await a.manager.start()
     const b = await device('B')
-    const g = b.vault.createFolder({ name: 'G', parentId: null })
     await b.manager.start()
     await until(() => b.vault.getNote(n.id)?.synced === true)
-    b.vault.setFolderSynced(f.id, true)
     await settled(a, b)
     await b.manager.close() // signed out (session expired)
 
-    b.vault.moveNote(n.id, { folderId: g.id, index: 0 }) // out of the synced folder → sync off
+    b.vault.setNoteSynced(n.id, false) // sync off while nothing is running
     expect(b.vault.getNote(n.id)?.synced).toBe(false)
 
     const b2 = createSyncManager({

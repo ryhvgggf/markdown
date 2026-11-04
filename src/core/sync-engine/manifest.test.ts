@@ -57,12 +57,3 @@ describe('deriveManifest', () => {
     expect(r.folders).toEqual([])
   })
 })
-
-describe('deriveManifest — folder sync rule', () => {
-  it('never carries a folder\'s own sync rule to the cloud', () => {
-    const f = { id: 'f', name: 'F', parentId: null, order: 'a', createdAt: 1, deletedAt: null, synced: true }
-    const n = { id: 'n', title: 'N', folderId: 'f', order: 'a', createdAt: 1, updatedAt: 1, deletedAt: null, synced: true }
-    const m = deriveManifest([n], [f])
-    expect(m.folders).toEqual([{ id: 'f', name: 'F', parentId: null, order: 'a', createdAt: 1, deletedAt: null }])
-  })
-})

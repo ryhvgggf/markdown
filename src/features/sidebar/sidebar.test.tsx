@@ -416,7 +416,7 @@ describe('同步到雲端 (3f-2)', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('資料夾 have a box too: ticking one syncs everything in it (and what is put there later); unticking asks first', async () => {
+  it('資料夾 have a box too: ticking one syncs every note in it (a shortcut, not a rule); unticking asks first', async () => {
     account = fakeAccount(unlocked)
     const f = vault.createFolder({ name: 'Work', parentId: null })
     const inside = vault.createNote({ title: 'Inside', folderId: f.id })
@@ -434,15 +434,16 @@ describe('同步到雲端 (3f-2)', () => {
     expect(screen.queryByRole('dialog')).toBeNull() // no extra window to turn it on
     expect(vault.getNote(inside.id)!.synced).toBe(true)
     expect(vault.getNote(outside.id)!.synced).toBe(false)
-    expect(vault.createNote({ title: 'Later', folderId: f.id }).synced).toBe(true)
-    expect(within(screen.getByRole('treeitem', { name: /Work/ })).getByLabelText('資料夾已同步到雲端')).toBeInTheDocument()
+    expect(vault.createNote({ title: 'Later', folderId: f.id }).synced).toBe(false) // a folder is only a shortcut, not a rule
+    expect(screen.queryByLabelText('資料夾已同步到雲端')).toBeNull()
 
     // untick: the notes inside are unticked with it, and 完成 asks before deleting their cloud copies
     fireEvent.contextMenu(screen.getByRole('treeitem', { name: /Work/ }))
     fireEvent.click(await screen.findByRole('menuitem', { name: '同步到雲端' }))
-    fireEvent.click(screen.getByRole('treeitem', { name: /Work/ }))
+    fireEvent.click(screen.getByRole('treeitem', { name: /Work/ })) // Later is not synced: the folder is partial, so this turns it fully on
+    fireEvent.click(screen.getByRole('treeitem', { name: /Work/ })) // and this off
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
-    const dialog = await screen.findByRole('dialog', { name: '停止同步 2 篇筆記？' })
+    const dialog = await screen.findByRole('dialog', { name: '停止同步 1 篇筆記？' })
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
     expect(vault.getNote(inside.id)!.synced).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
@@ -471,10 +472,9 @@ describe('同步到雲端 (3f-2)', () => {
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
     expect(vault.getNote(a.id)!.synced).toBe(true)
     expect(vault.getNote(b.id)!.synced).toBe(false)
-    expect(vault.listFolders()[0].synced).toBe(true)
   })
 
-  it('全選 / 全不選 flips everything (folder rules too), the count line follows, and a partial folder goes fully on then off', async () => {
+  it('全選 / 全不選 flips every note, the count line follows, and a partial folder goes fully on then off', async () => {
     account = fakeAccount(unlocked)
     const f = vault.createFolder({ name: 'Work', parentId: null })
     const a = vault.createNote({ title: 'Alpha', folderId: f.id })
@@ -499,7 +499,6 @@ describe('同步到雲端 (3f-2)', () => {
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
     expect(vault.getNote(a.id)!.synced).toBe(true)
     expect(vault.getNote(b.id)!.synced).toBe(true)
-    expect(vault.listFolders()[0].synced).toBe(true)
   })
 
   it('the stop-sync window lists the notes that will stop', async () => {

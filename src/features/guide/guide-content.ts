@@ -13,7 +13,7 @@ export const GUIDE_TAG = '功能導覽'
  * Bump when the guide text changes. A device whose guide is still untouched is rewritten to this version on
  * start (`updateGuide` in ./guide); `addGuide` records it for fresh guides.
  */
-export const GUIDE_VERSION = 2
+export const GUIDE_VERSION = 3
 
 /** Order = order in the folder; the first one is opened after seeding. */
 export const GUIDE_NOTES = [
@@ -279,7 +279,7 @@ function organize(): J {
     ),
     h(2, '更多操作'),
     p('在筆記或資料夾上按右鍵，或滑鼠移上去點右邊的「⋯」：'),
-    ul('重新命名（資料夾才有，選取後按 F2 也可以；筆記的名稱就是標題）', '新增筆記、新增子資料夾（資料夾才有）', '下載此筆記（存成 .md）、下載此資料夾（存成 ZIP）', '同步到雲端（登入後才有）：進入選取模式後，點每一列右邊的雲朵來開關同步（資料夾也可以，放進去的筆記會自動同步），或按「全選」；最後按「完成」', '移到垃圾桶'),
+    ul('重新命名（資料夾才有，選取後按 F2 也可以；筆記的名稱就是標題）', '新增筆記、新增子資料夾（資料夾才有）', '下載此筆記（存成 .md）、下載此資料夾（存成 ZIP）', '同步到雲端（登入後才有）：進入選取模式後，點每一列右邊的雲朵來開關同步（資料夾那一列可以一次勾選裡面所有的筆記），或按「全選」；最後按「完成」', '移到垃圾桶'),
     h(2, '標題不能重複'),
     p('同一個知識庫裡的筆記標題不能重複（不分大小寫、忽略前後空白）。重複時標題下方會顯示「已有同名筆記」，換個名字就好。'),
     h(2, '垃圾桶'),
@@ -315,7 +315,7 @@ function syncNote(r: GuideRefs): J {
     p('預設每篇筆記都不同步。登入後在側欄的筆記或資料夾上按右鍵（或「⋯」）→「同步到雲端」，就進入選取模式：'),
     ul(
       ['點每一列最右邊的雲朵（或點整列）開關同步，也可以按「全選」或「全不選」。'],
-      ['資料夾也有雲朵：打開後，裡面的筆記都會同步，之後放進來的也自動同步，移出就取消。'],
+      ['資料夾那一列的雲朵是捷徑：一次勾選或取消裡面所有的筆記。同步是一篇一篇決定的，之後新增或移進資料夾的筆記不會自動同步。'],
       ['最後按「完成」。要停止同步的筆記，會先跳出確認視窗。'],
     ),
     h(2, '加密'),

@@ -42,7 +42,7 @@ export const rowRenders = { count: 0 }
 
 const label = (n: TreeNode) => (n.kind === 'folder' ? n.folder.name || '未命名資料夾' : displayTitle(n.note.title))
 
-const synced = (n: TreeNode) => (n.kind === 'note' && n.note.synced) || (n.kind === 'folder' && n.folder.synced === true)
+const synced = (n: TreeNode) => n.kind === 'note' && n.note.synced
 
 // A row shows only its own name; a new tree snapshot (e.g. one note's updatedAt) must not re-render every row.
 const same = (a: TreeItemProps, b: TreeItemProps) =>
@@ -163,7 +163,7 @@ function TreeItemRow(props: TreeItemProps) {
         <span className="min-w-0 flex-1 truncate">{name}</span>
       )}
       {cloudMark && !p.renaming && (
-        <CloudCheck size={14} aria-hidden={false} role="img" aria-label={isNote ? '已同步到雲端' : '資料夾已同步到雲端'} className="shrink-0 text-fg-tertiary" />
+        <CloudCheck size={14} aria-hidden={false} role="img" aria-label="已同步到雲端" className="shrink-0 text-fg-tertiary" />
       )}
       {p.cloud !== null && !p.renaming && (
         // While choosing what to sync the cloud at the right end is the switch (the same spot as the mark above).
