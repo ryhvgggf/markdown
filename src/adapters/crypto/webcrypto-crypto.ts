@@ -61,6 +61,24 @@ export async function deriveKeyFromSecret(
   return { key, params: { algorithm: 'PBKDF2-SHA256', saltB64: toB64(salt), iterations } }
 }
 
+/**
+ * Like `deriveKeyFromSecret`, but returns the 32 derived bytes instead of a key, for when the result is mixed
+ * with another secret (share-link passwords, `core/sync-engine/doc-crypto.ts`). Same PBKDF2 parameters and
+ * format; the secret is NFC-normalized so the same password typed on different systems gives the same bytes.
+ */
+export async function deriveBitsFromSecret(
+  secret: string,
+  params?: KdfParams,
+): Promise<{ bits: Uint8Array; params: KdfParams }> {
+  const iterations = params?.iterations ?? DEFAULT_PBKDF2_ITERATIONS
+  const salt = params ? fromB64(params.saltB64) : randomBytes(16)
+  const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret.normalize('NFC')), 'PBKDF2', false, [
+    'deriveBits',
+  ])
+  const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: buf(salt), iterations, hash: 'SHA-256' }, material, 256))
+  return { bits, params: { algorithm: 'PBKDF2-SHA256', saltB64: toB64(salt), iterations } }
+}
+
 function gcmParams(iv: Uint8Array, aad?: Uint8Array): AesGcmParams {
   return aad ? { name: AES_ALGO, iv: buf(iv), additionalData: buf(aad) } : { name: AES_ALGO, iv: buf(iv) }
 }

@@ -61,3 +61,42 @@ export async function unwrapShareKey(kek: CryptoKey, vaultId: string, shareId: s
 /** Imports 32 raw bytes as a share key (extractable, so "copy link" can put it back into a link). */
 export const importRawShareKey = (raw: Uint8Array): Promise<CryptoKey> =>
   crypto.subtle.importKey('raw', raw as Uint8Array<ArrayBuffer>, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
+
+// ---- share-link passwords (phase 4b) ----
+// A protected link needs both the link (its key after `#`) and the password. The two are mixed with HKDF into
+// a content key (encrypts the snapshot) and a proof (the server keeps only SHA-256 of it and hands out the
+// ciphertext only for the right proof). Without the link's key, a leaked database cannot be used to guess the
+// password; without the password, the link alone gets no ciphertext.
+// The owner keeps the PBKDF2 output (`pwBits`) wrapped under the KEK, so updating the snapshot, renewing the
+// link or removing the password never needs the old password — and the password itself is stored nowhere.
+
+const sharePwInfo = (kind: 'content' | 'proof', shareId: string) => te.encode(`notes-v2|share-pw|v1|${kind}|${shareId}`)
+/** Binds a wrapped `pwBits` to its vault and link. */
+export const sharePwKeyAad = (vaultId: string, shareId: string) => te.encode(`notes-v2|share-pw-key|v1|${vaultId}|${shareId}`)
+
+/** The content key and server proof of a protected link. `pwBits` is the PBKDF2 output of the password. */
+export async function deriveSharePasswordSecrets(
+  linkKey: CryptoKey,
+  shareId: string,
+  pwBits: Uint8Array,
+): Promise<{ contentKey: CryptoKey; proof: Uint8Array }> {
+  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', linkKey))
+  const ikm = new Uint8Array(raw.length + pwBits.length)
+  ikm.set(raw, 0)
+  ikm.set(pwBits, raw.length)
+  const base = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveKey', 'deriveBits'])
+  const hkdf = (kind: 'content' | 'proof'): HkdfParams => ({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: sharePwInfo(kind, shareId) })
+  const contentKey = await crypto.subtle.deriveKey(hkdf('content'), base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  const proof = new Uint8Array(await crypto.subtle.deriveBits(hkdf('proof'), base, 256))
+  return { contentKey, proof }
+}
+
+/** What the server stores to check a proof: SHA-256 of it (a leaked database row cannot be replayed). */
+export const shareProofVerifier = async (proof: Uint8Array): Promise<Uint8Array> =>
+  new Uint8Array(await crypto.subtle.digest('SHA-256', proof as Uint8Array<ArrayBuffer>))
+
+export const wrapSharePwBits = (kek: CryptoKey, vaultId: string, shareId: string, pwBits: Uint8Array) =>
+  encrypt(kek, pwBits, sharePwKeyAad(vaultId, shareId))
+
+export const unwrapSharePwBits = (kek: CryptoKey, vaultId: string, shareId: string, wrapped: Uint8Array) =>
+  decrypt(kek, wrapped, sharePwKeyAad(vaultId, shareId))

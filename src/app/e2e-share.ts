@@ -1,5 +1,5 @@
 import { fromB64, toB64 } from '@/adapters/crypto/webcrypto-crypto'
-import { ShareError, type NewShare, type ShareAdapter, type ShareRecord } from '@/adapters/share/types'
+import { MemoryShare, type MemoryShareRow } from '@/adapters/share/memory-share'
 import type { ShareFacade } from './share-facade'
 import { SYNC_VAULT_KEY } from './account-service'
 import { createShareFacade } from './share-facade'
@@ -13,50 +13,28 @@ import type { NotesDb } from '@/adapters/storage/db'
 export const E2E_SHARE_FLAG = 'notes-v2:e2e-share'
 const STORE = 'notes-v2:e2e-share-rows'
 
-type Row = Omit<ShareRecord, never> & { userId: string; ciphertext: string }
+type Row = Omit<MemoryShareRow, 'ciphertext' | 'verifier'> & { ciphertext: string; verifier: string | null }
 
-const read = (): Record<string, Row> => {
+const load = (): Map<string, MemoryShareRow> => {
   try {
-    return JSON.parse(localStorage.getItem(STORE) ?? '{}') as Record<string, Row>
+    const rows = JSON.parse(localStorage.getItem(STORE) ?? '{}') as Record<string, Row>
+    return new Map(
+      Object.values(rows).map((r) => [r.id, { ...r, ciphertext: fromB64(r.ciphertext), verifier: r.verifier === null ? null : fromB64(r.verifier) }]),
+    )
   } catch {
-    return {}
+    return new Map()
   }
 }
-const write = (rows: Record<string, Row>) => localStorage.setItem(STORE, JSON.stringify(rows))
+const save = (rows: Map<string, MemoryShareRow>) =>
+  localStorage.setItem(
+    STORE,
+    JSON.stringify(Object.fromEntries([...rows].map(([id, r]) => [id, { ...r, ciphertext: toB64(r.ciphertext), verifier: r.verifier && toB64(r.verifier) }]))),
+  )
 
-export class LocalStorageShare implements ShareAdapter {
-  async create(s: NewShare): Promise<void> {
-    const rows = read()
-    const t = Date.now()
-    rows[s.id] = { id: s.id, vaultId: s.vaultId, noteId: s.noteId, wrappedKey: s.wrappedKey, userId: s.userId, ciphertext: toB64(s.ciphertext), createdAt: t, updatedAt: t }
-    write(rows)
-  }
-  async update(id: string, ciphertext: Uint8Array): Promise<void> {
-    const rows = read()
-    if (!rows[id]) throw new ShareError('not-found')
-    rows[id] = { ...rows[id], ciphertext: toB64(ciphertext), updatedAt: Date.now() }
-    write(rows)
-  }
-  async remove(id: string): Promise<void> {
-    const rows = read()
-    delete rows[id]
-    write(rows)
-  }
-  async removeForNotes(vaultId: string, noteIds: string[]): Promise<void> {
-    const rows = read()
-    const ids = new Set(noteIds)
-    for (const [id, r] of Object.entries(rows)) if (r.vaultId === vaultId && ids.has(r.noteId)) delete rows[id]
-    write(rows)
-  }
-  async listForNote(vaultId: string, noteId: string): Promise<ShareRecord[]> {
-    return Object.values(read())
-      .filter((r) => r.vaultId === vaultId && r.noteId === noteId)
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .map(({ id, vaultId, noteId, wrappedKey, createdAt, updatedAt }) => ({ id, vaultId, noteId, wrappedKey, createdAt, updatedAt }))
-  }
-  async getPublic(id: string): Promise<Uint8Array | null> {
-    const r = read()[id]
-    return r ? fromB64(r.ciphertext) : null
+/** The in-memory adapter, with its rows kept in localStorage so a second page sees them. */
+export class LocalStorageShare extends MemoryShare {
+  constructor() {
+    super(Date.now, { load, save })
   }
 }
 
