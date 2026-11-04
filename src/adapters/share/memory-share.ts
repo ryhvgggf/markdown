@@ -19,8 +19,9 @@ export class MemoryShare implements ShareAdapter {
   async remove(id: string): Promise<void> {
     this.rows.delete(id)
   }
-  async removeForNote(vaultId: string, noteId: string): Promise<void> {
-    for (const [id, r] of this.rows) if (r.vaultId === vaultId && r.noteId === noteId) this.rows.delete(id)
+  async removeForNotes(vaultId: string, noteIds: string[]): Promise<void> {
+    const ids = new Set(noteIds)
+    for (const [id, r] of this.rows) if (r.vaultId === vaultId && ids.has(r.noteId)) this.rows.delete(id)
   }
   async listForNote(vaultId: string, noteId: string): Promise<ShareRecord[]> {
     return [...this.rows.values()]

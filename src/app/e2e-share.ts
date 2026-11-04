@@ -1,6 +1,7 @@
 import { fromB64, toB64 } from '@/adapters/crypto/webcrypto-crypto'
 import { ShareError, type NewShare, type ShareAdapter, type ShareRecord } from '@/adapters/share/types'
 import type { ShareFacade } from './share-facade'
+import { SYNC_VAULT_KEY } from './account-service'
 import { createShareFacade } from './share-facade'
 import type { NotesDb } from '@/adapters/storage/db'
 
@@ -41,9 +42,10 @@ export class LocalStorageShare implements ShareAdapter {
     delete rows[id]
     write(rows)
   }
-  async removeForNote(vaultId: string, noteId: string): Promise<void> {
+  async removeForNotes(vaultId: string, noteIds: string[]): Promise<void> {
     const rows = read()
-    for (const [id, r] of Object.entries(rows)) if (r.vaultId === vaultId && r.noteId === noteId) delete rows[id]
+    const ids = new Set(noteIds)
+    for (const [id, r] of Object.entries(rows)) if (r.vaultId === vaultId && ids.has(r.noteId)) delete rows[id]
     write(rows)
   }
   async listForNote(vaultId: string, noteId: string): Promise<ShareRecord[]> {
@@ -69,6 +71,7 @@ export function isE2eShare(): boolean {
 /** A signed-in fake account (random key per page load) over the localStorage links. */
 export function createE2eShareFacade(db: NotesDb): ShareFacade {
   let kek: Promise<CryptoKey> | undefined
+  void db.meta.put({ key: SYNC_VAULT_KEY, value: 'e2e-vault' }) // this fake device counts as signed in once
   return createShareFacade({
     db,
     origin: location.origin,

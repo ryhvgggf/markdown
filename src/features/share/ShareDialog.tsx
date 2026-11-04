@@ -10,12 +10,15 @@ import { snapshotOfNote } from './note-snapshot'
 type View =
   | { s: 'loading' }
   | { s: 'signed-out' }
+  | { s: 'unavailable' }
   | { s: 'error'; text: string }
   | { s: 'none' }
   | { s: 'link'; record: ShareRecord; url: string }
 
 const GENERIC_ERROR = '無法完成，請稍後再試'
 const errorText = (e: unknown) => (e instanceof ShareError && e.kind === 'too-large' ? '這篇筆記太大，無法分享' : GENERIC_ERROR)
+const viewForError = (e: unknown): View =>
+  e instanceof ShareError && e.kind === 'signed-out' ? { s: 'signed-out' } : e instanceof ShareError && e.kind === 'unavailable' ? { s: 'unavailable' } : { s: 'error', text: GENERIC_ERROR }
 const formatTime = (t: number) => new Date(t).toLocaleString('zh-TW', { dateStyle: 'medium', timeStyle: 'short' })
 
 /** 分享…: a read-only snapshot link for one note (phase 4a). */
@@ -58,7 +61,7 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
           const [record] = await svc.listForNote(noteId)
           return record ? { s: 'link', record, url: await svc.linkFor(record) } : { s: 'none' }
         })
-        .catch((e): View => (e instanceof ShareError && e.kind === 'signed-out' ? { s: 'signed-out' } : { s: 'error', text: GENERIC_ERROR })),
+        .catch((e): View => viewForError(e)),
     [share, noteId],
   )
   useEffect(() => {
@@ -78,7 +81,7 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
       if (next) setView(next)
     } catch (e) {
       if (e instanceof ShareError && e.kind === 'not-found') setView(await fetchView()) // stopped on another device
-      else if (e instanceof ShareError && e.kind === 'signed-out') setView({ s: 'signed-out' })
+      else if (e instanceof ShareError && (e.kind === 'signed-out' || e.kind === 'unavailable')) setView(viewForError(e))
       else setNotice(errorText(e))
     } finally {
       setBusy(false)
@@ -130,6 +133,13 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
         >
           前往登入
         </Button>
+      </Intro>
+    )
+  }
+  if (view.s === 'unavailable') {
+    return (
+      <Intro title={title}>
+        <p className="text-sm text-fg-secondary">這個版本沒有設定雲端同步，筆記只存在這台裝置。</p>
       </Intro>
     )
   }

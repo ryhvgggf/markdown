@@ -1,7 +1,7 @@
 import type { NotesDb } from '@/adapters/storage/db'
-import { ShareError, type ShareAdapter } from '@/adapters/share/types'
+import { REMOVE_BATCH, ShareError, type ShareAdapter } from '@/adapters/share/types'
 import { createShareService, type ShareAccount, type ShareService } from '@/core/share/share-service'
-import { ACCOUNT_KEY, type StoredAccount } from './account-service'
+import { ACCOUNT_KEY, SYNC_VAULT_KEY, type StoredAccount } from './account-service'
 
 /** db.meta: ids of permanently deleted notes whose links could not be stopped yet (signed out or offline). */
 export const PENDING_SHARE_REMOVALS_KEY = 'pendingShareRemovals'
@@ -12,7 +12,7 @@ export const PENDING_SHARE_REMOVALS_KEY = 'pendingShareRemovals'
  * `db.meta` and retried by `flushPending` (on start and after sign-in), so a link never outlives its note.
  */
 export interface ShareFacade {
-  /** Runs `fn` with the share service; `ShareError('signed-out')` without an account on this device. */
+  /** Runs `fn` with the share service; `ShareError('unavailable')` in a build without cloud, `'signed-out'` without an account on this device. */
   run<T>(fn: (s: ShareService) => Promise<T>): Promise<T>
   /** Permanently deleted notes: stops their links now, or queues them. Never rejects. */
   noteRemoved(noteIds: string[]): Promise<void>
@@ -31,7 +31,7 @@ export function createShareFacade(deps: {
   const { db } = deps
   let adapterP: Promise<ShareAdapter> | null = null
   const adapter = () => {
-    if (!deps.adapter) throw new ShareError('signed-out', 'sharing is not configured')
+    if (!deps.adapter) throw new ShareError('unavailable', 'sharing is not configured')
     return (adapterP ??= deps.adapter())
   }
   const account = async (): Promise<ShareAccount | null> => {
@@ -40,6 +40,7 @@ export function createShareFacade(deps: {
     return v?.kek && v.userId && v.vaultId ? { userId: v.userId, vaultId: v.vaultId, kek: v.kek } : null
   }
   const service = async (): Promise<ShareService> => {
+    if (!deps.adapter) throw new ShareError('unavailable', 'sharing is not configured')
     const a = await account()
     if (!a) throw new ShareError('signed-out')
     return createShareService({ adapter: await adapter(), account: () => a, origin: typeof deps.origin === 'function' ? deps.origin() : deps.origin })
@@ -65,14 +66,16 @@ export function createShareFacade(deps: {
     } catch {
       return // signed out: stays queued
     }
-    for (const id of await readPending()) {
+    const pending = await readPending()
+    for (let i = 0; i < pending.length; i += REMOVE_BATCH) {
+      const batch = pending.slice(i, i + REMOVE_BATCH)
       try {
-        await svc.removeForNote(id)
+        await svc.removeForNotes(batch)
       } catch (e) {
         console.warn('[share]', e)
         continue // offline or failed: stays queued
       }
-      await writePending((ids) => ids.filter((x) => x !== id))
+      await writePending((ids) => ids.filter((x) => !batch.includes(x)))
     }
   }
 
@@ -80,6 +83,12 @@ export function createShareFacade(deps: {
     run: async (fn) => fn(await service()),
     async noteRemoved(noteIds) {
       if (!noteIds.length || !deps.adapter) return
+      // A device that never signed in cannot have made a link, so there is nothing to stop (and nothing to queue).
+      try {
+        if (!(await db.meta.get(SYNC_VAULT_KEY))?.value) return
+      } catch {
+        return
+      }
       try {
         await writePending((ids) => [...new Set([...ids, ...noteIds])])
       } catch (e) {

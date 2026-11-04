@@ -5,7 +5,7 @@ import { createDb, type NotesDb } from '@/adapters/storage/db'
 import { generateShareKey, encryptShareSnapshot, wrapShareKey } from '@/core/sync-engine/doc-crypto'
 import { toB64 } from '@/adapters/crypto/webcrypto-crypto'
 import { ShareError } from '@/adapters/share/types'
-import { ACCOUNT_KEY } from './account-service'
+import { ACCOUNT_KEY, SYNC_VAULT_KEY } from './account-service'
 import { createShareFacade, PENDING_SHARE_REMOVALS_KEY } from './share-facade'
 
 let db: NotesDb
@@ -18,7 +18,10 @@ beforeEach(async () => {
 })
 afterEach(() => db.close())
 
-const signIn = () => db.meta.put({ key: ACCOUNT_KEY, value: { userId: 'u1', email: 'a@b.c', vaultId: 'v1', kek } })
+const signIn = async () => {
+  await db.meta.put({ key: ACCOUNT_KEY, value: { userId: 'u1', email: 'a@b.c', vaultId: 'v1', kek } })
+  await db.meta.put({ key: SYNC_VAULT_KEY, value: 'v1' })
+}
 const facade = () => createShareFacade({ db, adapter: async () => adapter, origin: 'https://x.test' })
 const pending = async () => (await db.meta.get(PENDING_SHARE_REMOVALS_KEY))?.value
 
@@ -50,8 +53,9 @@ describe('share facade', () => {
     expect(await pending()).toBeUndefined()
   })
 
-  it('keeps the removal queued while signed out and finishes it after sign-in', async () => {
+  it('keeps the removal queued while signed out (after having been signed in) and finishes it after sign-in', async () => {
     await addLink('n1', 'a'.repeat(22))
+    await db.meta.put({ key: SYNC_VAULT_KEY, value: 'v1' }) // this device signed in once
     const f = facade()
     await f.noteRemoved(['n1'])
     expect(adapter.rows.size).toBe(1)
@@ -65,17 +69,32 @@ describe('share facade', () => {
   it('keeps a removal that failed and retries it', async () => {
     await signIn()
     await addLink('n1', 'a'.repeat(22))
-    const real = adapter.removeForNote.bind(adapter)
-    adapter.removeForNote = async () => {
+    const real = adapter.removeForNotes.bind(adapter)
+    adapter.removeForNotes = async () => {
       throw new ShareError('unknown', 'offline')
     }
     const f = facade()
     await f.noteRemoved(['n1'])
     expect(adapter.rows.size).toBe(1)
     expect(await pending()).toEqual(['n1'])
-    adapter.removeForNote = real
+    adapter.removeForNotes = real
     await f.flushPending()
     expect(adapter.rows.size).toBe(0)
+    expect(await pending()).toBeUndefined()
+  })
+
+  it('queues nothing on a device that never signed in', async () => {
+    await facade().noteRemoved(['n1'])
+    expect(await pending()).toBeUndefined()
+  })
+
+  it('stops links in batches of 10', async () => {
+    await signIn()
+    const calls: number[] = []
+    const real = adapter.removeForNotes.bind(adapter)
+    adapter.removeForNotes = async (v, ids) => (calls.push(ids.length), real(v, ids))
+    await facade().noteRemoved(Array.from({ length: 25 }, (_, i) => `n${i}`))
+    expect(calls).toEqual([10, 10, 5])
     expect(await pending()).toBeUndefined()
   })
 
@@ -83,6 +102,6 @@ describe('share facade', () => {
     const f = createShareFacade({ db, adapter: null, origin: 'https://x.test' })
     await f.noteRemoved(['n1'])
     expect(await pending()).toBeUndefined()
-    await expect(f.run(async () => 1)).rejects.toMatchObject({ kind: 'signed-out' })
+    await expect(f.run(async () => 1)).rejects.toMatchObject({ kind: 'unavailable' })
   })
 })

@@ -80,6 +80,21 @@ describe('分享 dialog', () => {
     expect(useUi.getState().shareNoteId).toBeNull()
   })
 
+  it('a build without cloud says so and offers no sign-in', async () => {
+    const services = await bootstrap({
+      dbName: `share-ui-${n++}`,
+      forceMemory: true,
+      seedGuide: false,
+      createShare: (db) => createShareFacade({ db, origin: 'https://notes.test', adapter: null }),
+    })
+    const note = services.vault.createNote({ title: 'x' })
+    show(services)
+    act(() => useUi.getState().setShareNote(note.id))
+    const dialog = await screen.findByRole('dialog', { name: '分享' })
+    expect(await within(dialog).findByText('這個版本沒有設定雲端同步，筆記只存在這台裝置。')).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button')).toBeNull()
+  })
+
   it('creates a link, shows it again later, updates the snapshot and stops sharing', async () => {
     const { adapter, services, note } = await setup()
     show(services)

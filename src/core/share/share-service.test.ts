@@ -77,7 +77,7 @@ describe('share service', () => {
     const a = await service.create('n1', snap('a'))
     const b = await service.create('n1', snap('b'))
     const c = await service.create('n2', snap('c'))
-    await service.removeForNote('n1')
+    await service.removeForNotes(['n1'])
     expect(await errKind(openSharedLink(store, new URL(a.url)))).toBe('not-found')
     expect(await errKind(openSharedLink(store, new URL(b.url)))).toBe('not-found')
     expect(await openSharedLink(store, new URL(c.url))).toEqual(snap('c'))

@@ -11,7 +11,7 @@ function fakeClient(results: Result[]) {
   const next = () => results.shift() ?? { data: null, error: null }
   const chain = (): unknown => {
     const c: Record<string, unknown> = {}
-    for (const m of ['insert', 'update', 'delete', 'select', 'eq', 'order'])
+    for (const m of ['insert', 'update', 'delete', 'select', 'eq', 'in', 'order'])
       c[m] = (...args: unknown[]) => (calls.push([m, ...args]), c)
     c.then = (ok: (r: Result) => unknown, fail: (e: unknown) => unknown) => Promise.resolve(next()).then(ok, fail)
     return c
@@ -58,5 +58,24 @@ describe('SupabaseShare', () => {
   it('wraps server errors', async () => {
     const { client } = fakeClient([{ error: { message: 'boom' } }])
     await expect(new SupabaseShare(client).remove('s1')).rejects.toBeInstanceOf(ShareError)
+  })
+
+  it('a request without a valid sign-in (RLS or JWT error) is reported as signed-out, other failures as unknown', async () => {
+    const run = async (code: string) => {
+      const { client } = fakeClient([{ error: { message: 'x', code } }])
+      return new SupabaseShare(client).create({ id: 's1', vaultId: 'v1', noteId: 'n1', userId: 'u1', wrappedKey: 'w', ciphertext: new Uint8Array([1]) }).catch((e: ShareError) => e.kind)
+    }
+    expect(await run('42501')).toBe('signed-out')
+    expect(await run('PGRST301')).toBe('signed-out')
+    expect(await run('23505')).toBe('unknown')
+  })
+
+  it('removeForNotes deletes by vault and note ids, and does nothing for an empty list', async () => {
+    const { client, calls } = fakeClient([{ error: null }])
+    const s = new SupabaseShare(client)
+    await s.removeForNotes('v1', [])
+    expect(calls).toEqual([])
+    await s.removeForNotes('v1', ['a', 'b'])
+    expect(calls).toEqual([['from', 'share_links'], ['delete'], ['eq', 'vault_id', 'v1'], ['in', 'note_id', ['a', 'b']]])
   })
 })

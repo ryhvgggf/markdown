@@ -64,9 +64,9 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
       return adapter.listForNote(need().vaultId, noteId)
     },
 
-    /** For permanent delete: stops every link of the note. */
-    async removeForNote(noteId: string): Promise<void> {
-      await adapter.removeForNote(need().vaultId, noteId)
+    /** For permanent delete: stops every link of these notes (at most `REMOVE_BATCH` per call). */
+    async removeForNotes(noteIds: string[]): Promise<void> {
+      await adapter.removeForNotes(need().vaultId, noteIds)
     },
   }
 }

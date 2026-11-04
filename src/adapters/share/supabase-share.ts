@@ -4,7 +4,9 @@ import { ShareError, type NewShare, type ShareAdapter, type ShareRecord } from '
 
 type Row = { id: string; vault_id: string; note_id: string; wrapped_key: string; created_at: string; updated_at: string }
 
-const toError = (e: { message: string; code?: string }) => new ShareError('unknown', e.message, { cause: e })
+/** Postgres 42501 (row-level security) and PostgREST's JWT errors: the request had no valid sign-in. */
+const NOT_SIGNED_IN = new Set(['42501', 'PGRST301', 'PGRST302', 'PGRST303'])
+const toError = (e: { message: string; code?: string }) => new ShareError(e.code && NOT_SIGNED_IN.has(e.code) ? 'signed-out' : 'unknown', e.message, { cause: e })
 
 /**
  * `ShareAdapter` on Supabase's `share_links` table (migration 0004). The owner reads and writes through RLS
@@ -37,8 +39,9 @@ export class SupabaseShare implements ShareAdapter {
     if (error) throw toError(error)
   }
 
-  async removeForNote(vaultId: string, noteId: string): Promise<void> {
-    const { error } = await this.client.from('share_links').delete().eq('vault_id', vaultId).eq('note_id', noteId)
+  async removeForNotes(vaultId: string, noteIds: string[]): Promise<void> {
+    if (!noteIds.length) return
+    const { error } = await this.client.from('share_links').delete().eq('vault_id', vaultId).in('note_id', noteIds)
     if (error) throw toError(error)
   }
 

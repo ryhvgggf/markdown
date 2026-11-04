@@ -32,15 +32,18 @@ export interface ShareAdapter {
   update(id: string, ciphertext: Uint8Array): Promise<void>
   /** Stops one link (no-op if it is already gone). */
   remove(id: string): Promise<void>
-  /** Stops every link of one note (permanent delete). */
-  removeForNote(vaultId: string, noteId: string): Promise<void>
+  /** Stops every link of the given notes (permanent delete); callers send at most `REMOVE_BATCH` ids at a time. */
+  removeForNotes(vaultId: string, noteIds: string[]): Promise<void>
   /** The owner's links of one note, newest first. */
   listForNote(vaultId: string, noteId: string): Promise<ShareRecord[]>
   /** What anyone with the link can fetch, signed in or not: the ciphertext, or null if there is no such link. */
   getPublic(id: string): Promise<Uint8Array | null>
 }
 
-export type ShareErrorKind = 'signed-out' | 'not-found' | 'too-large' | 'invalid' | 'unknown'
+/** How many notes one `removeForNotes` call covers. */
+export const REMOVE_BATCH = 10
+
+export type ShareErrorKind = 'signed-out' | 'unavailable' | 'not-found' | 'too-large' | 'invalid' | 'unknown'
 
 export class ShareError extends Error {
   kind: ShareErrorKind
