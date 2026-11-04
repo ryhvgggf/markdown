@@ -11,6 +11,7 @@ import { useUi } from '@/app/ui-store'
 import { createShareService } from '@/core/share/share-service'
 import { buildShareSnapshot } from '@/core/share/snapshot'
 import { ShareDialog } from './ShareDialog'
+import { SharedNotes } from '@/features/settings/AccountSection'
 import { SharePage } from './SharePage'
 import { snapshotOfNote } from './note-snapshot'
 
@@ -143,6 +144,91 @@ describe('分享 dialog', () => {
   })
 })
 
+describe('分享對話框：到期、密碼、換新連結', () => {
+  async function open() {
+    const ctx = await setup()
+    show(ctx.services)
+    const user = userEvent.setup()
+    act(() => useUi.getState().setShareNote(ctx.note.id))
+    const dialog = await screen.findByRole('dialog', { name: '分享' })
+    await user.click(await within(dialog).findByRole('button', { name: '建立連結' }))
+    await within(dialog).findByLabelText('分享連結')
+    return { ...ctx, user, dialog, row: () => [...ctx.adapter.rows.values()][0]! }
+  }
+
+  it('sets and clears the expiry', async () => {
+    const { user, dialog, row } = await open()
+    expect(row().expiresAt).toBeNull()
+    await user.selectOptions(within(dialog).getByLabelText('到期'), '604800')
+    await within(dialog).findByText(/到期時間/)
+    expect(row().expiresAt).not.toBeNull()
+    await user.selectOptions(within(dialog).getByLabelText('到期'), 'never')
+    await waitFor(() => expect(row().expiresAt).toBeNull())
+    expect(within(dialog).queryByText(/到期時間/)).toBeNull()
+  })
+
+  it('sets, changes and removes the password; a short one is refused', async () => {
+    const { user, dialog, row } = await open()
+    await user.click(within(dialog).getByRole('checkbox', { name: '密碼' }))
+    await user.type(within(dialog).getByLabelText('設定密碼'), 'abc')
+    await user.click(within(dialog).getByRole('button', { name: '儲存' }))
+    expect(await within(dialog).findByText('密碼至少 6 個字')).toBeInTheDocument()
+    expect(row().password).toBeNull()
+
+    await user.clear(within(dialog).getByLabelText('設定密碼'))
+    await user.type(within(dialog).getByLabelText('設定密碼'), 'correct horse')
+    await user.click(within(dialog).getByRole('button', { name: '儲存' }))
+    expect(await within(dialog).findByText('已設定密碼')).toBeInTheDocument()
+    const salt = row().password!.saltB64
+
+    await user.click(within(dialog).getByRole('button', { name: '變更' }))
+    await user.type(within(dialog).getByLabelText('設定密碼'), 'battery staple')
+    await user.click(within(dialog).getByRole('button', { name: '儲存' }))
+    await waitFor(() => expect(row().password!.saltB64).not.toBe(salt))
+
+    await user.click(within(dialog).getByRole('checkbox', { name: '密碼' }))
+    expect(within(dialog).getByText('移除密碼？知道連結的人就能開啟。')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: '移除密碼' }))
+    await waitFor(() => expect(row().password).toBeNull())
+  }, 60_000)
+
+  it('renewing swaps the link after a confirmation; the old one stops', async () => {
+    const { user, dialog, adapter } = await open()
+    const old = (within(dialog).getByLabelText('分享連結') as HTMLInputElement).value
+    await user.click(within(dialog).getByRole('button', { name: '換新連結' }))
+    expect(within(dialog).getByText('換新連結？舊連結將立即失效。')).toBeInTheDocument()
+    await user.click(within(dialog).getAllByRole('button', { name: '換新連結' }).at(-1)!)
+    await waitFor(() => expect((within(dialog).getByLabelText('分享連結') as HTMLInputElement).value).not.toBe(old))
+    expect(adapter.rows.size).toBe(1)
+    expect(adapter.rows.has(new URL(old).pathname.split('/').pop()!)).toBe(false)
+  })
+})
+
+describe('設定 → 已分享的筆記', () => {
+  it('lists the links, names unknown notes, and stops one after a confirmation', async () => {
+    const { adapter, services, note } = await setup()
+    show(services)
+    const user = userEvent.setup()
+    act(() => useUi.getState().setShareNote(note.id))
+    await user.click(await screen.findByRole('button', { name: '建立連結' }))
+    await screen.findByLabelText('分享連結')
+    const [first] = [...adapter.rows.values()]
+    adapter.rows.set('far', { ...first!, id: 'far', noteId: 'elsewhere' })
+    act(() => useUi.setState({ shareNoteId: null }))
+    render(
+      <ServicesProvider services={services}>
+        <SharedNotes />
+      </ServicesProvider>,
+    )
+    expect(await screen.findByText('我的筆記')).toBeInTheDocument()
+    expect(screen.getByText('其他裝置的筆記')).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: '停止分享' })[0]!)
+    expect(screen.getByText('停止分享？連結將立即失效。')).toBeInTheDocument()
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '停止分享' }))
+    await waitFor(() => expect(adapter.rows.size).toBe(1))
+  })
+})
+
 describe('分享頁', () => {
   async function link() {
     const adapter = new MemoryShare()
@@ -230,5 +316,31 @@ describe('分享頁', () => {
     expect(alert).toHaveTextContent('無法開啟此連結')
     expect(alert).not.toHaveTextContent('secret')
   })
-})
 
+  it('asks for the password, says when it is wrong, opens when right', async () => {
+    const { adapter, svc, url } = await link()
+    const [record] = await svc.listForNote('n1')
+    await svc.setPassword(record!.id, 'open sesame')
+    at(url)
+    render(<SharePage adapter={adapter} />)
+    const user = userEvent.setup()
+    expect(await screen.findByText('這篇筆記需要密碼')).toBeInTheDocument()
+    expect(screen.queryByText('公開的筆記')).toBeNull()
+    await user.type(screen.getByLabelText('密碼'), 'wrong one')
+    await user.click(screen.getByRole('button', { name: '開啟' }))
+    expect(await screen.findByText('密碼錯誤')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('密碼'), 'open sesame')
+    await user.click(screen.getByRole('button', { name: '開啟' }))
+    expect(await screen.findByRole('heading', { name: '公開的筆記' })).toBeInTheDocument()
+  }, 60_000)
+
+  it('an expired link says so', async () => {
+    const { adapter, svc, url } = await link()
+    const [record] = await svc.listForNote('n1')
+    await svc.setExpiry(record!.id, 60)
+    adapter.rows.get(record!.id)!.expiresAt = Date.now() - 1000
+    at(url)
+    render(<SharePage adapter={adapter} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('連結已過期')
+  })
+})

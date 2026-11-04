@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useServices } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
-import { ShareError, type ShareRecord } from '@/adapters/share/types'
+import { MIN_SHARE_PASSWORD, SHARE_EXPIRY_CHOICES, ShareError, type ShareRecord } from '@/adapters/share/types'
 import { Button } from '@/ui/components/Button'
 import { Dialog } from '@/ui/components/Dialog'
 import { Share } from '@/ui/icons'
@@ -16,10 +16,13 @@ type View =
   | { s: 'link'; record: ShareRecord; url: string }
 
 const GENERIC_ERROR = '無法完成，請稍後再試'
-const errorText = (e: unknown) => (e instanceof ShareError && e.kind === 'too-large' ? '這篇筆記太大，無法分享' : GENERIC_ERROR)
+const errorText = (e: unknown) =>
+  e instanceof ShareError && e.kind === 'too-large' ? '這篇筆記太大，無法分享' : e instanceof ShareError && e.kind === 'weak-password' ? `密碼至少 ${MIN_SHARE_PASSWORD} 個字` : GENERIC_ERROR
 const viewForError = (e: unknown): View =>
   e instanceof ShareError && e.kind === 'signed-out' ? { s: 'signed-out' } : e instanceof ShareError && e.kind === 'unavailable' ? { s: 'unavailable' } : { s: 'error', text: GENERIC_ERROR }
 const formatTime = (t: number) => new Date(t).toLocaleString('zh-TW', { dateStyle: 'medium', timeStyle: 'short' })
+const EXPIRY_LABEL: Record<string, string> = { never: '永久', '86400': '1 天', '604800': '7 天', '2592000': '30 天' }
+const expiryKey = (seconds: number | null) => (seconds === null ? 'never' : String(seconds))
 
 /** 分享…: a read-only snapshot link for one note (phase 4a). */
 export function ShareDialog() {
@@ -52,7 +55,11 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
   const [view, setView] = useState<View>({ s: 'loading' })
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [confirmStop, setConfirmStop] = useState(false)
+  const [confirm, setConfirm] = useState<null | 'stop' | 'renew' | 'remove-password'>(null)
+  const [pwMode, setPwMode] = useState<'idle' | 'editing'>('idle')
+  const [pw, setPw] = useState('')
+  const [expiry, setExpiry] = useState<string | null>(null)
+  const [now] = useState(() => Date.now())
 
   const fetchView = useCallback(
     () =>
@@ -105,8 +112,29 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
   const stopAll = () =>
     act(async () => {
       await share.run((svc) => svc.removeForNotes([noteId]))
-      setConfirmStop(false)
+      setConfirm(null)
       return { s: 'none' }
+    })
+  const changeExpiry = (record: ShareRecord, url: string, key: string) =>
+    act(async () => {
+      const seconds = key === 'never' ? null : Number(key)
+      const expiresAt = await share.run((svc) => svc.setExpiry(record.id, seconds))
+      setExpiry(key)
+      return { s: 'link', record: { ...record, expiresAt }, url }
+    })
+  const changePassword = (record: ShareRecord, url: string, password: string | null) =>
+    act(async () => {
+      const next = await share.run((svc) => svc.setPassword(record.id, password))
+      setPw('')
+      setPwMode('idle')
+      setConfirm(null)
+      return { s: 'link', record: next, url }
+    })
+  const renew = (record: ShareRecord) =>
+    act(async () => {
+      const next = await share.run((svc) => svc.renew(record.id))
+      setConfirm(null)
+      return { s: 'link', record: next.record, url: next.url }
     })
   const copy = async (url: string) => {
     try {
@@ -155,6 +183,8 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
     )
   }
   const { record, url } = view
+  const expired = record.expiresAt !== null && record.expiresAt <= now
+  const expiryValue = expiry ?? (record.expiresAt === null ? 'never' : 'current')
   return (
     <div className="flex flex-col gap-3">
       <input
@@ -165,21 +195,123 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
         className="h-8 w-full rounded-control border border-black/10 bg-white/70 px-2 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent"
       />
       <p className="text-xs text-fg-tertiary">快照時間 {formatTime(record.updatedAt)}</p>
-      {notice && <p className="text-sm text-red-700">{notice}</p>}
-      {confirmStop ? (
-        <div className="flex flex-col gap-2">
-          <p className="text-sm text-fg">停止分享？連結將立即失效。</p>
-          <div className="flex justify-end gap-2">
-            <Button onClick={() => setConfirmStop(false)}>取消</Button>
-            <Button variant="danger" disabled={busy} onClick={() => void stopAll()}>
-              停止分享
+
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-3">
+          <label htmlFor="share-expiry" className="text-sm text-fg">
+            到期
+          </label>
+          <select
+            id="share-expiry"
+            value={expiryValue}
+            disabled={busy}
+            onChange={(e) => void changeExpiry(record, url, e.target.value)}
+            className="h-8 rounded-control border border-black/10 bg-white/70 px-2 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            {expiryValue === 'current' && <option value="current">目前設定</option>}
+            {SHARE_EXPIRY_CHOICES.map((c) => (
+              <option key={expiryKey(c)} value={expiryKey(c)}>
+                {EXPIRY_LABEL[expiryKey(c)]}
+              </option>
+            ))}
+          </select>
+        </div>
+        {record.expiresAt !== null && (
+          <p className="text-xs text-fg-tertiary">{expired ? '已過期' : `到期時間 ${formatTime(record.expiresAt)}`}</p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-sm text-fg">
+            <input
+              type="checkbox"
+              checked={record.password !== null || pwMode === 'editing'}
+              disabled={busy}
+              onChange={(e) => {
+                setNotice(null)
+                if (e.target.checked) setPwMode('editing')
+                else if (record.password) setConfirm('remove-password')
+                else setPwMode('idle')
+              }}
+            />
+            密碼
+          </label>
+          {record.password && pwMode === 'idle' && (
+            <span className="flex items-center gap-2 text-xs text-fg-tertiary">
+              已設定密碼
+              <Button variant="ghost" disabled={busy} onClick={() => setPwMode('editing')}>
+                變更
+              </Button>
+            </span>
+          )}
+        </div>
+        {pwMode === 'editing' && (
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void changePassword(record, url, pw)
+            }}
+          >
+            <input
+              type="password"
+              aria-label="設定密碼"
+              placeholder="設定密碼"
+              autoComplete="new-password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              className="h-8 min-w-0 flex-1 rounded-control border border-black/10 bg-white/70 px-2 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+            <Button type="submit" variant="primary" disabled={busy || !pw}>
+              儲存
             </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setPwMode('idle')
+                setPw('')
+              }}
+            >
+              取消
+            </Button>
+          </form>
+        )}
+      </div>
+
+      {notice && <p className="text-sm text-red-700">{notice}</p>}
+      {confirm ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-fg">
+            {confirm === 'stop' ? '停止分享？連結將立即失效。' : confirm === 'renew' ? '換新連結？舊連結將立即失效。' : '移除密碼？知道連結的人就能開啟。'}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setConfirm(null)}>取消</Button>
+            {confirm === 'stop' && (
+              <Button variant="danger" disabled={busy} onClick={() => void stopAll()}>
+                停止分享
+              </Button>
+            )}
+            {confirm === 'renew' && (
+              <Button variant="primary" disabled={busy} onClick={() => void renew(record)}>
+                換新連結
+              </Button>
+            )}
+            {confirm === 'remove-password' && (
+              <Button variant="danger" disabled={busy} onClick={() => void changePassword(record, url, null)}>
+                移除密碼
+              </Button>
+            )}
           </div>
         </div>
       ) : (
         <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="ghost" disabled={busy} onClick={() => setConfirmStop(true)}>
+          <Button variant="ghost" disabled={busy} onClick={() => setConfirm('stop')}>
             停止分享
+          </Button>
+          <Button variant="ghost" disabled={busy} onClick={() => setConfirm('renew')}>
+            換新連結
           </Button>
           <Button disabled={busy} onClick={() => void update(record, url)}>
             更新快照

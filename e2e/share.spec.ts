@@ -79,3 +79,54 @@ test('連結缺少金鑰時顯示無效', async ({ page }) => {
   await page.goto('/s/' + 'a'.repeat(22))
   await expect(page.getByRole('alert')).toHaveText('連結無效或已停止分享')
 })
+
+test('分享：到期、密碼（錯誤／正確／改密碼後舊密碼失效）、換新連結', async ({ page, context }) => {
+  await page.goto('/')
+  await newNote(page, '加鎖的筆記')
+  await page.keyboard.type('機密內容')
+  const { dialog, url } = await share(page, '加鎖的筆記')
+
+  await dialog.getByLabel('密碼', { exact: true }).check()
+  await dialog.getByLabel('設定密碼').fill('first-pass')
+  await dialog.getByRole('button', { name: '儲存' }).click()
+  await expect(dialog.getByText('已設定密碼')).toBeVisible()
+
+  const viewer = await context.newPage()
+  await viewer.goto(url)
+  await expect(viewer.getByText('這篇筆記需要密碼')).toBeVisible()
+  await viewer.getByLabel('密碼').fill('nope-nope')
+  await viewer.getByRole('button', { name: '開啟' }).click()
+  await expect(viewer.getByText('密碼錯誤')).toBeVisible()
+  await viewer.getByLabel('密碼').fill('first-pass')
+  await viewer.getByRole('button', { name: '開啟' }).click()
+  await expect(viewer.getByLabel('筆記內容')).toContainText('機密內容')
+
+  // changing the password: the old one stops working
+  await dialog.getByRole('button', { name: '變更' }).click()
+  await dialog.getByLabel('設定密碼').fill('second-pass')
+  await dialog.getByRole('button', { name: '儲存' }).click()
+  await expect(dialog.getByRole('button', { name: '變更' })).toBeVisible()
+  await viewer.reload()
+  await viewer.getByLabel('密碼').fill('first-pass')
+  await viewer.getByRole('button', { name: '開啟' }).click()
+  await expect(viewer.getByText('密碼錯誤')).toBeVisible()
+  await viewer.getByLabel('密碼').fill('second-pass')
+  await viewer.getByRole('button', { name: '開啟' }).click()
+  await expect(viewer.getByLabel('筆記內容')).toContainText('機密內容')
+
+  // expiry
+  await dialog.getByLabel('到期').selectOption('86400')
+  await expect(dialog.getByText(/到期時間/)).toBeVisible()
+
+  // renew: the old link dies, the new one keeps the password
+  await dialog.getByRole('button', { name: '換新連結' }).click()
+  await dialog.getByRole('button', { name: '換新連結' }).last().click()
+  await expect(dialog.getByLabel('分享連結')).not.toHaveValue(url)
+  const fresh = await dialog.getByLabel('分享連結').inputValue()
+  await viewer.reload()
+  await expect(viewer.getByRole('alert')).toHaveText('連結無效或已停止分享')
+  await viewer.goto(fresh)
+  await viewer.getByLabel('密碼').fill('second-pass')
+  await viewer.getByRole('button', { name: '開啟' }).click()
+  await expect(viewer.getByLabel('筆記內容')).toContainText('機密內容')
+})

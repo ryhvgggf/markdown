@@ -13,7 +13,7 @@ export const GUIDE_TAG = '功能導覽'
  * Bump when the guide text changes. A device whose guide is still untouched is rewritten to this version on
  * start (`updateGuide` in ./guide); `addGuide` records it for fresh guides.
  */
-export const GUIDE_VERSION = 3
+export const GUIDE_VERSION = 4
 
 /** Order = order in the folder; the first one is opened after seeding. */
 export const GUIDE_NOTES = [
@@ -78,7 +78,7 @@ function welcome(r: GuideRefs): J {
     ),
     h(2, '之後會有'),
     ul(
-      '分享連結的到期、密碼與撤銷，以及即時分享、附件',
+      '即時分享、分享附件',
       '知識圖譜、離線安裝（PWA）、Mermaid 圖表、數學公式、區塊嵌入',
     ),
   )
@@ -358,9 +358,21 @@ function shareNote(): J {
       ['每條連結有自己的金鑰，一條外流，不會影響其他筆記。'],
       ['換一台裝置登入，也能再次複製同一條連結。'],
     ),
+    h(2, '到期與密碼'),
+    ul(
+      ['「到期」可選永久、1 天、7 天或 30 天，隨時能改；過期的連結打不開，改回永久或換個期限就會恢復。'],
+      ['想鎖起來就打開「密碼」（至少 6 個字）：對方要有連結、也要輸入密碼才看得到內容。密碼錯了可以再試，沒有次數限制，所以請設不容易猜的密碼。'],
+      ['變更密碼後，舊密碼立即失效；移除密碼後，知道連結的人就能開。你自己忘了密碼，直接設新的即可。'],
+      ['到期與改密碼只擋之後再來的人；已經打開過的人，手上那份還在。'],
+    ),
+    h(2, '換新連結'),
+    ul(
+      ['連結傳錯人、但還想繼續分享？按「換新連結」並確認，舊連結立即失效，新連結沿用同一份快照、到期與密碼。'],
+      ['「設定」→「帳號」→「已分享的筆記」列出所有分享中的筆記，可以逐篇停止。'],
+    ),
     h(2, '停止分享'),
     ul(
-      ['在分享視窗按「停止分享」並確認，連結立即失效。'],
+      ['在分享視窗按「停止分享」並確認，這篇的所有連結立即失效。'],
       ['筆記丟進垃圾桶，連結仍然有效；永久刪除筆記時，連結會一併失效。'],
     ),
     callout('info', p('太大的筆記（內容壓縮後超過 2 MB）無法分享。')),
