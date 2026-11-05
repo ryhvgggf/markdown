@@ -214,3 +214,36 @@ test('分享附件：圖片顯示、檔案可下載、更新快照、停止後�
   await viewer.reload()
   await expect(viewer.getByRole('alert')).toHaveText('連結無效或已停止分享')
 })
+
+test('分享頁：重新整理後停在原本的位置（標題 25），關掉分頁再開則回到頂端', async ({ page, context }) => {
+  await page.goto('/')
+  await newNote(page, '很長的筆記')
+  for (let i = 1; i <= 30; i++) {
+    await page.keyboard.type(`## 標題${i}`)
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('字'.repeat(260))
+    await page.keyboard.press('Enter')
+  }
+  const { url } = await share(page, '很長的筆記')
+
+  const viewer = await context.newPage()
+  await viewer.goto(url)
+  const heading = viewer.getByRole('heading', { name: '標題25', exact: true })
+  await expect(heading).toBeVisible({ timeout: 15000 }).catch(() => undefined)
+  await heading.scrollIntoViewIfNeeded()
+  await viewer.mouse.wheel(0, 60) // a real scroll gesture, so the page keeps what the reader did
+  await viewer.waitForTimeout(400)
+  const before = (await heading.boundingBox())!.y
+  expect(await viewer.evaluate(() => window.scrollY)).toBeGreaterThan(500)
+
+  await viewer.reload()
+  await expect(heading).toBeVisible()
+  await expect.poll(async () => Math.abs((await heading.boundingBox())!.y - before), { timeout: 8000 }).toBeLessThan(40)
+  expect(await viewer.evaluate(() => window.scrollY)).toBeGreaterThan(500)
+
+  // a new tab has no saved place
+  const fresh = await context.newPage()
+  await fresh.goto(url)
+  await expect(fresh.getByRole('heading', { name: '標題1', exact: true })).toBeVisible()
+  expect(await fresh.evaluate(() => window.scrollY)).toBe(0)
+})

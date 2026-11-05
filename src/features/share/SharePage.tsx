@@ -6,6 +6,8 @@ import { editorSchema } from '@/app/doc-io'
 import { ShareError, type ShareAdapter } from '@/adapters/share/types'
 import { openShareFile, openSharedLink } from '@/core/share/share-service'
 import { shareBlobType, type ShareFile } from '@/core/share/files'
+import { parseShareUrl } from '@/core/share/link'
+import { useRememberScroll } from './use-remember-scroll'
 import type { PMNode } from '@/core/markdown/types'
 import type { AnyShareSnapshot, MultiShareSnapshot } from '@/core/share/snapshot'
 import { OutlineView, type OutlineEntry } from '@/features/panel/OutlineTicks'
@@ -65,6 +67,14 @@ export function SharePage({ adapter }: { adapter: ShareAdapter | (() => Promise<
     }
   }, [adapter, attempt])
 
+  // The page keeps its own place (see `useRememberScroll`), so the browser must not restore one on its own.
+  useEffect(() => {
+    const before = window.history.scrollRestoration
+    window.history.scrollRestoration = 'manual'
+    return () => {
+      window.history.scrollRestoration = before
+    }
+  }, [])
   useEffect(() => {
     if (state.s === 'ready' && state.snapshot.v === 1) document.title = state.snapshot.title
   }, [state])
@@ -74,7 +84,7 @@ export function SharePage({ adapter }: { adapter: ShareAdapter | (() => Promise<
   if (state.s === 'error') return <div role="alert" className="grid min-h-dvh place-items-center px-6 text-center text-fg-secondary">{state.text}</div>
   return (
     <ShowErrors>
-      {state.snapshot.v === 1 ? <SharedNote title={state.snapshot.title} doc={state.snapshot.doc} files={state.files} /> : <MultiNotes snapshot={state.snapshot} files={state.files} />}
+      {state.snapshot.v === 1 ? <SharedNote code="n0" title={state.snapshot.title} doc={state.snapshot.doc} files={state.files} /> : <MultiNotes snapshot={state.snapshot} files={state.files} />}
     </ShowErrors>
   )
 }
@@ -183,7 +193,7 @@ function MultiNotes({ snapshot, files }: { snapshot: MultiShareSnapshot; files: 
           ))}
         </select>
       </div>
-      <SharedNote key={note.id} title={note.title} doc={note.doc} files={files} onOpenLink={open} blockId={view.blockId} nonce={view.nonce} />
+      <SharedNote key={note.id} code={note.id} title={note.title} doc={note.doc} files={files} onOpenLink={open} blockId={view.blockId} nonce={view.nonce} />
     </div>
   )
 }
@@ -196,6 +206,7 @@ function scrollToBlock(_noteId: string, blockId?: string) {
 }
 
 function SharedNote({
+  code,
   title,
   doc,
   files,
@@ -203,6 +214,8 @@ function SharedNote({
   blockId,
   nonce,
 }: {
+  /** The note's code in its snapshot (keeps one reading place per note of a link). */
+  code: string
   title: string
   doc: PMNode
   files: SharedFiles
@@ -214,6 +227,12 @@ function SharedNote({
 }) {
   // The same editor schema and styles as the app, on a throwaway document filled from the snapshot.
   const open = onOpenLink ?? scrollToBlock
+  const placeKey = useMemo(() => {
+    const p = parseShareUrl(new URL(location.href))
+    return p ? `share-place:${p.shareId}:${code}` : null
+  }, [code])
+  // After a switch or a followed link (`nonce` set) the page goes where that asked; only a fresh load restores the place.
+  useRememberScroll(placeKey, nonce === undefined)
   const extensions = useMemo(() => {
     const ydoc = new Y.Doc()
     prosemirrorJSONToYXmlFragment(editorSchema(), doc, ydoc.getXmlFragment('content'))

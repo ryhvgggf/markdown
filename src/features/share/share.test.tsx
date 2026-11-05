@@ -796,3 +796,40 @@ describe('分享頁', () => {
     })
   })
 })
+
+describe('分享頁記住位置', () => {
+  const KEY = 'share-place:test:n0'
+  afterEach(() => sessionStorage.clear())
+
+  async function mountWith(saved: string | null, restore: boolean) {
+    const { useRememberScroll } = await import('./use-remember-scroll')
+    const { renderHook } = await import('@testing-library/react')
+    document.body.innerHTML = '<div class="note-editor"><p data-block-id="a">a</p><p data-block-id="b">b</p></div>'
+    const rect = (top: number) => ({ top, bottom: top + 20 }) as DOMRect
+    const els = document.querySelectorAll<HTMLElement>('[data-block-id]')
+    let topB = 900
+    els[0].getBoundingClientRect = () => rect(topB - 400)
+    els[1].getBoundingClientRect = () => rect(topB)
+    const scrollBy = vi.fn((_x: number, y: number) => void (topB -= y))
+    window.scrollBy = scrollBy as unknown as typeof window.scrollBy
+    if (saved) sessionStorage.setItem(KEY, saved)
+    renderHook(() => useRememberScroll(KEY, restore))
+    return { scrollBy, setTop: (t: number) => (topB = t) }
+  }
+
+  it('puts the block back at the offset it had before the reload', async () => {
+    const { scrollBy } = await mountWith(JSON.stringify({ id: 'b', offset: 80 }), true)
+    await waitFor(() => expect(scrollBy).toHaveBeenCalledWith(0, 820))
+  })
+
+  it('restores nothing after a switch or a followed link, and ignores a bad or missing block', async () => {
+    const a = await mountWith(JSON.stringify({ id: 'b', offset: 80 }), false)
+    await new Promise((r) => setTimeout(r, 60))
+    expect(a.scrollBy).not.toHaveBeenCalled()
+    const b = await mountWith('not json', true)
+    const c = await mountWith(JSON.stringify({ id: 'gone', offset: 0 }), true)
+    await new Promise((r) => setTimeout(r, 60))
+    expect(b.scrollBy).not.toHaveBeenCalled()
+    expect(c.scrollBy).not.toHaveBeenCalled()
+  })
+})
