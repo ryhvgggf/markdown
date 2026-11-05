@@ -5,7 +5,8 @@
 -- 1. 私有 bucket `share-files`：物件路徑 `<shareId>/<隨機名稱>`，內容是加密過的附件（金鑰只在加密的快照裡）。
 -- 2. share_folders：每條連結的附件資料夾屬於誰。資料夾比連結活得久：連結停止或永久刪除後，
 --    擁有者仍能刪掉裡面的檔案，再刪資料夾。
--- 3. 開連結的人（不用登入）只能讀「連結還在、沒過期」的資料夾裡的檔案。
+-- 3. 開連結的人（不用登入）對這個 bucket 沒有任何讀取權限（列不出任何東西）；每個檔案由擁有者簽發
+--    下載憑證，放在加密的快照裡，一張憑證只能下載一個檔案，檔案刪掉就失效。
 -- 4. update_share_snapshot 多比對目前快照（p_expected_hash，可省略）：更新快照會刪掉不再用的附件，
 --    不能把別台剛寫入的快照蓋掉。
 
@@ -50,10 +51,12 @@ revoke all on function claim_share_folder(text) from public, anon;
 grant execute on function claim_share_folder(text) to authenticated;
 
 -- 擁有者：連結已經不在的資料夾（建立超過一小時，避免刪到正在建立中的連結）。
+-- 用 definer 直接看 share_links，不受它的 RLS 影響（不會把還在的連結誤判成不在）。
 create or replace function orphan_share_folders()
 returns setof text
 language sql
-security invoker
+stable
+security definer
 set search_path = public
 as $$
   select f.share_id from share_folders f
@@ -64,18 +67,8 @@ $$;
 revoke all on function orphan_share_folders() from public, anon;
 grant execute on function orphan_share_folders() to authenticated;
 
--- 開連結的人：這個資料夾的檔案現在能不能讀（連結存在且沒過期）。只回 true／false。
-create or replace function share_files_open(p_id text)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (select 1 from share_links where id = p_id and (expires_at is null or expires_at > now()));
-$$;
-revoke all on function share_files_open(text) from public;
-grant execute on function share_files_open(text) to anon, authenticated;
+drop policy if exists "share files: viewers read" on storage.objects;
+drop function if exists share_files_open(text);
 
 -- bucket：私有、單檔上限 21 MB（程式限制 20 MB，加上加密的 28 位元組）。
 insert into storage.buckets (id, name, public, file_size_limit)
@@ -93,10 +86,6 @@ create policy "share files: owner" on storage.objects for all to authenticated
     and name ~ '^[A-Za-z0-9_-]{16,64}/[A-Za-z0-9_-]{22}$'
     and exists (select 1 from public.share_folders f where f.share_id = (storage.foldername(name))[1] and f.user_id = auth.uid())
   );
-
-drop policy if exists "share files: viewers read" on storage.objects;
-create policy "share files: viewers read" on storage.objects for select to anon, authenticated
-  using (bucket_id = 'share-files' and public.share_files_open((storage.foldername(name))[1]));
 
 -- 更新快照：多比對目前快照（省略 p_expected_hash 時同 0007，讓還開著的舊版程式照常運作）。
 drop function if exists update_share_snapshot(text, bytea, text);

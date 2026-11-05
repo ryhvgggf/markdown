@@ -85,7 +85,7 @@ function defaultShare(db: NotesDb, mode: 'persistent' | 'memory'): ShareFacade {
     adapter: configured
       ? async () => {
           const [{ SupabaseShare }, { getSupabaseClient }] = await Promise.all([import('@/adapters/share/supabase-share'), import('@/adapters/supabase-client')])
-          return new SupabaseShare(getSupabaseClient())
+          return new SupabaseShare(getSupabaseClient(), import.meta.env.VITE_SUPABASE_URL)
         }
       : null,
   })

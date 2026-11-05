@@ -131,8 +131,16 @@ export interface ShareAdapter {
   releaseFolder(shareId: string): Promise<void>
   /** This account's folders whose link no longer exists (and that are not brand new: a link may be on its way). */
   orphanFolders(): Promise<string[]>
-  /** Viewer side: one file's ciphertext, while the link exists and has not expired; null otherwise. */
-  downloadFile(shareId: string, objectName: string): Promise<Uint8Array | null>
+  /** The objects in one of this account's folders, with when each was stored. */
+  listFiles(shareId: string): Promise<Array<{ name: string; createdAt: number }>>
+  /**
+   * Download tokens for files of this account's folder (valid `SHARE_FILE_TOKEN_SECONDS`), one per name. Viewers
+   * have no read access to the bucket at all (so nothing can be listed); a token opens exactly one object, until
+   * the object is deleted.
+   */
+  signFiles(shareId: string, objectNames: string[]): Promise<string[]>
+  /** Viewer side: one file's ciphertext through its token; null if the object (or the token) is no good. */
+  downloadFile(shareId: string, objectName: string, token: string): Promise<Uint8Array | null>
 }
 
 /** Expiry choices, in seconds (null = never). */
@@ -150,6 +158,8 @@ export const MAX_SHARE_FILE_BYTES = 20 * 1024 * 1024
 export const MAX_SHARE_FILES_BYTES = 50 * 1024 * 1024
 /** AES-GCM adds a 12-byte IV and a 16-byte tag. */
 export const SHARE_FILE_OVERHEAD = 28
+/** How long a file's download token works (about 10 years; "更新快照" does not renew kept files' tokens). */
+export const SHARE_FILE_TOKEN_SECONDS = 10 * 365 * 86_400
 /** Folders younger than this are not orphans yet (the link is written after its files are uploaded). */
 export const ORPHAN_FOLDER_GRACE_MS = 60 * 60 * 1000
 

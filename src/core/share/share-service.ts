@@ -5,6 +5,7 @@ import {
   MAX_SHARE_FILES_BYTES,
   MAX_SHARE_NOTES,
   MIN_SHARE_PASSWORD,
+  ORPHAN_FOLDER_GRACE_MS,
   SHARE_FILE_OVERHEAD,
   ShareError,
 } from '@/adapters/share/types'
@@ -24,7 +25,7 @@ import {
   wrapShareKey,
 } from '@/core/sync-engine/doc-crypto'
 import { buildShareUrl, exportShareKey, fromB64Url, importShareKey, newShareId, parseShareUrl, toB64Url } from './link'
-import { cleanFileInfo, type PendingShareFile, type ShareFile } from './files'
+import { cleanFileInfo, MAX_SHARE_FILE_COUNT, type PendingShareFile, type ShareFile } from './files'
 import type { PMNode } from '@/core/markdown/types'
 import { decodeSnapshot, encodeSnapshot, sanitizeSnapshot, type AnyShareSnapshot, type MultiShareSnapshot, type ShareSnapshot } from './snapshot'
 
@@ -96,7 +97,7 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
       if (p.size > MAX_SHARE_FILE_BYTES) throw new ShareError('file-too-large', undefined, { detail: p.name })
       total += p.size
     }
-    if (total > MAX_SHARE_FILES_BYTES) throw new ShareError('files-too-large')
+    if (total > MAX_SHARE_FILES_BYTES || pending.length > MAX_SHARE_FILE_COUNT) throw new ShareError('files-too-large')
     const reused = new Set<string>()
     const files: ShareFile[] = []
     const uploaded: string[] = []
@@ -131,7 +132,12 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
         const obj = toB64Url(crypto.getRandomValues(new Uint8Array(16)))
         await adapter.uploadFile(shareId, obj, await encryptShareFile(key, obj, bytes))
         uploaded.push(obj)
-        files.push({ code: p.code, obj, key: toB64Url(key), ref: toB64Url(await shareFileRef(key, p.attachmentId)), ...info, size: bytes.length })
+        files.push({ code: p.code, obj, key: toB64Url(key), ref: toB64Url(await shareFileRef(key, p.attachmentId)), ...info, size: bytes.length, token: '' })
+      }
+      if (uploaded.length) {
+        const tokens = new Map((await adapter.signFiles(shareId, uploaded)).map((t, i) => [uploaded[i], t]))
+        for (const f of files) if (!f.token) f.token = tokens.get(f.obj) ?? ''
+        if (files.some((f) => !f.token)) throw new ShareError('unknown', 'missing download token')
       }
     } catch (e) {
       await quietly(() => adapter.deleteFiles(shareId, uploaded))
@@ -155,13 +161,15 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
     const key = await generateShareKey()
     const { files, uploaded } = await uploadFiles(id, pending, [])
     const wrappedKey = toB64(await wrapShareKey(a.kek, a.vaultId, id, key))
+    let ciphertext: Uint8Array
     try {
-      const ciphertext = await encryptShareSnapshot(key, id, encodeSnapshot(withFiles(snapshot, files)))
-      await adapter.create({ id, vaultId: a.vaultId, noteId, ...(noteIds && { noteIds }), userId: a.userId, wrappedKey, ciphertext })
+      ciphertext = await encryptShareSnapshot(key, id, encodeSnapshot(withFiles(snapshot, files)))
     } catch (e) {
       if (uploaded.length) await quietly(() => adapter.releaseFolder(id))
       throw e
     }
+    // If this fails, the row may still have been written: the files stay (an orphaned folder is cleaned up later).
+    await adapter.create({ id, vaultId: a.vaultId, noteId, ...(noteIds && { noteIds }), userId: a.userId, wrappedKey, ciphertext })
     const now = Date.now()
     const record: ShareRecord = { id, vaultId: a.vaultId, noteId, noteIds, wrappedKey, createdAt: now, updatedAt: now, expiresAt: null, password: null }
     return { record, url: buildShareUrl(origin, id, await exportShareKey(key)) }
@@ -188,14 +196,15 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
       const key = await contentKeyOf(a, record)
       const previous = filesIn(await decryptShareSnapshot(key, shareId, own.ciphertext))
       const { files, uploaded, unused } = await uploadFiles(shareId, pending, previous)
-      let g: GuardedWrite
+      let ciphertext: Uint8Array
       try {
-        const ciphertext = await encryptShareSnapshot(key, shareId, encodeSnapshot(withFiles(snapshot, files)))
-        g = await write(record, ciphertext, await shareProofVerifier(own.ciphertext))
+        ciphertext = await encryptShareSnapshot(key, shareId, encodeSnapshot(withFiles(snapshot, files)))
       } catch (e) {
         await quietly(() => adapter.deleteFiles(shareId, uploaded))
         throw e
       }
+      // A write that throws may still have landed: keep the files (`cleanupFiles` removes unreferenced ones).
+      const g = await write(record, ciphertext, await shareProofVerifier(own.ciphertext))
       if (g === 'ok') {
         if (unused.length) await quietly(() => adapter.deleteFiles(shareId, unused))
         return record
@@ -346,21 +355,28 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
           verifier = await shareProofVerifier(proof)
           pwKey = toB64(await wrapSharePwBits(a.kek, record.vaultId, id, bits))
         }
-        const ciphertext = await encryptShareSnapshot(key, id, bytes)
         const wrappedKey = toB64(await wrapShareKey(a.kek, record.vaultId, id, linkKey))
-        // The files move with the link: copied into the new link's folder first, the old folder emptied after.
-        const objs = filesIn(bytes).map((f) => f.obj)
-        let g: GuardedWrite
+        // The files move with the link: copied into the new link's folder (with new download tokens) first, the old
+        // folder emptied after, so the old link's tokens stop working.
+        const decoded = decodeSnapshot(bytes)
+        const oldFiles = sanitizeSnapshot(decoded).files ?? []
+        const objs = oldFiles.map((f) => f.obj)
+        let content = bytes
         try {
           if (objs.length) {
             await adapter.claimFolder(id)
             await adapter.copyFiles(shareId, id, objs)
+            const tokens = await adapter.signFiles(id, objs)
+            if (tokens.length !== objs.length || tokens.some((t) => !t)) throw new ShareError('unknown', 'missing download token')
+            content = encodeSnapshot({ ...decoded, files: oldFiles.map((f, i) => ({ ...f, token: tokens[i] })) })
           }
-          g = await adapter.renew(shareId, { id, wrappedKey, ciphertext, verifier, pwKey }, record.password?.saltB64 ?? null, hash)
         } catch (e) {
           if (objs.length) await quietly(() => adapter.releaseFolder(id))
           throw e
         }
+        const ciphertext = await encryptShareSnapshot(key, id, content)
+        // If this throws, the renewal may still have happened: keep both folders (the orphaned one is cleaned up later).
+        const g = await adapter.renew(shareId, { id, wrappedKey, ciphertext, verifier, pwKey }, record.password?.saltB64 ?? null, hash)
         if (g !== 'ok' && objs.length) await quietly(() => adapter.releaseFolder(id))
         if (g === 'ok') await quietly(() => adapter.releaseFolder(shareId))
         if (settle(g))
@@ -413,10 +429,26 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
      * clean-up that failed). Never rejects; run on start and after sign-in, and after permanent deletes.
      */
     async cleanupFiles(): Promise<void> {
-      need()
+      const a = need()
       let ids: string[] = []
       await quietly(async () => (ids = await adapter.orphanFolders()))
       for (const id of ids) await quietly(() => adapter.releaseFolder(id))
+      // Files of live links that their snapshot no longer lists (a write whose outcome was unknown); not the
+      // newest ones, which another device may be about to list.
+      let links: ShareRecord[] = []
+      await quietly(async () => (links = await adapter.listForVault(a.vaultId)))
+      for (const r of links) {
+        await quietly(async () => {
+          const stored = await adapter.listFiles(r.id)
+          if (!stored.length) return
+          const own = await adapter.getOwn(r.id)
+          if (!own) return
+          const used = new Set(filesIn(await decryptShareSnapshot(await contentKeyOf(a, own.record), r.id, own.ciphertext)).map((f) => f.obj))
+          const cutoff = Date.now() - ORPHAN_FOLDER_GRACE_MS
+          const extra = stored.filter((o) => !used.has(o.name) && o.createdAt < cutoff).map((o) => o.name)
+          if (extra.length) await adapter.deleteFiles(r.id, extra)
+        })
+      }
     },
   }
 }
@@ -519,7 +551,7 @@ const validSalt = (b64: string) => {
 export async function openShareFile(adapter: Pick<ShareAdapter, 'downloadFile'>, url: URL, file: ShareFile): Promise<Uint8Array> {
   const parsed = parseShareUrl(url)
   if (!parsed) throw new ShareError('invalid', 'not a share link')
-  const ciphertext = await adapter.downloadFile(parsed.shareId, file.obj)
+  const ciphertext = await adapter.downloadFile(parsed.shareId, file.obj, file.token)
   if (!ciphertext) throw new ShareError('not-found')
   if (ciphertext.length !== file.size + SHARE_FILE_OVERHEAD) throw new ShareError('invalid', 'unexpected file size')
   try {

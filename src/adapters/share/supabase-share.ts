@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { bytesToPgHex, pgHexToBytes } from '@/adapters/sync/supabase-sync'
-import { ShareError } from './types'
+import { SHARE_FILE_TOKEN_SECONDS, ShareError } from './types'
 import type { GuardedWrite, NewShare, NewSharePassword, ProtectedOpen, PublicShare, ShareAdapter, ShareRecord } from './types'
 
 type Row = {
@@ -41,7 +41,14 @@ const toRecord = (r: Row): ShareRecord => ({
  * link, `open_protected_snapshot`, which return one row's data by id, so links cannot be listed.
  */
 export class SupabaseShare implements ShareAdapter {
-  constructor(private client: SupabaseClient) {}
+  /** `<project>/storage/v1`, for viewer downloads by token. */
+  private storageUrl: string
+  constructor(
+    private client: SupabaseClient,
+    projectUrl = '',
+  ) {
+    this.storageUrl = `${projectUrl.replace(/\/+$/, '')}/storage/v1`
+  }
 
   async create(s: NewShare): Promise<void> {
     const { error } = await this.client.from('share_links').insert({
@@ -220,11 +227,11 @@ export class SupabaseShare implements ShareAdapter {
 
   async releaseFolder(shareId: string): Promise<void> {
     for (;;) {
-      const { data, error } = await this.bucket.list(shareId, { limit: STORAGE_BATCH })
-      if (error) throw storageError(error)
-      const names = (data ?? []).map((o) => o.name).filter((n) => !!n)
+      const names = (await this.listFiles(shareId)).map((o) => o.name)
       if (!names.length) break
-      await this.deleteFiles(shareId, names)
+      const { data, error } = await this.bucket.remove(names.map((o) => `${shareId}/${o}`))
+      if (error) throw storageError(error)
+      if (!data?.length) throw new ShareError('unknown', 'cannot delete share files') // not this account's folder
     }
     const { error } = await this.client.from('share_folders').delete().eq('share_id', shareId)
     if (error) throw toError(error)
@@ -236,15 +243,48 @@ export class SupabaseShare implements ShareAdapter {
     return ((data ?? []) as unknown[]).filter((x): x is string => typeof x === 'string')
   }
 
-  async downloadFile(shareId: string, objectName: string): Promise<Uint8Array | null> {
-    const { data, error } = await this.bucket.download(`${shareId}/${objectName}`)
-    if (error) {
-      // Gone, stopped or expired all look like "not found" to an anonymous reader.
-      const status = Number((error as { status?: number; statusCode?: string | number }).status ?? (error as { statusCode?: string | number }).statusCode)
-      if (status === 400 || status === 403 || status === 404) return null
-      throw storageError(error)
+  async listFiles(shareId: string): Promise<Array<{ name: string; createdAt: number }>> {
+    const out: Array<{ name: string; createdAt: number }> = []
+    for (let offset = 0; ; offset += STORAGE_BATCH) {
+      const { data, error } = await this.bucket.list(shareId, { limit: STORAGE_BATCH, offset })
+      if (error) throw storageError(error)
+      const page = (data ?? []).filter((o) => !!o.name && o.id !== null)
+      for (const o of page) out.push({ name: o.name, createdAt: o.created_at ? Date.parse(o.created_at) : 0 })
+      if ((data ?? []).length < STORAGE_BATCH) return out
     }
-    return new Uint8Array(await data.arrayBuffer())
+  }
+
+  async signFiles(shareId: string, objectNames: string[]): Promise<string[]> {
+    const out: string[] = []
+    for (let i = 0; i < objectNames.length; i += STORAGE_BATCH) {
+      const paths = objectNames.slice(i, i + STORAGE_BATCH).map((o) => `${shareId}/${o}`)
+      const { data, error } = await this.bucket.createSignedUrls(paths, SHARE_FILE_TOKEN_SECONDS)
+      if (error) throw storageError(error)
+      for (const p of paths) {
+        const row = (data ?? []).find((d) => d.path === p)
+        const token = row?.signedUrl ? new URL(row.signedUrl, 'https://x.invalid').searchParams.get('token') : null
+        if (!token) throw new ShareError('unknown', 'no download token')
+        out.push(token)
+      }
+    }
+    return out
+  }
+
+  /**
+   * Through the signed-URL endpoint (viewers have no read policy on the bucket). The base URL is this client's
+   * project, never anything from the snapshot.
+   */
+  async downloadFile(shareId: string, objectName: string, token: string): Promise<Uint8Array | null> {
+    const url = `${this.storageUrl}/object/sign/${SHARE_BUCKET}/${shareId}/${objectName}?token=${encodeURIComponent(token)}`
+    let res: Response
+    try {
+      res = await fetch(url, { referrerPolicy: 'no-referrer', credentials: 'omit' })
+    } catch (e) {
+      throw new ShareError('unavailable', 'network', { cause: e })
+    }
+    if (res.status === 400 || res.status === 401 || res.status === 403 || res.status === 404) return null
+    if (!res.ok) throw new ShareError('unknown', `download failed (${res.status})`)
+    return new Uint8Array(await res.arrayBuffer())
   }
 }
 

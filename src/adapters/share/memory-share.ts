@@ -33,6 +33,10 @@ export class MemoryShare implements ShareAdapter {
   folders = new Map<string, { userId: string; createdAt: number }>()
   /** Stored files by `<shareId>/<objectName>`. */
   files = new Map<string, Uint8Array>()
+  fileTimes = new Map<string, number>()
+  /** Download tokens → the object each one opens. */
+  tokens = new Map<string, string>()
+  private tokenSeq = 0
   /** The signed-in account, for the folder ownership the server checks (tests can switch it). */
   userId = 'u1'
   constructor(
@@ -178,42 +182,44 @@ export class MemoryShare implements ShareAdapter {
     })
   }
 
-  // ---- files (migration 0008) ----
-  private ownFolder(shareId: string) {
-    const f = this.folders.get(shareId)
-    if (!f || f.userId !== this.userId) throw new ShareError('signed-out', 'not your folder')
+  // ---- files (migration 0008). Like Storage under its policies: another account's folder cannot be written
+  // (an error) and deleting from it does nothing; viewers have no read access, only signed tokens. ----
+  private mine(shareId: string) {
+    return this.folders.get(shareId)?.userId === this.userId
   }
   async claimFolder(shareId: string): Promise<void> {
     const f = this.folders.get(shareId)
     if (f && f.userId === this.userId) return
     const link = this.rows.get(shareId)
-    if (f || (link && link.userId !== this.userId)) throw new ShareError('signed-out', 'folder belongs to someone else')
+    if (f || (link && link.userId !== this.userId)) throw new ShareError('unknown', 'share folder belongs to someone else')
     this.folders.set(shareId, { userId: this.userId, createdAt: this.now() })
   }
   async uploadFile(shareId: string, objectName: string, ciphertext: Uint8Array): Promise<void> {
-    this.ownFolder(shareId)
-    if (ciphertext.length > MAX_SHARE_FILE_BYTES + SHARE_FILE_OVERHEAD) throw new ShareError('too-large')
+    if (!this.mine(shareId)) throw new ShareError('unknown', 'row-level security')
+    if (ciphertext.length > MAX_SHARE_FILE_BYTES + SHARE_FILE_OVERHEAD) throw new ShareError('unknown', 'too large')
     const k = `${shareId}/${objectName}`
     if (this.files.has(k)) throw new ShareError('unknown', 'object exists')
     this.files.set(k, ciphertext.slice())
+    this.fileTimes.set(k, this.now())
   }
   async copyFiles(fromShareId: string, toShareId: string, objectNames: string[]): Promise<void> {
-    this.ownFolder(fromShareId)
-    this.ownFolder(toShareId)
+    if (!this.mine(fromShareId) || !this.mine(toShareId)) throw new ShareError('unknown', 'row-level security')
     for (const o of objectNames) {
       const b = this.files.get(`${fromShareId}/${o}`)
       if (!b) throw new ShareError('unknown', 'no such object')
       this.files.set(`${toShareId}/${o}`, b.slice())
+      this.fileTimes.set(`${toShareId}/${o}`, this.now())
     }
   }
   async deleteFiles(shareId: string, objectNames: string[]): Promise<void> {
-    if (!objectNames.length) return
-    this.ownFolder(shareId)
-    for (const o of objectNames) this.files.delete(`${shareId}/${o}`)
+    if (!this.mine(shareId)) return
+    for (const o of objectNames) {
+      this.files.delete(`${shareId}/${o}`)
+      this.fileTimes.delete(`${shareId}/${o}`)
+    }
   }
   async releaseFolder(shareId: string): Promise<void> {
-    if (!this.folders.has(shareId)) return
-    this.ownFolder(shareId)
+    if (!this.mine(shareId)) return
     for (const k of [...this.files.keys()]) if (k.startsWith(`${shareId}/`)) this.files.delete(k)
     this.folders.delete(shareId)
   }
@@ -223,10 +229,25 @@ export class MemoryShare implements ShareAdapter {
       .filter(([id, f]) => f.userId === this.userId && f.createdAt < t - ORPHAN_FOLDER_GRACE_MS && !this.rows.has(id))
       .map(([id]) => id)
   }
-  async downloadFile(shareId: string, objectName: string): Promise<Uint8Array | null> {
-    if (this.persist) this.rows = this.persist.load()
-    const r = this.rows.get(shareId)
-    if (!r || this.expired(r)) return null
-    return this.files.get(`${shareId}/${objectName}`)?.slice() ?? null
+  async listFiles(shareId: string): Promise<Array<{ name: string; createdAt: number }>> {
+    if (!this.mine(shareId)) return []
+    return [...this.files.keys()]
+      .filter((k) => k.startsWith(`${shareId}/`))
+      .map((k) => ({ name: k.slice(shareId.length + 1), createdAt: this.fileTimes.get(k) ?? 0 }))
+  }
+  async signFiles(shareId: string, objectNames: string[]): Promise<string[]> {
+    if (!this.mine(shareId)) throw new ShareError('unknown', 'row-level security')
+    return objectNames.map((o) => {
+      if (!this.files.has(`${shareId}/${o}`)) throw new ShareError('unknown', 'no such object')
+      const token = `t${++this.tokenSeq}.${shareId}.${o}`
+      this.tokens.set(token, `${shareId}/${o}`)
+      return token
+    })
+  }
+  /** Like a signed URL: works while the object exists, whatever happened to the link. */
+  async downloadFile(shareId: string, objectName: string, token: string): Promise<Uint8Array | null> {
+    const k = `${shareId}/${objectName}`
+    if (this.tokens.get(token) !== k) return null
+    return this.files.get(k)?.slice() ?? null
   }
 }

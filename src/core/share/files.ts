@@ -18,6 +18,8 @@ export interface ShareFile {
   mime: string
   /** Plaintext size in bytes. */
   size: number
+  /** Download token of the stored object (signed by the owner; see `ShareAdapter.signFiles`). */
+  token: string
 }
 
 /** An attachment going into a snapshot, before upload (built on the owner's device). */
@@ -38,6 +40,8 @@ export const FILE_CODE = /^a(?:0|[1-9]\d{0,2})$/
 export const MAX_SHARE_FILE_COUNT = 1000
 const OBJ = /^[A-Za-z0-9_-]{22}$/
 const KEY32 = /^[A-Za-z0-9_-]{43}$/
+const TOKEN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+const MAX_TOKEN = 4096
 const MIME = /^[a-z0-9][a-z0-9.+-]{0,40}\/[a-z0-9][a-z0-9.+-]{0,60}$/
 const MAX_NAME = 200
 const FALLBACK_MIME = 'application/octet-stream'
@@ -53,6 +57,14 @@ export function shareMediaKind(kind: unknown, mime: string): 'image' | 'video' |
   return 'file'
 }
 
+/**
+ * The type to give a decrypted file's Blob on the share page (which shares the app's origin): its own type only
+ * for an inline image or video; anything else is `application/octet-stream` and offered as a download only, so
+ * an HTML or SVG file can never be opened as a page.
+ */
+export const shareBlobType = (f: Pick<ShareFile, 'mime'>, kind: 'image' | 'video' | 'file') =>
+  kind !== 'file' && shareMediaKind(kind, f.mime) === kind ? f.mime : FALLBACK_MIME
+
 /** The real attachment ids of `media` nodes in `docs`, in order of first appearance. */
 export function collectAttachmentIds(docs: PMNode[]): string[] {
   const seen = new Set<string>()
@@ -67,10 +79,12 @@ export function collectAttachmentIds(docs: PMNode[]): string[] {
   return [...seen]
 }
 
+/** Direction controls (they can disguise an extension: `invoice\u202Efdp.exe`). */
+const BIDI = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const cleanName = (v: unknown) => {
   const s = typeof v === 'string' ? [...v].filter((c) => c.charCodeAt(0) > 0x1f && c.charCodeAt(0) !== 0x7f).join('').trim() : ''
-  return [...s].slice(0, MAX_NAME).join('') || 'file'
+  return [...s].filter((c) => !BIDI.test(c)).slice(0, MAX_NAME).join('') || 'file'
 }
 const cleanMime = (v: unknown) => (typeof v === 'string' && MIME.test(v.toLowerCase()) ? v.toLowerCase() : FALLBACK_MIME)
 
@@ -85,13 +99,14 @@ export function sanitizeShareFiles(raw: unknown): ShareFile[] {
   let total = 0
   for (const f of raw.slice(0, MAX_SHARE_FILE_COUNT)) {
     if (!isObj(f)) continue
-    const { code, obj, key, ref, size } = f
+    const { code, obj, key, ref, size, token } = f
     if (typeof code !== 'string' || !FILE_CODE.test(code) || codes.has(code)) continue
     if (typeof obj !== 'string' || !OBJ.test(obj) || typeof key !== 'string' || !KEY32.test(key) || typeof ref !== 'string' || !KEY32.test(ref)) continue
+    if (typeof token !== 'string' || token.length > MAX_TOKEN || !TOKEN.test(token)) continue
     if (typeof size !== 'number' || !Number.isInteger(size) || size < 0 || size > MAX_SHARE_FILE_BYTES || total + size > MAX_SHARE_FILES_BYTES) continue
     codes.add(code)
     total += size
-    out.push({ code, obj, key, ref, name: cleanName(f.name), mime: cleanMime(f.mime), size })
+    out.push({ code, obj, key, ref, name: cleanName(f.name), mime: cleanMime(f.mime), size, token })
   }
   return out
 }

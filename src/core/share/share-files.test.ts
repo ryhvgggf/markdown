@@ -201,16 +201,38 @@ describe('share attachments (phase 4d)', () => {
     expect(await read(renewed.url, files[1])).toBe(B.body)
   })
 
-  it('stopping a link deletes its files; an expired link serves none', async () => {
+  it('stopping a link deletes its files, so their tokens stop working', async () => {
     const one = await service.create('n1', snapWith([A]), pendingOf([A]).pending)
-    const two = await service.create('n2', snapWith([B]), pendingOf([B]).pending)
-    await service.setExpiry(two.record.id, 86_400)
-    const f2 = filesOf(await open(two.url))[0]
-    now += 86_400 * 1000
-    expect((await errOf(read(two.url, f2))).kind).toBe('not-found')
+    const f = filesOf(await open(one.url))[0]
     await service.stop(one.record.id)
     expect(objectsOf(one.record.id)).toEqual([])
     expect(store.folders.has(one.record.id)).toBe(false)
+    expect((await errOf(read(one.url, f))).kind).toBe('not-found')
+  })
+
+  it('a file needs its token: knowing the link id and object name is not enough', async () => {
+    const { url } = await service.create('n1', snapWith([A, B]), pendingOf([A, B]).pending)
+    const [fa, fb] = filesOf(await open(url))
+    expect((await errOf(read(url, { ...fa, token: fb.token }))).kind).toBe('not-found')
+  })
+
+  it('a write whose answer is lost keeps its files; cleanup later removes only unreferenced ones', async () => {
+    const { url, record } = await service.create('n1', snapWith([A]), pendingOf([A]).pending)
+    const update = store.update.bind(store)
+    store.update = async (...args) => {
+      await update(...args) // lands on the server…
+      throw new ShareError('unknown', 'timeout') // …but the answer is lost
+    }
+    await errOf(service.update(record, snapWith([B], [], 2), pendingOf([B]).pending))
+    store.update = update
+    const live = filesOf(await open(url))
+    expect(live.map((f) => f.name)).toEqual(['b.mp4'])
+    expect(await read(url, live[0])).toBe(B.body) // not deleted
+    expect(objectsOf(record.id)).toHaveLength(2) // A is now unreferenced
+    now += ORPHAN_FOLDER_GRACE_MS + 1
+    await service.cleanupFiles()
+    expect(objectsOf(record.id)).toEqual([`${record.id}/${live[0].obj}`])
+    expect(await read(url, live[0])).toBe(B.body)
   })
 
   it('files of links deleted with their note are cleaned up later (not while a link may still be on its way)', async () => {
@@ -241,7 +263,9 @@ describe('share attachments (phase 4d)', () => {
     store.userId = 'u2'
     await expect(store.claimFolder(record.id)).rejects.toBeInstanceOf(ShareError)
     await expect(store.uploadFile(record.id, 'x'.repeat(22), new Uint8Array(30))).rejects.toBeInstanceOf(ShareError)
-    await expect(store.releaseFolder(record.id)).rejects.toBeInstanceOf(ShareError)
+    await store.releaseFolder(record.id) // does nothing, like Storage under its policies
+    await store.deleteFiles(record.id, [...store.files.keys()].map((k) => k.split('/')[1]))
+    expect(objectsOf(record.id)).toHaveLength(1)
   })
 
   it('a link without attachments still works as before (no folder)', async () => {
@@ -257,7 +281,7 @@ describe('share attachments (phase 4d)', () => {
 
 describe('share attachments: allow-list', () => {
   const key = 'k'.repeat(43)
-  const file = (over: Partial<ShareFile> = {}): ShareFile => ({ code: 'a0', obj: 'o'.repeat(22), key, ref: key, name: 'x.png', mime: 'image/png', size: 10, ...over })
+  const file = (over: Partial<ShareFile> = {}): ShareFile => ({ code: 'a0', obj: 'o'.repeat(22), key, ref: key, name: 'x.png', mime: 'image/png', size: 10, token: 'aa.bb.cc', ...over })
 
   it('keeps well-formed entries only', () => {
     const out = sanitizeShareFiles([
@@ -269,11 +293,13 @@ describe('share attachments: allow-list', () => {
       file({ code: 'a4', size: MAX_SHARE_FILE_BYTES + 1 }),
       file({ code: 'b5' }),
       { ...file({ code: 'a6' }), name: 'evil\u0000‮.png'.padEnd(400, 'x'), mime: 'text/html; charset=x' },
+      file({ code: 'a7', token: 'not a token' }),
       'junk',
     ])
     expect(out.map((f) => f.code)).toEqual(['a0', 'a6'])
     expect(out[1].name.length).toBe(200)
     expect(out[1].name).not.toContain('\u0000')
+    expect(out[1].name).not.toContain('\u202e')
     expect(out[1].mime).toBe('application/octet-stream')
     expect(sanitizeShareFiles({ length: 1 })).toEqual([])
   })

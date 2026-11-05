@@ -52,7 +52,7 @@ if (/^\/s\/[^/]+\/?$/.test(location.pathname)) {
   const adapter = async () => {
     if (isE2eShare()) return new LocalStorageShare()
     const [{ SupabaseShare }, { getSupabaseClient }] = await Promise.all([import('@/adapters/share/supabase-share'), import('@/adapters/supabase-client')])
-    return new SupabaseShare(getSupabaseClient())
+    return new SupabaseShare(getSupabaseClient(), import.meta.env.VITE_SUPABASE_URL)
   }
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
