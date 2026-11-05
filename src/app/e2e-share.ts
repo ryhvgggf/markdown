@@ -1,5 +1,5 @@
 import { fromB64, toB64 } from '@/adapters/crypto/webcrypto-crypto'
-import { MemoryShare, type MemoryShareRow } from '@/adapters/share/memory-share'
+import { MemoryShare, type MemoryFileState, type MemoryShareRow } from '@/adapters/share/memory-share'
 import type { ShareFacade } from './share-facade'
 import { SYNC_VAULT_KEY } from './account-service'
 import { createShareFacade } from './share-facade'
@@ -12,6 +12,7 @@ import type { NotesDb } from '@/adapters/storage/db'
  */
 export const E2E_SHARE_FLAG = 'notes-v2:e2e-share'
 const STORE = 'notes-v2:e2e-share-rows'
+const FILES = 'notes-v2:e2e-share-files'
 
 type Row = Omit<MemoryShareRow, 'ciphertext' | 'verifier'> & { ciphertext: string; verifier: string | null }
 
@@ -31,10 +32,38 @@ const save = (rows: Map<string, MemoryShareRow>) =>
     JSON.stringify(Object.fromEntries([...rows].map(([id, r]) => [id, { ...r, ciphertext: toB64(r.ciphertext), verifier: r.verifier && toB64(r.verifier) }]))),
   )
 
+type FileJson = {
+  folders: Array<[string, { userId: string; createdAt: number }]>
+  files: Array<[string, string]>
+  fileTimes: Array<[string, number]>
+  tokens: Array<[string, string]>
+  tokenSeq: number
+}
+const loadFiles = (): MemoryFileState => {
+  try {
+    const j = JSON.parse(localStorage.getItem(FILES) ?? 'null') as FileJson | null
+    if (j) return { folders: new Map(j.folders), files: new Map(j.files.map(([k, v]) => [k, fromB64(v)])), fileTimes: new Map(j.fileTimes), tokens: new Map(j.tokens), tokenSeq: j.tokenSeq }
+  } catch {
+    /* start empty */
+  }
+  return { folders: new Map(), files: new Map(), fileTimes: new Map(), tokens: new Map(), tokenSeq: 0 }
+}
+const saveFiles = (s: MemoryFileState) =>
+  localStorage.setItem(
+    FILES,
+    JSON.stringify({
+      folders: [...s.folders],
+      files: [...s.files].map(([k, v]) => [k, toB64(v)]),
+      fileTimes: [...s.fileTimes],
+      tokens: [...s.tokens],
+      tokenSeq: s.tokenSeq,
+    } satisfies FileJson),
+  )
+
 /** The in-memory adapter, with its rows kept in localStorage so a second page sees them. */
 export class LocalStorageShare extends MemoryShare {
   constructor() {
-    super(Date.now, { load, save })
+    super(Date.now, { load, save }, { load: loadFiles, save: saveFiles })
     this.userId = 'e2e-user'
   }
 }

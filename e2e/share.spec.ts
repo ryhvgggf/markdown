@@ -168,3 +168,49 @@ test('分享管理：一條連結分享多篇、別人可切換、重新整理�
   await viewer.goto(url)
   await expect(viewer.getByRole('alert')).toHaveText('連結無效或已停止分享')
 })
+
+// 1x1 red PNG
+const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
+
+test('分享附件：圖片顯示、檔案可下載、更新快照、停止後失效', async ({ page, context, browserName }) => {
+  test.skip(browserName === 'webkit', 'WebKit 的合成貼上沒有 clipboardData')
+  await page.goto('/')
+  await newNote(page, '有附件的筆記')
+  await page.keyboard.type('看圖')
+  await page.evaluate(
+    ({ b64 }) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+      const dt = new DataTransfer()
+      dt.items.add(new File([bytes], 'red.png', { type: 'image/png' }))
+      dt.items.add(new File(['hello'], 'note.txt', { type: 'text/plain' }))
+      document.querySelector('.ProseMirror')!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+    },
+    { b64: PNG_B64 },
+  )
+  await expect(page.locator('.ProseMirror img[alt="red.png"]')).toBeVisible()
+
+  const { dialog, url } = await share(page, '有附件的筆記')
+  await expect(dialog.getByLabel('分享連結')).toBeVisible()
+
+  const viewer = await context.newPage()
+  await viewer.goto(url)
+  const img = viewer.getByLabel('筆記內容').locator('img[alt="red.png"]')
+  await expect(img).toBeVisible()
+  await expect(img).toHaveAttribute('src', /^blob:/)
+  await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1)
+  const download = viewer.waitForEvent('download')
+  await viewer.getByRole('button', { name: '下載 note.txt' }).click()
+  expect((await download).suggestedFilename()).toBe('note.txt')
+
+  await dialog.press('Escape')
+  await page.getByRole('button', { name: '分享', exact: true }).click()
+  await page.getByRole('button', { name: '更新快照' }).click()
+  await viewer.reload()
+  await expect(viewer.getByLabel('筆記內容').locator('img[alt="red.png"]')).toBeVisible()
+
+  await page.getByRole('button', { name: '停止分享' }).click()
+  await page.getByRole('button', { name: '停止分享' }).last().click()
+  await expect(page.getByRole('button', { name: '建立連結' })).toBeVisible()
+  await viewer.reload()
+  await expect(viewer.getByRole('alert')).toHaveText('連結無效或已停止分享')
+})

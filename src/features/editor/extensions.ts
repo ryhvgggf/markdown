@@ -57,6 +57,14 @@ export type EditorContext = {
    * own label and opens that note through `open` (the ids are the link's in-snapshot codes).
    */
   shared?: { open(noteId: string, blockId?: string): void }
+  /**
+   * The share page (phase 4d): the link's attachments, by their in-snapshot code. `media` nodes read their file from here
+   * instead of the vault, and the Blob `load` returns already has the type the page allows (never HTML or SVG).
+   */
+  sharedFiles?: {
+    find(code: string): { name: string; size: number } | undefined
+    load(code: string, kind: 'image' | 'video' | 'file'): Promise<Blob>
+  }
 }
 
 /**

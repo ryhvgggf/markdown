@@ -4,7 +4,8 @@ import * as Y from 'yjs'
 import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
 import { editorSchema } from '@/app/doc-io'
 import { ShareError, type ShareAdapter } from '@/adapters/share/types'
-import { openSharedLink } from '@/core/share/share-service'
+import { openShareFile, openSharedLink } from '@/core/share/share-service'
+import { shareBlobType, type ShareFile } from '@/core/share/files'
 import type { PMNode } from '@/core/markdown/types'
 import type { AnyShareSnapshot, MultiShareSnapshot } from '@/core/share/snapshot'
 import { OutlineView, type OutlineEntry } from '@/features/panel/OutlineTicks'
@@ -15,7 +16,23 @@ type State =
   | { s: 'loading' }
   | { s: 'error'; text: string }
   | { s: 'password'; wrong: boolean }
-  | { s: 'ready'; snapshot: AnyShareSnapshot }
+  | { s: 'ready'; snapshot: AnyShareSnapshot; files: SharedFiles }
+
+type SharedFiles = NonNullable<EditorContext['sharedFiles']>
+
+/** The link's attachments for the editor: fetched from storage and decrypted when a `media` node asks for one. */
+function sharedFilesOf(adapter: ShareAdapter, files: ShareFile[] | undefined): SharedFiles {
+  const byCode = new Map((files ?? []).map((f) => [f.code, f]))
+  return {
+    find: (code) => byCode.get(code),
+    load: async (code, kind) => {
+      const f = byCode.get(code)
+      if (!f) throw new ShareError('not-found')
+      const bytes = await openShareFile(adapter, new URL(location.href), f)
+      return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: shareBlobType(f, kind) })
+    },
+  }
+}
 
 const INVALID = '連結無效或已停止分享'
 const UNREACHABLE = '無法開啟此連結'
@@ -36,7 +53,7 @@ export function SharePage({ adapter }: { adapter: ShareAdapter | (() => Promise<
       try {
         const a = typeof adapter === 'function' ? await adapter() : adapter
         const snapshot = await openSharedLink(a, new URL(location.href), (doc) => void editorSchema().nodeFromJSON(doc).check(), attempt.password)
-        if (!cancelled) setState({ s: 'ready', snapshot })
+        if (!cancelled) setState({ s: 'ready', snapshot, files: sharedFilesOf(a, snapshot.files) })
       } catch (e) {
         if (cancelled) return
         if (e instanceof ShareError && (e.kind === 'password-required' || e.kind === 'wrong-password')) setState({ s: 'password', wrong: e.kind === 'wrong-password' })
@@ -57,7 +74,7 @@ export function SharePage({ adapter }: { adapter: ShareAdapter | (() => Promise<
   if (state.s === 'error') return <div role="alert" className="grid min-h-dvh place-items-center px-6 text-center text-fg-secondary">{state.text}</div>
   return (
     <ShowErrors>
-      {state.snapshot.v === 1 ? <SharedNote title={state.snapshot.title} doc={state.snapshot.doc} /> : <MultiNotes snapshot={state.snapshot} />}
+      {state.snapshot.v === 1 ? <SharedNote title={state.snapshot.title} doc={state.snapshot.doc} files={state.files} /> : <MultiNotes snapshot={state.snapshot} files={state.files} />}
     </ShowErrors>
   )
 }
@@ -114,7 +131,7 @@ class ShowErrors extends Component<{ children: ReactNode }, { failed: boolean }>
  * stays after `#`), so a reload or a copied address stays on it. A link to another note of the same snapshot
  * switches to it and scrolls to the block.
  */
-function MultiNotes({ snapshot }: { snapshot: MultiShareSnapshot }) {
+function MultiNotes({ snapshot, files }: { snapshot: MultiShareSnapshot; files: SharedFiles }) {
   const codes = useMemo(() => snapshot.notes.map((n) => n.id), [snapshot])
   const [view, setView] = useState<{ code: string; blockId: string | null; nonce?: number }>(() => {
     const n = new URLSearchParams(location.search).get('n')
@@ -166,7 +183,7 @@ function MultiNotes({ snapshot }: { snapshot: MultiShareSnapshot }) {
           ))}
         </select>
       </div>
-      <SharedNote key={note.id} title={note.title} doc={note.doc} onOpenLink={open} blockId={view.blockId} nonce={view.nonce} />
+      <SharedNote key={note.id} title={note.title} doc={note.doc} files={files} onOpenLink={open} blockId={view.blockId} nonce={view.nonce} />
     </div>
   )
 }
@@ -174,12 +191,14 @@ function MultiNotes({ snapshot }: { snapshot: MultiShareSnapshot }) {
 function SharedNote({
   title,
   doc,
+  files,
   onOpenLink,
   blockId,
   nonce,
 }: {
   title: string
   doc: PMNode
+  files: SharedFiles
   /** Multi-note links: opens another note of the link (by its code). */
   onOpenLink?: (noteId: string, blockId?: string) => void
   /** After a switch (`nonce` set): the block to scroll to; without one the page goes to the top. */
@@ -190,8 +209,8 @@ function SharedNote({
   const extensions = useMemo(() => {
     const ydoc = new Y.Doc()
     prosemirrorJSONToYXmlFragment(editorSchema(), doc, ydoc.getXmlFragment('content'))
-    return createExtensions(ydoc, { noteId: '', ...(onOpenLink && { shared: { open: onOpenLink } }) } as unknown as EditorContext)
-  }, [doc, onOpenLink])
+    return createExtensions(ydoc, { noteId: '', sharedFiles: files, ...(onOpenLink && { shared: { open: onOpenLink } }) } as unknown as EditorContext)
+  }, [doc, onOpenLink, files])
   const editor = useEditor({ extensions, editable: false, editorProps: { attributes: { class: 'note-editor', 'aria-label': '筆記內容' } } }, [extensions])
   useEffect(() => {
     if (!editor || nonce === undefined) return

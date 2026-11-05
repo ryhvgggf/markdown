@@ -5,8 +5,8 @@ import { ShareError, type ShareRecord } from '@/adapters/share/types'
 import { Button } from '@/ui/components/Button'
 import { Dialog } from '@/ui/components/Dialog'
 import { Share } from '@/ui/icons'
-import { GENERIC_ERROR, errorText, ShareControls } from './ShareControls'
-import { snapshotOfNote } from './note-snapshot'
+import { GENERIC_ERROR, errorText, missingText, ShareControls } from './ShareControls'
+import { shareContentOfNote } from './note-snapshot'
 
 type View =
   | { s: 'loading' }
@@ -68,12 +68,14 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
   }, [fetchView])
 
   const [notice, setNotice] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
   const create = async () => {
     setBusy(true)
     setNotice(null)
     try {
-      const snapshot = await snapshotOfNote(services, noteId)
-      const { record, url } = await share.run((svc) => svc.create(noteId, snapshot))
+      const { snapshot, files, missing } = await shareContentOfNote(services, noteId)
+      const { record, url } = await share.run((svc) => svc.create(noteId, snapshot, files))
+      setInfo(missingText(missing))
       setView({ s: 'link', record, url })
     } catch (e) {
       if (e instanceof ShareError && (e.kind === 'signed-out' || e.kind === 'unavailable')) setView(viewForError(e))
@@ -120,12 +122,15 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
     )
   }
   return (
+    <>
+    {info && <p className="mb-2 text-xs text-fg-secondary">{info}</p>}
     <ShareControls
       record={view.record}
       url={view.url}
       onUpdate={async (r) => {
-        const snapshot = await snapshotOfNote(services, noteId)
-        await share.run((svc) => svc.update(r, snapshot))
+        const { snapshot, files, missing } = await shareContentOfNote(services, noteId)
+        await share.run((svc) => svc.update(r, snapshot, files))
+        setInfo(missingText(missing))
         return snapshot.sharedAt
       }}
       onStop={() => share.run((svc) => svc.stopForNote(noteId))}
@@ -135,5 +140,6 @@ function ShareBody({ noteId, onClose }: { noteId: string; onClose: () => void })
       }}
       onFatal={(e) => setView(viewForError(e))}
     />
+    </>
   )
 }

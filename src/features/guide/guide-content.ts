@@ -13,7 +13,7 @@ export const GUIDE_TAG = '功能導覽'
  * Bump when the guide text changes. A device whose guide is still untouched is rewritten to this version on
  * start (`updateGuide` in ./guide); `addGuide` records it for fresh guides.
  */
-export const GUIDE_VERSION = 5
+export const GUIDE_VERSION = 6
 
 /** Order = order in the folder; the first one is opened after seeding. */
 export const GUIDE_NOTES = [
@@ -78,7 +78,7 @@ function welcome(r: GuideRefs): J {
     ),
     h(2, '之後會有'),
     ul(
-      '即時分享、分享附件',
+      '即時分享',
       '知識圖譜、離線安裝（PWA）、Mermaid 圖表、數學公式、區塊嵌入',
     ),
   )
@@ -349,12 +349,13 @@ function shareNote(): J {
       ['對方看到的是建立當下的內容。你之後再改這篇，連結不會跟著變。'],
       ['想更新：再開一次分享，按「更新快照」，同一條連結就會換成目前的內容。'],
       ['連到其他筆記的連結，在分享頁會變成純文字（同一條多篇連結裡的筆記除外，見下面「一條連結分享多篇」）。'],
-      ['圖片、影片與檔案不會包含，分享頁會顯示「附件未包含」。'],
+      ['圖片、影片與檔案會一起分享：圖片和影片直接顯示，其他檔案讓對方下載（SVG 也只提供下載）。一個檔案最多 20 MB，一條連結的附件合計最多 50 MB。'],
+      ['只存在別台裝置、這台還沒下載的附件不會包含，分享頁顯示「附件未包含」；建立連結時會告訴你有幾個。'],
     ),
     h(2, '連結與安全'),
     p('內容在你的裝置上先加密，伺服器只存密文。解密用的金鑰放在連結的 # 後面，瀏覽器不會把它送給伺服器。所以：'),
     ul(
-      [b('知道完整連結的人就能看'), '，請不要貼在公開的地方。'],
+      [b('知道完整連結的人就能看'), '，請不要貼在公開的地方。附件也一樣先在你的裝置上加密。'],
       ['每條連結有自己的金鑰，一條外流，不會影響其他筆記。'],
       ['換一台裝置登入，也能再次複製同一條連結。'],
     ),

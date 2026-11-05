@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react'
 import { mergeAttributes, Node } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
@@ -59,7 +59,76 @@ function useAttachmentState(vault: EditorContext['vault'] | undefined, id: strin
   return useSyncExternalStore(subscribe, get, get)
 }
 
-function MediaView({ node, selected, updateAttributes, editor, extension }: ReactNodeViewProps) {
+/** The share page's attachment: fetched and decrypted from the link, shown by its (allow-listed) kind. */
+function SharedMediaView({ node, ctx }: { node: ReactNodeViewProps['node']; ctx: EditorContext }) {
+  const { attachmentId: code, kind, width } = node.attrs as { attachmentId: string; kind: 'image' | 'video' | 'file'; width: number | null }
+  const files = ctx.sharedFiles!
+  const info = files.find(code)
+  const [state, setState] = useState<{ code: string; url: string | null; failed: boolean }>({ code, url: null, failed: false })
+  useEffect(() => {
+    if (!info) return
+    let cancelled = false
+    let url: string | null = null
+    files.load(code, kind).then(
+      (blob) => {
+        if (cancelled) return
+        url = URL.createObjectURL(blob)
+        setState({ code, url, failed: false })
+      },
+      () => !cancelled && setState({ code, url: null, failed: true }),
+    )
+    return () => {
+      cancelled = true
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [files, code, kind, info])
+  const cur = state.code === code ? state : { code, url: null, failed: false }
+  let body
+  if (!info) body = <div className="media-placeholder text-fg-tertiary">附件未包含</div>
+  else if (kind === 'file') {
+    body = (
+      <div className="media-file" contentEditable={false}>
+        <FileIcon size={20} className="shrink-0 text-fg-secondary" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-base text-fg" title={info.name}>
+            {info.name}
+          </span>
+          <span className="block text-xs text-fg-tertiary">{formatBytes(info.size)}</span>
+        </span>
+        {cur.url ? (
+          <button
+            type="button"
+            aria-label={`下載 ${info.name}`}
+            className="inline-flex shrink-0 items-center gap-1 rounded-control bg-fill px-2.5 py-1 text-xs text-fg hover:bg-black/10"
+            onClick={() => downloadUrl(cur.url!, info.name)}
+          >
+            <Download size={14} />
+            下載
+          </button>
+        ) : (
+          <span className="shrink-0 text-xs text-fg-tertiary">{cur.failed ? '附件載入失敗' : '載入中…'}</span>
+        )}
+      </div>
+    )
+  } else if (cur.failed) body = <div className="media-placeholder text-fg-tertiary">附件載入失敗</div>
+  else if (!cur.url) body = <div className="media-placeholder text-fg-tertiary">載入中…</div>
+  else if (kind === 'video') body = <video src={cur.url} controls preload="metadata" style={{ borderRadius: 12, maxWidth: '100%', width: '100%' }} />
+  else body = <img src={cur.url} alt={info.name} draggable={false} style={{ borderRadius: 12, maxWidth: '100%', width: '100%', display: 'block' }} />
+  return (
+    <NodeViewWrapper className="media-block" data-type="media" data-kind={kind}>
+      <div className="media-frame" style={{ width: width ? `${width}px` : undefined, maxWidth: '100%', borderRadius: 12 }}>
+        {body}
+      </div>
+    </NodeViewWrapper>
+  )
+}
+
+function MediaView(props: ReactNodeViewProps) {
+  const ctx = (props.extension.options as MediaOptions).ctx
+  return ctx?.sharedFiles ? <SharedMediaView node={props.node} ctx={ctx} /> : <LocalMediaView {...props} />
+}
+
+function LocalMediaView({ node, selected, updateAttributes, editor, extension }: ReactNodeViewProps) {
   const ctx = (extension.options as MediaOptions).ctx
   const { attachmentId, kind, width } = node.attrs as { attachmentId: string; kind: 'image' | 'video' | 'file'; width: number | null }
   const state = useAttachmentState(ctx?.vault, attachmentId)

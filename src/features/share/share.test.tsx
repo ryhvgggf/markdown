@@ -197,6 +197,143 @@ describe('分享 dialog', () => {
   })
 })
 
+describe('分享附件的介面（4d 第 2 段）', () => {
+  const MB = 1024 * 1024
+  async function withMedia(files: Array<{ name: string; mime: string; kind: 'image' | 'video' | 'file'; body: string | null; size?: number }>) {
+    const ctx = await setup()
+    const { services, note } = ctx
+    const nodes = []
+    for (const f of files) {
+      const a = services.vault.addAttachment({ filename: f.name, mimeType: f.mime, size: f.size ?? f.body?.length ?? 5 })
+      if (f.body !== null) await services.storage.putBlob(a.id, new Blob([f.body], { type: f.mime }))
+      nodes.push({ type: 'media', attrs: { attachmentId: a.id, kind: f.kind, width: null } })
+    }
+    const ydoc = await services.notes.acquire(note.id)
+    const frag = ydoc.getXmlFragment('content')
+    frag.delete(0, frag.length)
+    prosemirrorJSONToYXmlFragment(editorSchema(), { type: 'doc', content: nodes }, frag)
+    services.notes.release(note.id)
+    return ctx
+  }
+  const open = async (services: AppServices, noteId: string) => {
+    show(services)
+    act(() => useUi.getState().setShareNote(noteId))
+    return screen.findByRole('dialog', { name: '分享' })
+  }
+
+  it('the dialog uploads the downloaded attachments and says how many were left out', async () => {
+    const { adapter, services, note } = await withMedia([
+      { name: '貓.png', mime: 'image/png', kind: 'image', body: 'PNG' },
+      { name: '別台.png', mime: 'image/png', kind: 'image', body: null },
+    ])
+    const dialog = await open(services, note.id)
+    await userEvent.setup().click(await within(dialog).findByRole('button', { name: '建立連結' }))
+    await within(dialog).findByLabelText('分享連結')
+    expect(adapter.files.size).toBe(1)
+    expect(within(dialog).getByText('1 個附件尚未下載到這台，不會包含')).toBeInTheDocument()
+  })
+
+  it('names the file that is over 20 MB, and says when the total is over 50 MB', async () => {
+    const big = await withMedia([{ name: '大影片.mp4', mime: 'video/mp4', kind: 'video', body: 'x', size: 21 * MB }])
+    const dialog = await open(big.services, big.note.id)
+    const user = userEvent.setup()
+    // the device records the size it has; the limit is checked against it before anything is uploaded
+    vi.spyOn(big.services.storage, 'getBlob').mockResolvedValue({ size: 21 * MB, arrayBuffer: async () => new ArrayBuffer(0) } as unknown as Blob)
+    await user.click(await within(dialog).findByRole('button', { name: '建立連結' }))
+    expect(await within(dialog).findByText('有檔案超過 20 MB：大影片.mp4')).toBeInTheDocument()
+    expect(big.adapter.files.size).toBe(0)
+    cleanup()
+
+    const many = await withMedia([1, 2, 3].map((i) => ({ name: `f${i}.pdf`, mime: 'application/pdf', kind: 'file' as const, body: 'x' })))
+    vi.spyOn(many.services.storage, 'getBlob').mockResolvedValue({ size: 19 * MB, arrayBuffer: async () => new ArrayBuffer(0) } as unknown as Blob)
+    const dialog2 = await open(many.services, many.note.id)
+    await user.click(await within(dialog2).findByRole('button', { name: '建立連結' }))
+    expect(await within(dialog2).findByText('附件總量超過 50 MB，無法分享')).toBeInTheDocument()
+  })
+
+  it('the 分享 page includes attachments of a multi-note link too', async () => {
+    const { adapter, services, note } = await withMedia([{ name: '貓.png', mime: 'image/png', kind: 'image', body: 'PNG' }])
+    const b = services.vault.createNote({ title: 'B 篇' })
+    const content = await shareContentOfNote(services, note.id)
+    expect(content.files).toHaveLength(1)
+    render(
+      <ServicesProvider services={services}>
+        <SharesPage />
+      </ServicesProvider>,
+    )
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: '建立多篇連結' }))
+    await user.click(await screen.findByRole('checkbox', { name: /我的筆記/ }))
+    await user.click(screen.getByRole('checkbox', { name: /B 篇/ }))
+    await user.click(screen.getByRole('button', { name: '建立連結' }))
+    await screen.findByLabelText('分享連結')
+    expect(adapter.files.size).toBe(1)
+    expect(b.id).toBeTruthy()
+  })
+})
+
+describe('分享頁的附件', () => {
+  let urlN = 0
+  beforeEach(() => {
+    URL.createObjectURL = vi.fn(() => `blob:fake-${urlN++}`)
+    URL.revokeObjectURL = vi.fn()
+  })
+  afterEach(() => window.history.replaceState(null, '', '/'))
+  async function shared(files: Array<{ name: string; mime: string; kind: 'image' | 'video' | 'file'; body: string }>) {
+    const adapter = new MemoryShare()
+    const kek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+    const svc = createShareService({ adapter, account: () => ({ userId: 'u', vaultId: 'v', kek }), origin: 'https://notes.test' })
+    const ids = files.map((_, i) => `att-${i}`)
+    const pending = files.map((f, i) => ({
+      code: `a${i}`,
+      attachmentId: ids[i],
+      name: f.name,
+      mime: f.mime,
+      size: f.body.length,
+      read: async () => new TextEncoder().encode(f.body),
+    }))
+    const map = new Map(files.map((f, i) => [ids[i], { code: `a${i}`, mime: f.mime }]))
+    const d = { type: 'doc', content: files.map((f, i) => ({ type: 'media', attrs: { attachmentId: ids[i], kind: f.kind, width: null } })) }
+    const snapshot = buildShareSnapshot({ title: '有附件', doc: d, sharedAt: 1, linkLabel: () => null, files: map })
+    const { url } = await svc.create('n1', snapshot, pending)
+    const u = new URL(url)
+    window.history.replaceState(null, '', `${u.pathname}${u.hash}`)
+    return { adapter }
+  }
+
+  it('shows an image from the link, and offers a file as a download with its name and size', async () => {
+    const { adapter } = await shared([
+      { name: '貓.png', mime: 'image/png', kind: 'image', body: 'PNGDATA' },
+      { name: '報告.pdf', mime: 'application/pdf', kind: 'file', body: 'PDFDATA' },
+    ])
+    render(<SharePage adapter={adapter} />)
+    const img = await screen.findByRole('img', { name: '貓.png' })
+    expect(img).toHaveAttribute('src', expect.stringMatching(/^blob:/))
+    expect(await screen.findByText('報告.pdf')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '下載 報告.pdf' })).toBeInTheDocument()
+    // every Blob made for the page has the type the page allows
+    const types = (URL.createObjectURL as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as Blob).type)
+    expect(types.sort()).toEqual(['application/octet-stream', 'image/png'])
+  })
+
+  it('an SVG is never shown, only offered as a download', async () => {
+    const { adapter } = await shared([{ name: '圖.svg', mime: 'image/svg+xml', kind: 'image', body: '<svg onload="alert(1)"/>' }])
+    render(<SharePage adapter={adapter} />)
+    expect(await screen.findByText('圖.svg')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).toBeNull()
+    const types = (URL.createObjectURL as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as Blob).type)
+    expect(types).toEqual(['application/octet-stream'])
+  })
+
+  it('a file that cannot be fetched says so, and the rest of the page stays', async () => {
+    const { adapter } = await shared([{ name: '貓.png', mime: 'image/png', kind: 'image', body: 'PNGDATA' }])
+    adapter.files.clear()
+    render(<SharePage adapter={adapter} />)
+    expect(await screen.findByText('附件載入失敗')).toBeInTheDocument()
+    expect(screen.getByLabelText('筆記內容')).toBeInTheDocument()
+  })
+})
+
 describe('分享對話框：到期、密碼、換新連結', () => {
   async function open() {
     const ctx = await setup()

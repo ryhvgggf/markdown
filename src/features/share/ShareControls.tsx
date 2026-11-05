@@ -9,9 +9,15 @@ export const GENERIC_ERROR = '無法完成，請稍後再試'
 export const errorText = (e: unknown) =>
   e instanceof ShareError && e.kind === 'too-large'
     ? '這篇筆記太大，無法分享'
-    : e instanceof ShareError && e.kind === 'weak-password'
+    : e instanceof ShareError && e.kind === 'file-too-large'
+      ? `有檔案超過 20 MB${e.detail ? `：${e.detail}` : ''}`
+      : e instanceof ShareError && e.kind === 'files-too-large'
+        ? '附件總量超過 50 MB，無法分享'
+        : e instanceof ShareError && e.kind === 'weak-password'
       ? `密碼至少 ${MIN_SHARE_PASSWORD} 個字`
       : GENERIC_ERROR
+/** Shown after a link is made or updated when some attachments exist only on another device. */
+export const missingText = (n: number) => (n > 0 ? `${n} 個附件尚未下載到這台，不會包含` : null)
 export const formatTime = (t: number) => new Date(t).toLocaleString('zh-TW', { dateStyle: 'medium', timeStyle: 'short' })
 const EXPIRY_LABEL: Record<string, string> = { never: '永久', '86400': '1 天', '604800': '7 天', '2592000': '30 天' }
 const expiryKey = (seconds: number | null) => (seconds === null ? 'never' : String(seconds))

@@ -22,6 +22,15 @@ const recordOf = ({ id, vaultId, noteId, noteIds, wrappedKey, createdAt, updated
   password: password && { ...password },
 })
 
+/** The stored-file state (folders, files, tokens), for the e2e backend that keeps it in localStorage. */
+export interface MemoryFileState {
+  folders: Map<string, { userId: string; createdAt: number }>
+  files: Map<string, Uint8Array>
+  fileTimes: Map<string, number>
+  tokens: Map<string, string>
+  tokenSeq: number
+}
+
 /**
  * In-memory `ShareAdapter` for tests and e2e (one account; `now` is injectable and plays the server clock).
  * Mirrors what migrations 0005–0007 do on the server: expiry and password checks happen here, not in the caller.
@@ -36,13 +45,23 @@ export class MemoryShare implements ShareAdapter {
   fileTimes = new Map<string, number>()
   /** Download tokens → the object each one opens. */
   tokens = new Map<string, string>()
-  private tokenSeq = 0
+  tokenSeq = 0
   /** The signed-in account, for the folder ownership the server checks (tests can switch it). */
   userId = 'u1'
   constructor(
     private now: () => number = Date.now,
     private persist?: { load(): Map<string, MemoryShareRow>; save(rows: Map<string, MemoryShareRow>): void },
+    private persistFiles?: { load(): MemoryFileState; save(state: MemoryFileState): void },
   ) {}
+
+  /** A file call: with `persistFiles` the state is loaded before and saved after (rows too, for ownership checks). */
+  private async ftx<T>(fn: () => T | Promise<T>): Promise<T> {
+    if (this.persist) this.rows = this.persist.load()
+    if (this.persistFiles) Object.assign(this, this.persistFiles.load())
+    const out = await fn()
+    this.persistFiles?.save({ folders: this.folders, files: this.files, fileTimes: this.fileTimes, tokens: this.tokens, tokenSeq: this.tokenSeq })
+    return out
+  }
 
   private async tx<T>(fn: (rows: Map<string, MemoryShareRow>) => T | Promise<T>): Promise<T> {
     if (this.persist) this.rows = this.persist.load()
@@ -188,66 +207,84 @@ export class MemoryShare implements ShareAdapter {
     return this.folders.get(shareId)?.userId === this.userId
   }
   async claimFolder(shareId: string): Promise<void> {
-    const f = this.folders.get(shareId)
-    if (f && f.userId === this.userId) return
-    const link = this.rows.get(shareId)
-    if (f || (link && link.userId !== this.userId)) throw new ShareError('unknown', 'share folder belongs to someone else')
-    this.folders.set(shareId, { userId: this.userId, createdAt: this.now() })
+    return this.ftx(async () => {
+      const f = this.folders.get(shareId)
+      if (f && f.userId === this.userId) return
+      const link = this.rows.get(shareId)
+      if (f || (link && link.userId !== this.userId)) throw new ShareError('unknown', 'share folder belongs to someone else')
+      this.folders.set(shareId, { userId: this.userId, createdAt: this.now() })
+    })
   }
   async uploadFile(shareId: string, objectName: string, ciphertext: Uint8Array): Promise<void> {
-    if (!this.mine(shareId)) throw new ShareError('unknown', 'row-level security')
-    if (ciphertext.length > MAX_SHARE_FILE_BYTES + SHARE_FILE_OVERHEAD) throw new ShareError('unknown', 'too large')
-    const k = `${shareId}/${objectName}`
-    if (this.files.has(k)) throw new ShareError('unknown', 'object exists')
-    this.files.set(k, ciphertext.slice())
-    this.fileTimes.set(k, this.now())
+    return this.ftx(async () => {
+      if (!this.mine(shareId)) throw new ShareError('unknown', 'row-level security')
+      if (ciphertext.length > MAX_SHARE_FILE_BYTES + SHARE_FILE_OVERHEAD) throw new ShareError('unknown', 'too large')
+      const k = `${shareId}/${objectName}`
+      if (this.files.has(k)) throw new ShareError('unknown', 'object exists')
+      this.files.set(k, ciphertext.slice())
+      this.fileTimes.set(k, this.now())
+    })
   }
   async copyFiles(fromShareId: string, toShareId: string, objectNames: string[]): Promise<void> {
-    if (!this.mine(fromShareId) || !this.mine(toShareId)) throw new ShareError('unknown', 'row-level security')
-    for (const o of objectNames) {
-      const b = this.files.get(`${fromShareId}/${o}`)
-      if (!b) throw new ShareError('unknown', 'no such object')
-      this.files.set(`${toShareId}/${o}`, b.slice())
-      this.fileTimes.set(`${toShareId}/${o}`, this.now())
-    }
+    return this.ftx(async () => {
+      if (!this.mine(fromShareId) || !this.mine(toShareId)) throw new ShareError('unknown', 'row-level security')
+      for (const o of objectNames) {
+        const b = this.files.get(`${fromShareId}/${o}`)
+        if (!b) throw new ShareError('unknown', 'no such object')
+        this.files.set(`${toShareId}/${o}`, b.slice())
+        this.fileTimes.set(`${toShareId}/${o}`, this.now())
+      }
+    })
   }
   async deleteFiles(shareId: string, objectNames: string[]): Promise<void> {
-    if (!this.mine(shareId)) return
-    for (const o of objectNames) {
-      this.files.delete(`${shareId}/${o}`)
-      this.fileTimes.delete(`${shareId}/${o}`)
-    }
+    return this.ftx(async () => {
+      if (!this.mine(shareId)) return
+      for (const o of objectNames) {
+        this.files.delete(`${shareId}/${o}`)
+        this.fileTimes.delete(`${shareId}/${o}`)
+      }
+    })
   }
   async releaseFolder(shareId: string): Promise<void> {
-    if (!this.mine(shareId)) return
-    for (const k of [...this.files.keys()]) if (k.startsWith(`${shareId}/`)) this.files.delete(k)
-    this.folders.delete(shareId)
+    return this.ftx(async () => {
+      if (!this.mine(shareId)) return
+      for (const k of [...this.files.keys()]) if (k.startsWith(`${shareId}/`)) this.files.delete(k)
+      this.folders.delete(shareId)
+    })
   }
   async orphanFolders(): Promise<string[]> {
-    const t = this.now()
-    return [...this.folders]
-      .filter(([id, f]) => f.userId === this.userId && f.createdAt < t - ORPHAN_FOLDER_GRACE_MS && !this.rows.has(id))
-      .map(([id]) => id)
+    return this.ftx(async () => {
+      const t = this.now()
+      return [...this.folders]
+        .filter(([id, f]) => f.userId === this.userId && f.createdAt < t - ORPHAN_FOLDER_GRACE_MS && !this.rows.has(id))
+        .map(([id]) => id)
+    })
   }
   async listFiles(shareId: string): Promise<Array<{ name: string; createdAt: number }>> {
-    if (!this.mine(shareId)) return []
-    return [...this.files.keys()]
-      .filter((k) => k.startsWith(`${shareId}/`))
-      .map((k) => ({ name: k.slice(shareId.length + 1), createdAt: this.fileTimes.get(k) ?? 0 }))
+    return this.ftx(async () => {
+      if (!this.mine(shareId)) return []
+      return [...this.files.keys()]
+        .filter((k) => k.startsWith(`${shareId}/`))
+        .map((k) => ({ name: k.slice(shareId.length + 1), createdAt: this.fileTimes.get(k) ?? 0 }))
+    })
   }
   async signFiles(shareId: string, objectNames: string[]): Promise<string[]> {
-    if (!this.mine(shareId)) throw new ShareError('unknown', 'row-level security')
-    return objectNames.map((o) => {
-      if (!this.files.has(`${shareId}/${o}`)) throw new ShareError('unknown', 'no such object')
-      const token = `t${++this.tokenSeq}.${shareId}.${o}`
-      this.tokens.set(token, `${shareId}/${o}`)
-      return token
+    return this.ftx(async () => {
+      if (!this.mine(shareId)) throw new ShareError('unknown', 'row-level security')
+      return objectNames.map((o) => {
+        if (!this.files.has(`${shareId}/${o}`)) throw new ShareError('unknown', 'no such object')
+        const token = `t${++this.tokenSeq}.${shareId}.${o}`
+        this.tokens.set(token, `${shareId}/${o}`)
+        return token
+      })
     })
   }
   /** Like a signed URL: works while the object exists, whatever happened to the link. */
   async downloadFile(shareId: string, objectName: string, token: string): Promise<Uint8Array | null> {
-    const k = `${shareId}/${objectName}`
-    if (this.tokens.get(token) !== k) return null
-    return this.files.get(k)?.slice() ?? null
+    return this.ftx(async () => {
+      const k = `${shareId}/${objectName}`
+      if (this.tokens.get(token) !== k) return null
+      return this.files.get(k)?.slice() ?? null
+    })
   }
 }

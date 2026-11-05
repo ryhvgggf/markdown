@@ -6,8 +6,8 @@ import { displayTitle } from '@/core/vault/titles'
 import { Button } from '@/ui/components/Button'
 import { ChevronRight } from '@/ui/icons'
 import { NotePicker } from './NotePicker'
-import { errorText, formatTime, GENERIC_ERROR, ShareControls } from './ShareControls'
-import { snapshotOfNote, snapshotOfNotes } from './note-snapshot'
+import { errorText, formatTime, GENERIC_ERROR, missingText, ShareControls } from './ShareControls'
+import { shareContentOfNote, shareContentOfNotes } from './note-snapshot'
 
 type State =
   | { s: 'loading' }
@@ -33,6 +33,7 @@ export function SharesPage() {
   const [picking, setPicking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
@@ -58,8 +59,9 @@ export function SharesPage() {
     setBusy(true)
     setError(null)
     try {
-      const content = await snapshotOfNotes(services, ids)
+      const content = await shareContentOfNotes(services, ids)
       const { record, url } = await share.run((svc) => svc.createMulti(content))
+      setInfo(missingText(content.missing))
       setState((st) => (st.s === 'ready' ? { s: 'ready', records: [record, ...st.records] } : st))
       setUrls((u) => ({ ...u, [record.id]: url }))
       setOpenId(record.id)
@@ -80,6 +82,7 @@ export function SharesPage() {
           返回筆記
         </Button>
       </div>
+      {info && <p className="text-xs text-fg-secondary">{info}</p>}
       {state.s === 'loading' && <p className="text-sm text-fg-tertiary">載入中…</p>}
       {state.s === 'error' && <p className="text-sm text-fg-secondary">{GENERIC_ERROR}</p>}
       {state.s === 'unavailable' && <p className="text-sm text-fg-secondary">這個版本沒有設定雲端同步，筆記只存在這台裝置。</p>}
@@ -132,6 +135,7 @@ export function SharesPage() {
                     setUrls((u) => ({ ...u, [next.id]: url }))
                     replace(r.id, next)
                   }}
+                  onInfo={setInfo}
                   onGone={() => remove(r.id)}
                   onFatal={(e) => setState(stateForError(e))}
                 />
@@ -151,6 +155,7 @@ function LinkItem({
   onToggle,
   onUrl,
   onChange,
+  onInfo,
   onGone,
   onFatal,
 }: {
@@ -160,6 +165,7 @@ function LinkItem({
   onToggle: () => void
   onUrl: (id: string, url: string) => void
   onChange: (record: ShareRecord, url: string) => void
+  onInfo: (text: string | null) => void
   onGone: () => void
   onFatal: (e: unknown) => void
 }) {
@@ -196,8 +202,9 @@ function LinkItem({
     setBusy(true)
     setError(null)
     try {
-      const content = await snapshotOfNotes(services, next)
+      const content = await shareContentOfNotes(services, next)
       const updated = await share.run((svc) => svc.setNotes(record.id, content))
+      onInfo(missingText(content.missing))
       onChange(updated, url!)
       setChanging(false)
     } catch (e) {
@@ -250,12 +257,14 @@ function LinkItem({
                 local
                   ? async (r) => {
                       if (r.noteIds) {
-                        const content = await snapshotOfNotes(services, r.noteIds)
+                        const content = await shareContentOfNotes(services, r.noteIds)
                         await share.run((svc) => svc.update(r, content))
+                        onInfo(missingText(content.missing))
                         return content.snapshot.sharedAt
                       }
-                      const snapshot = await snapshotOfNote(services, r.noteId)
-                      await share.run((svc) => svc.update(r, snapshot))
+                      const { snapshot, files, missing } = await shareContentOfNote(services, r.noteId)
+                      await share.run((svc) => svc.update(r, snapshot, files))
+                      onInfo(missingText(missing))
                       return snapshot.sharedAt
                     }
                   : undefined
