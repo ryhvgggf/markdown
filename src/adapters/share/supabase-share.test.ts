@@ -132,13 +132,14 @@ describe('SupabaseShare', () => {
     expect(await share.getPublic('s2')).toBeNull()
   })
 
-  it('listForNote maps rows', async () => {
-    const { client } = fakeClient([
+  it('listForNote maps rows and asks only for single-note links', async () => {
+    const { client, calls } = fakeClient([
       { data: [{ id: 's1', vault_id: 'v1', note_id: 'n1', wrapped_key: 'w', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z', expires_at: null, pw_salt: null, pw_iterations: null, pw_key: null }], error: null },
     ])
     expect(await new SupabaseShare(client).listForNote('v1', 'n1')).toEqual([
-      { id: 's1', vaultId: 'v1', noteId: 'n1', wrappedKey: 'w', createdAt: Date.parse('2026-01-01T00:00:00Z'), updatedAt: Date.parse('2026-01-02T00:00:00Z'), expiresAt: null, password: null },
+      { id: 's1', vaultId: 'v1', noteId: 'n1', noteIds: null, wrappedKey: 'w', createdAt: Date.parse('2026-01-01T00:00:00Z'), updatedAt: Date.parse('2026-01-02T00:00:00Z'), expiresAt: null, password: null },
     ])
+    expect(calls).toContainEqual(['is', 'note_ids', null])
   })
 
   it('wraps server errors', async () => {
@@ -156,12 +157,35 @@ describe('SupabaseShare', () => {
     expect(await run('23505')).toBe('unknown')
   })
 
-  it('removeForNotes deletes by vault and note ids, and does nothing for an empty list', async () => {
+  it('removeForNotes goes through remove_shares_for_notes (multi-note links included), and does nothing for an empty list', async () => {
     const { client, calls } = fakeClient([{ error: null }])
     const s = new SupabaseShare(client)
     await s.removeForNotes('v1', [])
     expect(calls).toEqual([])
     await s.removeForNotes('v1', ['a', 'b'])
-    expect(calls).toEqual([['from', 'share_links'], ['delete'], ['eq', 'vault_id', 'v1'], ['in', 'note_id', ['a', 'b']]])
+    expect(calls).toEqual([['rpc', 'remove_shares_for_notes', { p_vault: 'v1', p_note_ids: ['a', 'b'] }]])
+  })
+
+  it('create sends note_ids only for a multi-note link', async () => {
+    const { client, calls } = fakeClient([{ error: null }])
+    await new SupabaseShare(client).create({ id: 's1', vaultId: 'v1', noteId: 'n1', noteIds: ['n1', 'n2'], userId: 'u1', wrappedKey: 'w', ciphertext: new Uint8Array([1]) })
+    expect(calls[1]).toEqual(['insert', expect.objectContaining({ note_id: 'n1', note_ids: ['n1', 'n2'] })])
+  })
+
+  it('setNotes goes through set_share_notes with both guards and passes its status through; rows map note_ids', async () => {
+    const row = {
+      id: 's1', vault_id: 'v1', note_id: 'n1', note_ids: ['n1', 'n2'], wrapped_key: 'w', created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z', expires_at: null, pw_salt: null, pw_iterations: null, pw_key: null,
+    }
+    const { client, calls } = fakeClient([{ data: 'ok' }, { data: 'changed' }, { data: [row] }])
+    const share = new SupabaseShare(client)
+    expect(await share.setNotes('s1', ['n2', 'n1'], new Uint8Array([7]), 'salt', new Uint8Array([9]))).toBe('ok')
+    expect(calls[0]).toEqual([
+      'rpc',
+      'set_share_notes',
+      { p_id: 's1', p_note_ids: ['n2', 'n1'], p_ciphertext: '\\x07', p_expected_salt: 'salt', p_expected_hash: '\\x09' },
+    ])
+    expect(await share.setNotes('s1', ['n1'], new Uint8Array([7]), null, new Uint8Array([9]))).toBe('changed')
+    expect((await share.listForVault('v1'))[0].noteIds).toEqual(['n1', 'n2'])
   })
 })

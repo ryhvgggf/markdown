@@ -35,7 +35,9 @@ export function SharePage({ adapter }: { adapter: ShareAdapter | (() => Promise<
       try {
         const a = typeof adapter === 'function' ? await adapter() : adapter
         const snapshot = await openSharedLink(a, new URL(location.href), (doc) => void editorSchema().nodeFromJSON(doc).check(), attempt.password)
-        if (!cancelled) setState({ s: 'ready', snapshot })
+        // Multi-note links (v2): until the share page has its note list (multi-share plan part 2), show the first note.
+        const shown: ShareSnapshot = snapshot.v === 1 ? snapshot : { v: 1, title: snapshot.notes[0].title, sharedAt: snapshot.sharedAt, doc: snapshot.notes[0].doc }
+        if (!cancelled) setState({ s: 'ready', snapshot: shown })
       } catch (e) {
         if (cancelled) return
         if (e instanceof ShareError && (e.kind === 'password-required' || e.kind === 'wrong-password')) setState({ s: 'password', wrong: e.kind === 'wrong-password' })

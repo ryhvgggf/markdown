@@ -1,15 +1,19 @@
-import { MAX_EXPIRY_SECONDS, ShareError } from './types'
+import { MAX_EXPIRY_SECONDS, MAX_SHARE_NOTES, ShareError } from './types'
 import type { GuardedWrite, NewShare, NewSharePassword, ProtectedOpen, PublicShare, ShareAdapter, ShareRecord } from './types'
 
 /** One stored link, as the server keeps it (the verifier is SHA-256 of the proof, never the proof). */
 export type MemoryShareRow = ShareRecord & { userId: string; ciphertext: Uint8Array; verifier: Uint8Array | null }
 
+/** What the database's `share_links_note_ids` check accepts (migration 0007). */
+const validNoteIds = (ids: string[], first: string) => ids.length >= 1 && ids.length <= MAX_SHARE_NOTES && ids[0] === first && ids.every((n) => typeof n === 'string' && n.length > 0 && n.length <= 64)
+
 const sha256 = async (b: Uint8Array) => new Uint8Array(await crypto.subtle.digest('SHA-256', b as Uint8Array<ArrayBuffer>))
 const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i])
-const recordOf = ({ id, vaultId, noteId, wrappedKey, createdAt, updatedAt, expiresAt, password }: MemoryShareRow): ShareRecord => ({
+const recordOf = ({ id, vaultId, noteId, noteIds, wrappedKey, createdAt, updatedAt, expiresAt, password }: MemoryShareRow): ShareRecord => ({
   id,
   vaultId,
   noteId,
+  noteIds: noteIds ? [...noteIds] : null,
   wrappedKey,
   createdAt,
   updatedAt,
@@ -19,7 +23,7 @@ const recordOf = ({ id, vaultId, noteId, wrappedKey, createdAt, updatedAt, expir
 
 /**
  * In-memory `ShareAdapter` for tests and e2e (one account; `now` is injectable and plays the server clock).
- * Mirrors what migration 0005 does on the server: expiry and password checks happen here, not in the caller.
+ * Mirrors what migrations 0005–0007 do on the server: expiry and password checks happen here, not in the caller.
  * `persist` lets the e2e backend keep the rows in localStorage (loaded before and saved after each call).
  */
 export class MemoryShare implements ShareAdapter {
@@ -46,8 +50,10 @@ export class MemoryShare implements ShareAdapter {
   create(s: NewShare): Promise<void> {
     return this.tx((rows) => {
       if (rows.has(s.id)) throw new ShareError('unknown', 'duplicate share id')
+      if (s.noteIds && !validNoteIds(s.noteIds, s.noteId)) throw new ShareError('unknown', 'bad note list')
       const t = this.now()
-      rows.set(s.id, { ...s, ciphertext: s.ciphertext.slice(), createdAt: t, updatedAt: t, expiresAt: null, password: null, verifier: null })
+      const noteIds = s.noteIds ? [...s.noteIds] : null
+      rows.set(s.id, { ...s, noteIds, ciphertext: s.ciphertext.slice(), createdAt: t, updatedAt: t, expiresAt: null, password: null, verifier: null })
     })
   }
   update(id: string, ciphertext: Uint8Array, expectedSalt: string | null): Promise<GuardedWrite> {
@@ -61,14 +67,25 @@ export class MemoryShare implements ShareAdapter {
   remove(id: string): Promise<void> {
     return this.tx((rows) => void rows.delete(id))
   }
+  setNotes(id: string, noteIds: string[], ciphertext: Uint8Array, expectedSalt: string | null, expectedHash: Uint8Array): Promise<GuardedWrite> {
+    return this.tx(async (rows) => {
+      const r = rows.get(id)
+      if (!r?.noteIds) return 'not-found'
+      const g = await this.guard(r, expectedSalt, expectedHash)
+      if (g !== 'ok') return g
+      if (!validNoteIds(noteIds, noteIds[0])) throw new ShareError('unknown', 'bad note list')
+      Object.assign(r, { noteId: noteIds[0], noteIds: [...noteIds], ciphertext: ciphertext.slice(), updatedAt: this.now() })
+      return g
+    })
+  }
   removeForNotes(vaultId: string, noteIds: string[]): Promise<void> {
     const ids = new Set(noteIds)
     return this.tx((rows) => {
-      for (const [id, r] of rows) if (r.vaultId === vaultId && ids.has(r.noteId)) rows.delete(id)
+      for (const [id, r] of rows) if (r.vaultId === vaultId && (ids.has(r.noteId) || r.noteIds?.some((n) => ids.has(n)))) rows.delete(id)
     })
   }
   listForNote(vaultId: string, noteId: string): Promise<ShareRecord[]> {
-    return this.list((r) => r.vaultId === vaultId && r.noteId === noteId)
+    return this.list((r) => r.vaultId === vaultId && r.noteId === noteId && !r.noteIds)
   }
   listForVault(vaultId: string): Promise<ShareRecord[]> {
     return this.list((r) => r.vaultId === vaultId)

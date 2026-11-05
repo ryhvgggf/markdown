@@ -115,13 +115,29 @@ const paragraph = (text?: string, italic = false): PMNode => ({
   ...(text && { content: [{ type: 'text', text, ...(italic && { marks: [{ type: 'italic' }] }) }] }),
 })
 
+/** Nodes left for one snapshot; a multi-note snapshot shares one budget across all its notes. */
+export type SanitizeBudget = { nodes: number }
+export const newSanitizeBudget = (): SanitizeBudget => ({ nodes: MAX_NODES })
+
+const MAX_LABEL = 2000
+
+export interface SanitizeOptions {
+  /**
+   * Multi-note snapshots only: the in-snapshot codes (`n0`, `n1`…) a `noteLink` may point at. A link to one of
+   * them stays a link (code, optional block id, label); every other `noteLink` becomes plain text as before.
+   */
+  linkTargets?: ReadonlySet<string>
+  budget?: SanitizeBudget
+}
+
 /** The allow-listed copy of a snapshot document. Always returns a document (an empty one for anything that is not). */
-export function sanitizeShareDoc(input: unknown): PMNode {
-  let budget = MAX_NODES
+export function sanitizeShareDoc(input: unknown, opts: SanitizeOptions = {}): PMNode {
+  const budget = opts.budget ?? newSanitizeBudget()
+  const targets = opts.linkTargets
 
   const visit = (raw: unknown, depth: number, parent: string): PMNode[] => {
-    if (!isObj(raw) || typeof raw.type !== 'string' || depth > MAX_DEPTH || budget <= 0) return []
-    budget--
+    if (!isObj(raw) || typeof raw.type !== 'string' || depth > MAX_DEPTH || budget.nodes <= 0) return []
+    budget.nodes--
     const type = raw.type
 
     if (type === 'text') {
@@ -131,9 +147,14 @@ export function sanitizeShareDoc(input: unknown): PMNode {
     }
     if (type === 'media') return [paragraph(ATTACHMENT_OMITTED_TEXT, true)]
     if (type === 'noteLink') {
-      const label = isObj(raw.attrs) && typeof raw.attrs.label === 'string' ? raw.attrs.label : ''
+      const a = isObj(raw.attrs) ? raw.attrs : {}
+      const label = typeof a.label === 'string' ? a.label.slice(0, MAX_LABEL) : ''
       if (!label) return []
-      const marks = cleanMarks(raw.marks)
+      const marks = parent === 'codeBlock' ? undefined : cleanMarks(raw.marks)
+      if (parent !== 'codeBlock' && targets && typeof a.noteId === 'string' && targets.has(a.noteId)) {
+        const blockId = a.blockId === null || a.blockId === undefined ? null : id(a.blockId)
+        if (blockId !== undefined) return [{ type: 'noteLink', attrs: { noteId: a.noteId, blockId, label }, ...(marks && { marks }) }]
+      }
       return [{ type: 'text', text: label, ...(marks && { marks }) }]
     }
 

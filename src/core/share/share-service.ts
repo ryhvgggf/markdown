@@ -1,5 +1,5 @@
 import { deriveBitsFromSecret, fromB64, toB64 } from '@/adapters/crypto/webcrypto-crypto'
-import { MAX_EXPIRY_SECONDS, MIN_SHARE_PASSWORD, ShareError } from '@/adapters/share/types'
+import { MAX_EXPIRY_SECONDS, MAX_SHARE_NOTES, MIN_SHARE_PASSWORD, ShareError } from '@/adapters/share/types'
 import type { GuardedWrite, NewSharePassword, ShareAdapter, ShareRecord } from '@/adapters/share/types'
 import {
   decryptShareSnapshot,
@@ -14,8 +14,7 @@ import {
 } from '@/core/sync-engine/doc-crypto'
 import { buildShareUrl, exportShareKey, importShareKey, newShareId, parseShareUrl } from './link'
 import type { PMNode } from '@/core/markdown/types'
-import { sanitizeShareDoc } from './sanitize'
-import { decodeSnapshot, encodeSnapshot, type ShareSnapshot } from './snapshot'
+import { decodeSnapshot, encodeSnapshot, sanitizeSnapshot, type AnyShareSnapshot, type MultiShareSnapshot, type ShareSnapshot } from './snapshot'
 
 /** The unlocked account sharing needs; null when signed out (sharing needs an account, opening a link does not). */
 export type ShareAccount = { userId: string; vaultId: string; kek: CryptoKey }
@@ -68,20 +67,63 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
     }
   }
 
+  const createLink = async (noteIds: string[] | null, snapshot: AnyShareSnapshot, noteId: string) => {
+    const a = need()
+    const id = newShareId()
+    const key = await generateShareKey()
+    const ciphertext = await encryptShareSnapshot(key, id, encodeSnapshot(snapshot))
+    const wrappedKey = toB64(await wrapShareKey(a.kek, a.vaultId, id, key))
+    await adapter.create({ id, vaultId: a.vaultId, noteId, ...(noteIds && { noteIds }), userId: a.userId, wrappedKey, ciphertext })
+    const now = Date.now()
+    const record: ShareRecord = { id, vaultId: a.vaultId, noteId, noteIds, wrappedKey, createdAt: now, updatedAt: now, expiresAt: null, password: null }
+    return { record, url: buildShareUrl(origin, id, await exportShareKey(key)) }
+  }
+
+  /**
+   * Writes a multi-note link's notes and snapshot together, guarded on the password salt and the current snapshot.
+   * With `expectNotes`, refuses (`ShareError('unknown')`) if the link's notes are no longer those (another device
+   * changed them; the caller should reload and rebuild the snapshot).
+   */
+  const writeNotes = async (shareId: string, noteIds: string[], snapshot: MultiShareSnapshot, expectNotes: string[] | null) => {
+    const a = need()
+    checkNoteIds(noteIds, snapshot)
+    const bytes = encodeSnapshot(snapshot)
+    for (let attempt = 0; ; attempt++) {
+      const own = await adapter.getOwn(shareId)
+      if (!own) throw new ShareError('not-found')
+      const { record } = own
+      if (record.noteIds === null) throw new ShareError('invalid', 'not a multi-note link')
+      if (expectNotes && !sameList(record.noteIds, expectNotes)) throw new ShareError('unknown', 'the notes of the link changed')
+      const ciphertext = await encryptShareSnapshot(await contentKeyOf(a, record), shareId, bytes)
+      const g = await adapter.setNotes(shareId, [...noteIds], ciphertext, record.password?.saltB64 ?? null, await shareProofVerifier(own.ciphertext))
+      if (settle(g)) return { ...record, noteId: noteIds[0], noteIds: [...noteIds], updatedAt: snapshot.sharedAt }
+      if (attempt > 0) throw new ShareError('unknown', 'the link keeps changing')
+    }
+  }
+
   return {
-    /** Creates a new link showing `snapshot` (no expiry, no password). */
+    /** Creates a new single-note link showing `snapshot` (no expiry, no password). */
     async create(noteId: string, snapshot: ShareSnapshot): Promise<{ record: ShareRecord; url: string }> {
-      const a = need()
-      const id = newShareId()
-      const key = await generateShareKey()
-      const ciphertext = await encryptShareSnapshot(key, id, encodeSnapshot(snapshot))
-      const wrappedKey = toB64(await wrapShareKey(a.kek, a.vaultId, id, key))
-      await adapter.create({ id, vaultId: a.vaultId, noteId, userId: a.userId, wrappedKey, ciphertext })
-      const now = Date.now()
-      return {
-        record: { id, vaultId: a.vaultId, noteId, wrappedKey, createdAt: now, updatedAt: now, expiresAt: null, password: null },
-        url: buildShareUrl(origin, id, await exportShareKey(key)),
-      }
+      if (snapshot.v !== 1) throw new ShareError('invalid', 'not a single-note snapshot')
+      return createLink(null, snapshot, noteId)
+    },
+
+    /**
+     * Creates one link showing several notes (`noteIds`, in the order of `snapshot.notes`). `ShareError('invalid')`
+     * for an empty, repeating or too long list, or one that does not match the snapshot.
+     */
+    async createMulti(noteIds: string[], snapshot: MultiShareSnapshot): Promise<{ record: ShareRecord; url: string }> {
+      checkNoteIds(noteIds, snapshot)
+      return createLink([...noteIds], snapshot, noteIds[0])
+    },
+
+    /**
+     * Changes which notes a multi-note link shows, replacing its snapshot in the same write (the link, expiry and
+     * password stay). Refused if another device replaced the snapshot or the password meanwhile, then retried once
+     * on the fresh state. Returns the new record.
+     */
+    async setNotes(shareId: string, noteIds: string[], snapshot: MultiShareSnapshot): Promise<ShareRecord> {
+      return writeNotes(shareId, noteIds, snapshot, null)
     },
 
     /** The link again (any device of the account). A protected link still needs its password to open. */
@@ -90,9 +132,15 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
       return buildShareUrl(origin, record.id, await exportShareKey(key))
     },
 
-    /** Replaces what the same link shows (keeps its password). `ShareError('not-found')` if the link was stopped. */
-    async update(record: ShareRecord, snapshot: ShareSnapshot): Promise<void> {
+    /**
+     * Replaces what the same link shows (keeps its password and, for a multi-note link, its notes).
+     * `ShareError('not-found')` if the link was stopped; `'invalid'` if the snapshot kind does not match the link.
+     */
+    async update(record: ShareRecord, snapshot: AnyShareSnapshot): Promise<void> {
       const a = need()
+      if ((record.noteIds === null) !== (snapshot.v === 1)) throw new ShareError('invalid', 'snapshot kind does not match the link')
+      // A multi-note link's list and content change together: the list is what permanent delete matches on.
+      if (record.noteIds && snapshot.v === 2) return void (await writeNotes(record.id, record.noteIds, snapshot, record.noteIds))
       const bytes = encodeSnapshot(snapshot)
       await withFresh(record.id, record, async (r) => {
         const ciphertext = await encryptShareSnapshot(await contentKeyOf(a, r), r.id, bytes)
@@ -182,12 +230,15 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
       return adapter.listForNote(need().vaultId, noteId)
     },
 
-    /** Every link of this account's vault, newest first (設定 → 帳號 → 已分享的筆記). */
+    /** Every link of this account's vault (single- and multi-note), newest first (the 分享 page). */
     async listAll(): Promise<ShareRecord[]> {
       return adapter.listForVault(need().vaultId)
     },
 
-    /** Stops every link of these notes (permanent delete, 停止分享; at most `REMOVE_BATCH` per call). */
+    /**
+     * Stops every link showing any of these notes, multi-note links included (permanent delete, 停止分享; at most
+     * `REMOVE_BATCH` per call).
+     */
     async removeForNotes(noteIds: string[]): Promise<void> {
       await adapter.removeForNotes(need().vaultId, noteIds)
     },
@@ -195,6 +246,20 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
 }
 
 export type ShareService = ReturnType<typeof createShareService>
+
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i])
+
+/** A multi-note link's notes: 1 to `MAX_SHARE_NOTES` distinct ids, one per note of the snapshot. */
+function checkNoteIds(noteIds: string[], snapshot: MultiShareSnapshot) {
+  if (snapshot.v !== 2) throw new ShareError('invalid', 'not a multi-note snapshot')
+  const ok =
+    noteIds.length >= 1 &&
+    noteIds.length <= MAX_SHARE_NOTES &&
+    new Set(noteIds).size === noteIds.length &&
+    noteIds.every((n) => typeof n === 'string' && n.length > 0) &&
+    noteIds.length === snapshot.notes.length
+  if (!ok) throw new ShareError('invalid', 'bad note list')
+}
 
 /** PBKDF2 parameters a viewer accepts from the server (anything else could be a slow-down or a downgrade). */
 const MIN_ITERATIONS = 100_000
@@ -206,14 +271,14 @@ const MAX_ITERATIONS = 10_000_000
  * - `'expired'`; `'password-required'` (call again with `password`); `'wrong-password'`;
  * - `'unknown'`: the content cannot be shown.
  * The content is untrusted: it is run through the allow-list, then through `check` (the editor's schema check,
- * which throws for a document the editor cannot show).
+ * which throws for a document the editor cannot show; called once per note of a multi-note link).
  */
 export async function openSharedLink(
   adapter: Pick<ShareAdapter, 'getPublic' | 'openProtected'>,
   url: URL,
   check?: (doc: PMNode) => void,
   password?: string,
-): Promise<ShareSnapshot> {
+): Promise<AnyShareSnapshot> {
   const parsed = parseShareUrl(url)
   if (!parsed) throw new ShareError('invalid', 'not a share link')
   const { shareId } = parsed
@@ -250,14 +315,14 @@ export async function openSharedLink(
   } catch (e) {
     throw new ShareError('invalid', 'cannot decrypt', { cause: e })
   }
-  const snapshot = decodeSnapshot(bytes)
-  const doc = sanitizeShareDoc(snapshot.doc)
+  const snapshot = sanitizeSnapshot(decodeSnapshot(bytes))
   try {
-    check?.(doc)
+    if (snapshot.v === 1) check?.(snapshot.doc)
+    else for (const n of snapshot.notes) check?.(n.doc)
   } catch (e) {
     throw new ShareError('unknown', 'content cannot be shown', { cause: e })
   }
-  return { ...snapshot, doc }
+  return snapshot
 }
 
 const validSalt = (b64: string) => {

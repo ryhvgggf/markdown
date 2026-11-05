@@ -18,7 +18,10 @@ export interface SharePassword {
 export interface ShareRecord {
   id: string
   vaultId: string
+  /** The note of a single-note link; for a multi-note link, its first note. */
   noteId: string
+  /** Multi-note link (migration 0007): every note it shows, in order (`noteIds[0] === noteId`). Null = single note. */
+  noteIds: string[] | null
   /** base64 of the share key wrapped under the KEK (`wrapShareKey`). */
   wrappedKey: string
   createdAt: number
@@ -34,6 +37,8 @@ export interface NewShare {
   id: string
   vaultId: string
   noteId: string
+  /** Multi-note link: all its notes, `noteIds[0] === noteId`. Omitted or null = single note. */
+  noteIds?: string[] | null
   userId: string
   wrappedKey: string
   ciphertext: Uint8Array
@@ -74,9 +79,17 @@ export interface ShareAdapter {
   update(id: string, ciphertext: Uint8Array, expectedSalt: string | null): Promise<GuardedWrite>
   /** Stops one link (no-op if it is already gone). */
   remove(id: string): Promise<void>
-  /** Stops every link of the given notes (permanent delete); callers send at most `REMOVE_BATCH` ids at a time. */
+  /**
+   * Replaces a multi-note link's notes and snapshot in one write, if its password salt is still `expectedSalt` and
+   * its snapshot still hashes to `expectedHash`. `'not-found'` also for a single-note link.
+   */
+  setNotes(id: string, noteIds: string[], ciphertext: Uint8Array, expectedSalt: string | null, expectedHash: Uint8Array): Promise<GuardedWrite>
+  /**
+   * Stops every link showing any of the given notes, multi-note links included (permanent delete); callers send
+   * at most `REMOVE_BATCH` ids at a time.
+   */
   removeForNotes(vaultId: string, noteIds: string[]): Promise<void>
-  /** The owner's links of one note, newest first. */
+  /** The owner's single-note links of one note, newest first (multi-note links are not included). */
   listForNote(vaultId: string, noteId: string): Promise<ShareRecord[]>
   /** All of the owner's links in a vault, newest first. */
   listForVault(vaultId: string): Promise<ShareRecord[]>
@@ -108,6 +121,9 @@ export const SHARE_EXPIRY_CHOICES = [null, 86_400, 7 * 86_400, 30 * 86_400] as c
 export const MAX_EXPIRY_SECONDS = 366 * 86_400
 /** Shortest password (counted in characters, not bytes). */
 export const MIN_SHARE_PASSWORD = 6
+
+/** Most notes one multi-note link may show. */
+export const MAX_SHARE_NOTES = 30
 
 /** How many notes one `removeForNotes` call covers. */
 export const REMOVE_BATCH = 10

@@ -7,6 +7,7 @@ type Row = {
   id: string
   vault_id: string
   note_id: string
+  note_ids: string[] | null
   wrapped_key: string
   created_at: string
   updated_at: string
@@ -15,7 +16,7 @@ type Row = {
   pw_iterations: number | null
   pw_key: string | null
 }
-const COLUMNS = 'id, vault_id, note_id, wrapped_key, created_at, updated_at, expires_at, pw_salt, pw_iterations, pw_key'
+const COLUMNS = 'id, vault_id, note_id, note_ids, wrapped_key, created_at, updated_at, expires_at, pw_salt, pw_iterations, pw_key'
 
 /** Postgres 42501 (row-level security) and PostgREST's JWT errors: the request had no valid sign-in. */
 const NOT_SIGNED_IN = new Set(['42501', 'PGRST301', 'PGRST302', 'PGRST303'])
@@ -25,6 +26,7 @@ const toRecord = (r: Row): ShareRecord => ({
   id: r.id,
   vaultId: r.vault_id,
   noteId: r.note_id,
+  noteIds: r.note_ids ?? null,
   wrappedKey: r.wrapped_key,
   createdAt: Date.parse(r.created_at),
   updatedAt: Date.parse(r.updated_at),
@@ -33,7 +35,7 @@ const toRecord = (r: Row): ShareRecord => ({
 })
 
 /**
- * `ShareAdapter` on Supabase's `share_links` table (migrations 0004–0006). The owner reads and writes through
+ * `ShareAdapter` on Supabase's `share_links` table (migrations 0004–0007). The owner reads and writes through
  * RLS (own rows only); expiry and renewal go through functions so the database clock and one transaction decide.
  * Viewers are anonymous and never select from the table — they call `get_shared_snapshot` and, for a protected
  * link, `open_protected_snapshot`, which return one row's data by id, so links cannot be listed.
@@ -46,6 +48,7 @@ export class SupabaseShare implements ShareAdapter {
       id: s.id,
       vault_id: s.vaultId,
       note_id: s.noteId,
+      ...(s.noteIds && { note_ids: s.noteIds }),
       user_id: s.userId,
       wrapped_key: s.wrappedKey,
       ciphertext: bytesToPgHex(s.ciphertext),
@@ -89,9 +92,20 @@ export class SupabaseShare implements ShareAdapter {
     if (error) throw toError(error)
   }
 
+  setNotes(id: string, noteIds: string[], ciphertext: Uint8Array, expectedSalt: string | null, expectedHash: Uint8Array): Promise<GuardedWrite> {
+    return this.guarded('set_share_notes', {
+      p_id: id,
+      p_note_ids: noteIds,
+      p_ciphertext: bytesToPgHex(ciphertext),
+      p_expected_salt: expectedSalt,
+      p_expected_hash: bytesToPgHex(expectedHash),
+    })
+  }
+
+  /** Through `remove_shares_for_notes` (migration 0007), which also matches multi-note links on any of their notes. */
   async removeForNotes(vaultId: string, noteIds: string[]): Promise<void> {
     if (!noteIds.length) return
-    const { error } = await this.client.from('share_links').delete().eq('vault_id', vaultId).in('note_id', noteIds)
+    const { error } = await this.client.rpc('remove_shares_for_notes', { p_vault: vaultId, p_note_ids: noteIds })
     if (error) throw toError(error)
   }
 
@@ -101,6 +115,7 @@ export class SupabaseShare implements ShareAdapter {
       .select(COLUMNS)
       .eq('vault_id', vaultId)
       .eq('note_id', noteId)
+      .is('note_ids', null)
       .order('created_at', { ascending: false })
     if (error) throw toError(error)
     return ((data ?? []) as Row[]).map(toRecord)

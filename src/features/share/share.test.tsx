@@ -13,7 +13,7 @@ import { buildShareSnapshot } from '@/core/share/snapshot'
 import { ShareDialog } from './ShareDialog'
 import { SharedNotes } from '@/features/settings/AccountSection'
 import { SharePage } from './SharePage'
-import { snapshotOfNote } from './note-snapshot'
+import { snapshotOfNote, snapshotOfNotes } from './note-snapshot'
 
 let n = 0
 const doc = (...texts: string[]) => ({ type: 'doc', content: texts.map((text) => ({ type: 'paragraph', content: [{ type: 'text', text }] })) })
@@ -64,6 +64,27 @@ describe('note snapshot', () => {
     expect(JSON.stringify(s.doc)).toContain('另一篇')
     expect(JSON.stringify(s.doc)).not.toContain('noteLink')
     expect(JSON.stringify(s.doc)).not.toContain(other.id)
+  })
+
+  it('multi-note: links between shared notes stay links to codes the editor schema accepts; others become text', async () => {
+    const { services, note } = await setup()
+    const b = services.vault.createNote({ title: 'B 篇' })
+    const out = services.vault.createNote({ title: '沒分享' })
+    const ydoc = await services.notes.acquire(note.id)
+    const frag = ydoc.getXmlFragment('content')
+    frag.delete(0, frag.length)
+    const linkTo = (noteId: string) => ({ type: 'noteLink', attrs: { noteId, blockId: null } })
+    prosemirrorJSONToYXmlFragment(editorSchema(), { type: 'doc', content: [{ type: 'paragraph', content: [linkTo(b.id), { type: 'text', text: ' ' }, linkTo(out.id)] }] }, frag)
+    services.notes.release(note.id)
+    const s = await snapshotOfNotes(services, [note.id, b.id], 9)
+    expect(s.notes.map((x) => x.title)).toEqual(['我的筆記', 'B 篇'])
+    expect(s.notes[0].doc.content?.[0].content).toEqual([
+      { type: 'noteLink', attrs: { noteId: 'n1', blockId: null, label: 'B 篇' } },
+      { type: 'text', text: ' ' },
+      { type: 'text', text: '沒分享' },
+    ])
+    for (const x of s.notes) editorSchema().nodeFromJSON(x.doc).check()
+    for (const id of [note.id, b.id, out.id]) expect(JSON.stringify(s)).not.toContain(id)
   })
 })
 
