@@ -13,7 +13,7 @@ export const GUIDE_TAG = '功能導覽'
  * Bump when the guide text changes. A device whose guide is still untouched is rewritten to this version on
  * start (`updateGuide` in ./guide); `addGuide` records it for fresh guides.
  */
-export const GUIDE_VERSION = 6
+export const GUIDE_VERSION = 7
 
 /** Order = order in the folder; the first one is opened after seeding. */
 export const GUIDE_NOTES = [
@@ -348,7 +348,7 @@ function shareNote(): J {
     ul(
       ['對方看到的是建立當下的內容。你之後再改這篇，連結不會跟著變。'],
       ['想更新：再開一次分享，按「更新快照」，同一條連結就會換成目前的內容。'],
-      ['連到其他筆記的連結，在分享頁會變成純文字（同一條多篇連結裡的筆記除外，見下面「一條連結分享多篇」）。'],
+      ['這篇連到自己標題的連結，在分享頁可以點，會捲到那個位置；連到其他筆記的連結會變成純文字（同一條多篇連結裡的筆記除外，見下面「一條連結分享多篇」）。連結上顯示的是你自己打的字。已經建立的連結，按「更新快照」後才會套用。'],
       ['圖片、影片與檔案會一起分享：圖片和影片直接顯示，其他檔案讓對方下載（SVG 也只提供下載）。一個檔案最多 20 MB，一條連結的附件合計最多 50 MB。'],
       ['只存在別台裝置、這台還沒下載的附件不會包含，分享頁顯示「附件未包含」；建立連結時會告訴你有幾個。'],
     ),

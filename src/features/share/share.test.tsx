@@ -9,7 +9,7 @@ import { ServicesProvider } from '@/app/services-context'
 import { createShareFacade } from '@/app/share-facade'
 import { useUi } from '@/app/ui-store'
 import { createShareService } from '@/core/share/share-service'
-import { buildMultiShareSnapshot, buildShareSnapshot } from '@/core/share/snapshot'
+import { buildMultiShareSnapshot, buildShareSnapshot, sanitizeSnapshot } from '@/core/share/snapshot'
 import { ShareDialog } from './ShareDialog'
 import { SharesPage } from './SharesPage'
 import { SharePage } from './SharePage'
@@ -65,6 +65,32 @@ describe('note snapshot', () => {
     expect(JSON.stringify(s.doc)).toContain('另一篇')
     expect(JSON.stringify(s.doc)).not.toContain('noteLink')
     expect(JSON.stringify(s.doc)).not.toContain(other.id)
+  })
+
+  it('a link keeps the text the user typed for it (an own label), for links to itself, to shared notes and to others', async () => {
+    const { services, note } = await setup()
+    const other = services.vault.createNote({ title: '另一篇' })
+    const b = services.vault.createNote({ title: 'B 篇' })
+    const ydoc = await services.notes.acquire(note.id)
+    const frag = ydoc.getXmlFragment('content')
+    frag.delete(0, frag.length)
+    const link = (noteId: string, label: string | null) => ({ type: 'noteLink', attrs: { noteId, blockId: null, label } })
+    prosemirrorJSONToYXmlFragment(
+      editorSchema(),
+      { type: 'doc', content: [{ type: 'paragraph', content: [link(other.id, '我打的字'), { type: 'text', text: ' ' }, link(b.id, '第六步'), { type: 'text', text: ' ' }, link(note.id, '第5步'), { type: 'text', text: ' ' }, link(b.id, null)] }] },
+      frag,
+    )
+    services.notes.release(note.id)
+    const single = JSON.stringify((await snapshotOfNote(services, note.id)).doc)
+    expect(single).toContain('我打的字')
+    expect(single).toContain('第六步')
+    expect(single).toContain('第5步')
+    expect(single).not.toContain('另一篇')
+    const multi = JSON.stringify((await snapshotOfNotes(services, [note.id, b.id])).snapshot)
+    expect(multi).toContain('我打的字')
+    expect(multi).toContain('第六步')
+    expect(multi).toContain('第5步')
+    expect(multi).toContain('B 篇') // a link without its own text shows the title
   })
 
   it('multi-note: links between shared notes stay links to codes the editor schema accepts; others become text', async () => {
@@ -521,6 +547,46 @@ describe('分享頁', () => {
     fireEvent.click(label)
     expect(screen.queryByRole('menu')).toBeNull()
     expect(screen.queryByRole('menuitem')).toBeNull()
+  })
+
+  it('single note: a link to one of its own headings stays a link and scrolls there; a link to another note is text', async () => {
+    const adapter = new MemoryShare()
+    const kek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+    const svc = createShareService({ adapter, account: () => ({ userId: 'u', vaultId: 'v', kek }), origin: 'https://notes.test' })
+    const link = (noteId: string, label: string) => ({ type: 'noteLink', attrs: { noteId, blockId: noteId === 'me' ? 'b1' : null, label } })
+    const d = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [link('me', '去第二節'), { type: 'text', text: ' / ' }, link('other', '別篇')] },
+        { type: 'heading', attrs: { level: 2, id: 'b1' }, content: [{ type: 'text', text: '第二節' }] },
+      ],
+    }
+    const snapshot = buildShareSnapshot({ title: '自連結', doc: d, sharedAt: 1, linkLabel: (id) => (id === 'me' ? '去第二節' : '別篇'), noteId: 'me' })
+    expect(JSON.stringify(snapshot)).not.toContain('"me"')
+    expect(JSON.stringify(snapshot.doc)).toContain('"noteId":"n0"')
+    const { url } = await svc.create('me', snapshot)
+    const u = new URL(url)
+    window.history.replaceState(null, '', `${u.pathname}${u.hash}`)
+    render(<SharePage adapter={adapter} />)
+    const own = await screen.findByRole('link', { name: '前往 去第二節' })
+    expect(screen.queryByRole('link', { name: /別篇/ })).toBeNull()
+    expect(screen.getByLabelText('筆記內容')).toHaveTextContent('別篇')
+    const scroll = vi.fn()
+    const target = document.querySelector<HTMLElement>('[data-block-id="b1"]')
+    expect(target).not.toBeNull()
+    target!.scrollIntoView = scroll
+    fireEvent.click(own)
+    await waitFor(() => expect(scroll).toHaveBeenCalled())
+  })
+
+  it('a single-note snapshot cannot link anywhere but to itself', async () => {
+    const s = sanitizeSnapshot({
+      v: 1,
+      title: 't',
+      sharedAt: 1,
+      doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'noteLink', attrs: { noteId: 'real-note-id', blockId: null, label: 'x' } }, { type: 'noteLink', attrs: { noteId: 'n1', blockId: null, label: 'y' } }] }] },
+    })
+    expect(JSON.stringify(s.doc)).not.toContain('noteLink')
   })
 
   it('a stopped link and a wrong key both say the link is invalid; nothing else leaks', async () => {

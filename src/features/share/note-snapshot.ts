@@ -44,7 +44,7 @@ async function labelsFor(s: Services, docs: PMNode[]) {
 /** The current content of a note as a share snapshot: links to other notes become the text the editor shows. */
 export async function snapshotOfNote(s: Services, noteId: string, now = Date.now()): Promise<ShareSnapshot> {
   const { title, doc } = await contentOf(s, noteId)
-  return buildShareSnapshot({ title, doc, sharedAt: now, linkLabel: await labelsFor(s, [doc]) })
+  return buildShareSnapshot({ title, doc, sharedAt: now, linkLabel: await labelsFor(s, [doc]), noteId })
 }
 
 /**
@@ -92,7 +92,7 @@ async function filesOf(s: FileServices, docs: PMNode[]): Promise<{ map: Snapshot
 export async function shareContentOfNote(s: FileServices, noteId: string, now = Date.now()) {
   const { title, doc } = await contentOf(s, noteId)
   const { map, pending, missing } = await filesOf(s, [doc])
-  const snapshot = buildShareSnapshot({ title, doc, sharedAt: now, linkLabel: await labelsFor(s, [doc]), files: map })
+  const snapshot = buildShareSnapshot({ title, doc, sharedAt: now, linkLabel: await labelsFor(s, [doc]), files: map, noteId })
   return { snapshot, files: pending, missing }
 }
 

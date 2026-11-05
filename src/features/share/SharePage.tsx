@@ -188,6 +188,13 @@ function MultiNotes({ snapshot, files }: { snapshot: MultiShareSnapshot; files: 
   )
 }
 
+/** A single-note link: a link from the note to itself (a heading) just scrolls to that block, or to the top. */
+function scrollToBlock(_noteId: string, blockId?: string) {
+  const el = blockId ? document.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(blockId)}"]`) : null
+  if (el) el.scrollIntoView?.({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' })
+  else window.scrollTo?.(0, 0)
+}
+
 function SharedNote({
   title,
   doc,
@@ -206,11 +213,12 @@ function SharedNote({
   nonce?: number
 }) {
   // The same editor schema and styles as the app, on a throwaway document filled from the snapshot.
+  const open = onOpenLink ?? scrollToBlock
   const extensions = useMemo(() => {
     const ydoc = new Y.Doc()
     prosemirrorJSONToYXmlFragment(editorSchema(), doc, ydoc.getXmlFragment('content'))
-    return createExtensions(ydoc, { noteId: '', sharedFiles: files, ...(onOpenLink && { shared: { open: onOpenLink } }) } as unknown as EditorContext)
-  }, [doc, onOpenLink, files])
+    return createExtensions(ydoc, { noteId: '', sharedFiles: files, shared: { open } } as unknown as EditorContext)
+  }, [doc, open, files])
   const editor = useEditor({ extensions, editable: false, editorProps: { attributes: { class: 'note-editor', 'aria-label': '筆記內容' } } }, [extensions])
   useEffect(() => {
     if (!editor || nonce === undefined) return

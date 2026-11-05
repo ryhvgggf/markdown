@@ -54,6 +54,8 @@ type LinkLabel = (noteId: string, blockId: string | null) => string | null
 
 /** Attachments to include (phase 4d): real attachment id → its in-snapshot code and MIME type. */
 export type SnapshotFiles = ReadonlyMap<string, { code: string; mime: string }>
+/** A single-note snapshot has one link target: the note itself. */
+const SELF_TARGET: ReadonlySet<string> = new Set([shareNoteCode(0)])
 const mimesOf = (files: SnapshotFiles | undefined) => new Map([...(files?.values() ?? [])].map((f) => [f.code, f.mime]))
 
 /**
@@ -73,7 +75,9 @@ function prepareDoc(root: PMNode, linkLabel: LinkLabel, codes?: ReadonlyMap<stri
       const noteId = String(attrs.noteId ?? '')
       const blockId = (attrs.blockId as string | null) ?? null
       const stored = typeof attrs.label === 'string' ? attrs.label : null
-      const text = linkLabel(noteId, blockId) ?? stored
+      // The text the author typed for the link wins (as in the editor); without one, what the editor would show.
+      const shown = linkLabel(noteId, blockId)
+      const text = shown === null ? stored : stored || shown
       if (!text) return []
       const code = codes?.get(noteId)
       if (code) return [{ type: 'noteLink', attrs: { noteId: code, blockId, label: text }, ...(node.marks?.length && { marks: node.marks }) }]
@@ -93,9 +97,12 @@ export function buildShareSnapshot(input: {
   linkLabel: LinkLabel
   /** Attachments to keep (the others become the placeholder); their `files` entries are added on upload. */
   files?: SnapshotFiles
+  /** The note's own id: a link from it to itself (e.g. to one of its headings) stays a link, to the code `n0`. */
+  noteId?: string
 }): ShareSnapshot {
   // The same allow-list the share page applies on opening (belt and braces).
-  const doc = sanitizeShareDoc(prepareDoc(input.doc, input.linkLabel, undefined, input.files), { files: mimesOf(input.files) })
+  const codes = input.noteId ? new Map([[input.noteId, shareNoteCode(0)]]) : undefined
+  const doc = sanitizeShareDoc(prepareDoc(input.doc, input.linkLabel, codes, input.files), { files: mimesOf(input.files), linkTargets: SELF_TARGET })
   return { v: 1, title: input.title, sharedAt: input.sharedAt, doc }
 }
 
@@ -137,7 +144,7 @@ export function sanitizeSnapshot<S extends AnyShareSnapshot>(s: S): S {
   const mimes = new Map(files.map((f) => [f.code, f.mime]))
   const out: AnyShareSnapshot =
     snap.v === 1
-      ? { v: 1, title: snap.title, sharedAt: snap.sharedAt, doc: sanitizeShareDoc(snap.doc, { files: mimes }) }
+      ? { v: 1, title: snap.title, sharedAt: snap.sharedAt, doc: sanitizeShareDoc(snap.doc, { files: mimes, linkTargets: SELF_TARGET }) }
       : sanitizeNotes({ v: 2, sharedAt: snap.sharedAt, notes: snap.notes }, mimes)
   if (files.length) out.files = files
   return out as S
