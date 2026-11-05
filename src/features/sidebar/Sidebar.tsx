@@ -10,7 +10,7 @@ import { useUi } from '@/app/ui-store'
 import { usePrefs } from '@/app/use-prefs'
 import { sortTree } from '@/core/vault/tree'
 import { IconButton } from '@/ui/components/IconButton'
-import { ChevronRight, CloudMinus, FolderPlus, Plus, Trash } from '@/ui/icons'
+import { ChevronRight, CloudMinus, FolderPlus, Plus, Share, Trash } from '@/ui/icons'
 import { createSelectionModel } from './sync-selection'
 import { FolderTree } from './FolderTree'
 import { TrashView } from './TrashView'
@@ -104,6 +104,9 @@ export function Sidebar() {
               </IconButton>
               <IconButton label="新增資料夾" tooltip onClick={() => setRenamingId(actions.createFolder(null))}>
                 <FolderPlus size={16} />
+              </IconButton>
+              <IconButton label="分享管理" tooltip onClick={() => useUi.getState().setSharesOpen(true)}>
+                <Share size={16} />
               </IconButton>
             </div>
           )}

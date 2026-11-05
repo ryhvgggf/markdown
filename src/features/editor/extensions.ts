@@ -52,6 +52,11 @@ export type EditorContext = {
   peekNoteDoc?(noteId: string): Y.Doc | undefined
   /** Shown as a short inline banner when an image / video cannot be added. */
   onMediaError?(message: string): void
+  /**
+   * The share page of a multi-note link (read-only, no vault): a link to another note of the same link shows its
+   * own label and opens that note through `open` (the ids are the link's in-snapshot codes).
+   */
+  shared?: { open(noteId: string, blockId?: string): void }
 }
 
 /**

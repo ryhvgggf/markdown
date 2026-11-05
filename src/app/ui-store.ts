@@ -25,6 +25,8 @@ export interface UiState {
   highlightBlockId: string | null
   /** The note whose 分享 dialog is open. */
   shareNoteId: string | null
+  /** The 分享 page (all links, multi-note links) is shown in place of the note. */
+  sharesOpen: boolean
   openNote(id: string, blockId?: string): void
   toggleBacklinks(): void
   /** Without `force` (pointer left) a pinned panel stays; `force` (×, Esc) closes and unpins. */
@@ -40,6 +42,7 @@ export interface UiState {
   closeImport(): void
   clearHighlight(): void
   setShareNote(id: string | null): void
+  setSharesOpen(v: boolean): void
 }
 
 export function createUiStore(deps: { persistLastNote?: (id: string) => void } = {}) {
@@ -58,8 +61,9 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     importFiles: null,
     highlightBlockId: null,
     shareNoteId: null,
+    sharesOpen: false,
     openNote: (id, blockId) => {
-      set((s) => ({ openNoteId: id, highlightBlockId: blockId ?? null, backlinksOpen: s.backlinksOpen && s.backlinksPinned }))
+      set((s) => ({ openNoteId: id, sharesOpen: false, highlightBlockId: blockId ?? null, backlinksOpen: s.backlinksOpen && s.backlinksPinned }))
       deps.persistLastNote?.(id)
     },
     toggleBacklinks: () => set((s) => (s.backlinksOpen ? { backlinksOpen: false, backlinksPinned: false } : { backlinksOpen: true })),
@@ -76,6 +80,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     closeImport: () => set({ importFiles: null }),
     clearHighlight: () => set({ highlightBlockId: null }),
     setShareNote: (shareNoteId) => set({ shareNoteId }),
+    setSharesOpen: (sharesOpen) => set({ sharesOpen }),
   }))
 }
 

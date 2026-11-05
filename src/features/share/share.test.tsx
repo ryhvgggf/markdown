@@ -1,17 +1,17 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
-import { MemoryShare } from '@/adapters/share/memory-share'
+import { MemoryShare, type MemoryShareRow } from '@/adapters/share/memory-share'
 import { bootstrap, type AppServices } from '@/app/bootstrap'
 import { editorSchema } from '@/app/doc-io'
 import { ServicesProvider } from '@/app/services-context'
 import { createShareFacade } from '@/app/share-facade'
 import { useUi } from '@/app/ui-store'
 import { createShareService } from '@/core/share/share-service'
-import { buildShareSnapshot } from '@/core/share/snapshot'
+import { buildMultiShareSnapshot, buildShareSnapshot } from '@/core/share/snapshot'
 import { ShareDialog } from './ShareDialog'
-import { SharedNotes } from '@/features/settings/AccountSection'
+import { SharesPage } from './SharesPage'
 import { SharePage } from './SharePage'
 import { snapshotOfNote, snapshotOfNotes } from './note-snapshot'
 
@@ -228,28 +228,89 @@ describe('分享對話框：到期、密碼、換新連結', () => {
   })
 })
 
-describe('設定 → 已分享的筆記', () => {
-  it('lists the links, names unknown notes, and stops one after a confirmation', async () => {
+describe('分享 page', () => {
+  function showPage(services: AppServices) {
+    render(
+      <ServicesProvider services={services}>
+        <SharesPage />
+      </ServicesProvider>,
+    )
+  }
+  const linkOf = (adapter: MemoryShare, pick: (r: MemoryShareRow) => boolean) => [...adapter.rows.values()].find(pick)!
+
+  it('lists single and multi-note links, names unknown notes, and stops one link after a confirmation', async () => {
     const { adapter, services, note } = await setup()
+    const b = services.vault.createNote({ title: 'B 篇' })
     show(services)
     const user = userEvent.setup()
     act(() => useUi.getState().setShareNote(note.id))
     await user.click(await screen.findByRole('button', { name: '建立連結' }))
     await screen.findByLabelText('分享連結')
-    const [first] = [...adapter.rows.values()]
-    adapter.rows.set('far', { ...first!, id: 'far', noteId: 'elsewhere' })
     act(() => useUi.setState({ shareNoteId: null }))
-    render(
-      <ServicesProvider services={services}>
-        <SharedNotes />
-      </ServicesProvider>,
-    )
+    cleanup()
+    const empty = buildShareSnapshot({ title: '別處', doc: doc('x'), sharedAt: 1, linkLabel: () => null })
+    const far = await services.share.run((svc) => svc.create('elsewhere', empty))
+    await services.share.run(async (svc) => svc.createMulti(await snapshotOfNotes(services, [note.id, b.id])))
+    showPage(services)
     expect(await screen.findByText('我的筆記')).toBeInTheDocument()
     expect(screen.getByText('其他裝置的筆記')).toBeInTheDocument()
-    await user.click(screen.getAllByRole('button', { name: '停止分享' })[0]!)
+    expect(screen.getByText('我的筆記、B 篇')).toBeInTheDocument()
+    await user.click(screen.getByText('其他裝置的筆記'))
+    expect(await screen.findByLabelText('分享連結')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '更新快照' })).toBeNull() // the notes are not on this device
+    await user.click(screen.getByRole('button', { name: '停止分享' }))
     expect(screen.getByText('停止分享？連結將立即失效。')).toBeInTheDocument()
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '停止分享' }))
-    await waitFor(() => expect(adapter.rows.size).toBe(1))
+    await user.click(screen.getAllByRole('button', { name: '停止分享' }).at(-1)!)
+    await waitFor(() => expect(adapter.rows.has(far.record.id)).toBe(false))
+    expect(adapter.rows.size).toBe(2) // the other two stay
+    expect(screen.queryByText('其他裝置的筆記')).toBeNull()
+  })
+
+  it('makes a link for several notes, in the order of the folder tree, and changes its notes later', async () => {
+    const { adapter, services, note } = await setup()
+    const b = services.vault.createNote({ title: 'B 篇' })
+    const c = services.vault.createNote({ title: 'C 篇' })
+    showPage(services)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: '建立多篇連結' }))
+    expect(screen.getByRole('button', { name: '建立連結' })).toBeDisabled() // at least two
+    await user.click(screen.getByLabelText('C 篇'))
+    await user.click(screen.getByLabelText('我的筆記'))
+    expect(screen.getByText(/已選 2／30/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '建立連結' }))
+    await screen.findByLabelText('分享連結')
+    const made = linkOf(adapter, (r) => r.noteIds !== null)
+    expect(new Set(made.noteIds)).toEqual(new Set([note.id, c.id]))
+    expect(made.noteId).toBe(made.noteIds![0])
+    // change the notes: add B
+    await user.click(screen.getByRole('button', { name: '變更筆記' }))
+    await user.click(screen.getByLabelText('B 篇'))
+    await user.click(screen.getByRole('button', { name: '儲存' }))
+    await waitFor(() => expect(linkOf(adapter, (r) => r.noteIds !== null).noteIds).toHaveLength(3))
+    expect(new Set(linkOf(adapter, (r) => r.noteIds !== null).noteIds)).toEqual(new Set([note.id, b.id, c.id]))
+    expect(screen.getByLabelText('分享連結')).toBeInTheDocument()
+  })
+
+  it('searches the notes and stops at 30', async () => {
+    const { services } = await setup()
+    for (let i = 0; i < 31; i++) services.vault.createNote({ title: `多 ${String(i).padStart(2, '0')}` })
+    showPage(services)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: '建立多篇連結' }))
+    await user.type(screen.getByLabelText('搜尋筆記'), '我的')
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
+    await user.clear(screen.getByLabelText('搜尋筆記'))
+    for (const box of screen.getAllByRole('checkbox').slice(0, 30)) await user.click(box)
+    expect(screen.getByText(/已選 30／30/)).toBeInTheDocument()
+    const unchecked = screen.getAllByRole('checkbox').filter((b) => !(b as HTMLInputElement).checked)
+    expect(unchecked.length).toBeGreaterThanOrEqual(2)
+    expect(unchecked.every((b) => (b as HTMLInputElement).disabled)).toBe(true)
+  })
+
+  it('signed out: asks to sign in', async () => {
+    const { services } = await setup(false)
+    showPage(services)
+    expect(await screen.findByText('登入後即可分享')).toBeInTheDocument()
   })
 })
 
@@ -391,5 +452,94 @@ describe('分享頁', () => {
     render(<SharePage adapter={adapter} />)
     await screen.findByLabelText('筆記內容')
     expect(screen.queryByRole('button', { name: '大綱' })).toBeNull()
+  })
+
+  describe('multi-note link', () => {
+    const para = (...content: unknown[]) => ({ type: 'paragraph', content })
+    const t = (text: string, marks?: unknown[]) => ({ type: 'text', text, ...(marks && { marks }) })
+    async function multi() {
+      const adapter = new MemoryShare()
+      const kek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+      const svc = createShareService({ adapter, account: () => ({ userId: 'u', vaultId: 'v', kek }), origin: 'https://notes.test' })
+      const label = (id: string) => ({ A: 'A 篇', B: 'B 篇', C: 'C 篇' }[id] ?? null)
+      const docs = {
+        A: {
+          type: 'doc',
+          content: [
+            para(t('去 '), { type: 'noteLink', attrs: { noteId: 'B', blockId: 'blk-b2' } }, t('，也看 '), { type: 'noteLink', attrs: { noteId: 'OUT', blockId: null, label: '沒分享的' } }),
+            para(t('外部', [{ type: 'link', attrs: { href: 'https://example.com/x' } }])),
+          ],
+        },
+        B: { type: 'doc', content: [para(t('B 的內容')), { type: 'paragraph', attrs: { id: 'blk-b2' }, content: [t('B 的第二段')] }] },
+        C: { type: 'doc', content: [para(t('C 的內容'))] },
+      }
+      const snapshot = buildMultiShareSnapshot({
+        notes: (['A', 'B', 'C'] as const).map((noteId) => ({ noteId, title: label(noteId)!, doc: docs[noteId] as never })),
+        sharedAt: 1,
+        linkLabel: (id, blockId) => (label(id) ? (blockId ? `${label(id)} › B 的第二段` : label(id)) : null),
+      })
+      const { url } = await svc.createMulti({ noteIds: ['A', 'B', 'C'], snapshot })
+      return { adapter, url: new URL(url) }
+    }
+    // jsdom has no layout: the editor looks for the element under a click
+    beforeEach(() => {
+      document.elementFromPoint = vi.fn(() => null)
+    })
+    const atWith = (u: URL, query = '') => window.history.replaceState(null, '', `${u.pathname}${query}${u.hash}`)
+
+    it('lists the notes, shows the first, and switches with the list and with links between the notes', async () => {
+      const { adapter, url } = await multi()
+      atWith(url)
+      render(<SharePage adapter={adapter} />)
+      const user = userEvent.setup()
+      const nav = await screen.findByRole('navigation', { name: '筆記清單' })
+      expect(within(nav).getAllByRole('button').map((b) => b.textContent)).toEqual(['A 篇', 'B 篇', 'C 篇'])
+      expect(await screen.findByRole('heading', { name: 'A 篇' })).toBeInTheDocument()
+      expect(within(nav).getByRole('button', { name: 'A 篇' })).toHaveAttribute('aria-current', 'page')
+      // a link to a note outside the link is plain text; an outside link opens as usual
+      const body = screen.getByLabelText('筆記內容')
+      expect(body).toHaveTextContent('沒分享的')
+      expect(screen.queryByRole('link', { name: /沒分享的/ })).toBeNull()
+      expect(body.querySelector('a')).toHaveAttribute('href', 'https://example.com/x')
+      // a link to another note of the link switches to it and the address remembers it
+      await user.click(screen.getByRole('link', { name: '前往 B 篇 › B 的第二段' }))
+      expect(await screen.findByRole('heading', { name: 'B 篇' })).toBeInTheDocument()
+      expect(screen.getByLabelText('筆記內容')).toHaveTextContent('B 的第二段')
+      expect(window.location.search).toBe('?n=n1')
+      expect(window.location.hash).toBe(url.hash)
+      await user.click(within(nav).getByRole('button', { name: 'C 篇' }))
+      expect(await screen.findByRole('heading', { name: 'C 篇' })).toBeInTheDocument()
+      expect(window.location.search).toBe('?n=n2')
+      await user.click(within(nav).getByRole('button', { name: 'A 篇' }))
+      expect(await screen.findByRole('heading', { name: 'A 篇' })).toBeInTheDocument()
+      expect(window.location.search).toBe('')
+    })
+
+    it('opens on the note named in the address, and falls back to the first for a bad one', async () => {
+      const { adapter, url } = await multi()
+      atWith(url, '?n=n2')
+      const { unmount } = render(<SharePage adapter={adapter} />)
+      expect(await screen.findByRole('heading', { name: 'C 篇' })).toBeInTheDocument()
+      unmount()
+      for (const bad of ['?n=n9', '?n=', '?n=__proto__', '?n=<script>']) {
+        atWith(url, bad)
+        const r = render(<SharePage adapter={adapter} />)
+        expect(await screen.findByRole('heading', { name: 'A 篇' })).toBeInTheDocument()
+        r.unmount()
+      }
+    })
+
+    it('a protected multi-note link shows no title or list before the password', async () => {
+      const { adapter, url } = await multi()
+      const [row] = [...adapter.rows.values()]
+      expect(row.noteIds).toEqual(['A', 'B', 'C'])
+      adapter.rows.get(row.id)!.password = { saltB64: 'AAAAAAAAAAAAAAAAAAAAAA==', iterations: 600_000, pwKey: 'x' }
+      adapter.rows.get(row.id)!.verifier = new Uint8Array(32)
+      atWith(url)
+      render(<SharePage adapter={adapter} />)
+      expect(await screen.findByText('此文件受到密碼保護。請輸入密碼以開啟文件。')).toBeInTheDocument()
+      expect(screen.queryByRole('navigation', { name: '筆記清單' })).toBeNull()
+      expect(screen.queryByText('A 篇')).toBeNull()
+    })
   })
 })

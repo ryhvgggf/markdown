@@ -1,11 +1,12 @@
-import { Component, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Component, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import * as Y from 'yjs'
 import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
 import { editorSchema } from '@/app/doc-io'
 import { ShareError, type ShareAdapter } from '@/adapters/share/types'
 import { openSharedLink } from '@/core/share/share-service'
-import type { ShareSnapshot } from '@/core/share/snapshot'
+import type { PMNode } from '@/core/markdown/types'
+import type { AnyShareSnapshot, MultiShareSnapshot } from '@/core/share/snapshot'
 import { OutlineView, type OutlineEntry } from '@/features/panel/OutlineTicks'
 import { extractHeadings, READ_LINE, reducedMotion } from '@/features/panel/use-outline'
 import { createExtensions, type EditorContext } from '@/features/editor/extensions'
@@ -14,7 +15,7 @@ type State =
   | { s: 'loading' }
   | { s: 'error'; text: string }
   | { s: 'password'; wrong: boolean }
-  | { s: 'ready'; snapshot: ShareSnapshot }
+  | { s: 'ready'; snapshot: AnyShareSnapshot }
 
 const INVALID = '連結無效或已停止分享'
 const UNREACHABLE = '無法開啟此連結'
@@ -35,9 +36,7 @@ export function SharePage({ adapter }: { adapter: ShareAdapter | (() => Promise<
       try {
         const a = typeof adapter === 'function' ? await adapter() : adapter
         const snapshot = await openSharedLink(a, new URL(location.href), (doc) => void editorSchema().nodeFromJSON(doc).check(), attempt.password)
-        // Multi-note links (v2): until the share page has its note list (multi-share plan part 2), show the first note.
-        const shown: ShareSnapshot = snapshot.v === 1 ? snapshot : { v: 1, title: snapshot.notes[0].title, sharedAt: snapshot.sharedAt, doc: snapshot.notes[0].doc }
-        if (!cancelled) setState({ s: 'ready', snapshot: shown })
+        if (!cancelled) setState({ s: 'ready', snapshot })
       } catch (e) {
         if (cancelled) return
         if (e instanceof ShareError && (e.kind === 'password-required' || e.kind === 'wrong-password')) setState({ s: 'password', wrong: e.kind === 'wrong-password' })
@@ -50,7 +49,7 @@ export function SharePage({ adapter }: { adapter: ShareAdapter | (() => Promise<
   }, [adapter, attempt])
 
   useEffect(() => {
-    if (state.s === 'ready') document.title = state.snapshot.title
+    if (state.s === 'ready' && state.snapshot.v === 1) document.title = state.snapshot.title
   }, [state])
 
   if (state.s === 'loading') return <div className="grid min-h-dvh place-items-center text-fg-tertiary">載入中…</div>
@@ -58,7 +57,7 @@ export function SharePage({ adapter }: { adapter: ShareAdapter | (() => Promise<
   if (state.s === 'error') return <div role="alert" className="grid min-h-dvh place-items-center px-6 text-center text-fg-secondary">{state.text}</div>
   return (
     <ShowErrors>
-      <SharedNote snapshot={state.snapshot} />
+      {state.snapshot.v === 1 ? <SharedNote title={state.snapshot.title} doc={state.snapshot.doc} /> : <MultiNotes snapshot={state.snapshot} />}
     </ShowErrors>
   )
 }
@@ -109,17 +108,103 @@ class ShowErrors extends Component<{ children: ReactNode }, { failed: boolean }>
   }
 }
 
-function SharedNote({ snapshot }: { snapshot: ShareSnapshot }) {
+/**
+ * A link that shows several notes: the notes down the left (a menu on a narrow screen), the chosen one on the
+ * right. The chosen note is kept in the address as `?n=n2` (the snapshot's own code, never a real id; the key
+ * stays after `#`), so a reload or a copied address stays on it. A link to another note of the same snapshot
+ * switches to it and scrolls to the block.
+ */
+function MultiNotes({ snapshot }: { snapshot: MultiShareSnapshot }) {
+  const codes = useMemo(() => snapshot.notes.map((n) => n.id), [snapshot])
+  const [view, setView] = useState<{ code: string; blockId: string | null; nonce?: number }>(() => {
+    const n = new URLSearchParams(location.search).get('n')
+    return { code: n !== null && codes.includes(n) ? n : codes[0], blockId: null }
+  })
+  const go = useCallback(
+    (code: string, blockId: string | null) => {
+      if (!codes.includes(code)) return
+      setView((v) => ({ code, blockId, nonce: (v.nonce ?? 0) + 1 }))
+      const query = code === codes[0] ? '' : `?n=${code}`
+      window.history.replaceState(window.history.state, '', `${location.pathname}${query}${location.hash}`)
+    },
+    [codes],
+  )
+  const open = useCallback((noteId: string, blockId?: string) => go(noteId, blockId ?? null), [go])
+  const note = snapshot.notes.find((n) => n.id === view.code) ?? snapshot.notes[0]
+  useEffect(() => {
+    document.title = note.title
+  }, [note])
+  return (
+    <div className="sm:pl-56">
+      <nav aria-label="筆記清單" className="fixed top-0 bottom-0 left-0 hidden w-56 overflow-auto border-r border-black/5 bg-surface/60 px-2 py-4 sm:block">
+        <ul className="flex flex-col gap-0.5">
+          {snapshot.notes.map((n) => (
+            <li key={n.id}>
+              <button
+                type="button"
+                aria-current={n.id === note.id ? 'page' : undefined}
+                onClick={() => go(n.id, null)}
+                className={`w-full truncate rounded-control px-3 py-1.5 text-left text-sm outline-none transition-colors hover:bg-fill focus-visible:ring-2 focus-visible:ring-accent ${n.id === note.id ? 'bg-fill font-medium text-fg' : 'text-fg-secondary'}`}
+              >
+                {n.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <div className="px-4 pt-3 sm:hidden">
+        <select
+          aria-label="選擇筆記"
+          value={note.id}
+          onChange={(e) => go(e.target.value, null)}
+          className="h-9 w-full rounded-control border border-black/10 bg-white/70 px-2 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {snapshot.notes.map((n) => (
+            <option key={n.id} value={n.id}>
+              {n.title}
+            </option>
+          ))}
+        </select>
+      </div>
+      <SharedNote key={note.id} title={note.title} doc={note.doc} onOpenLink={open} blockId={view.blockId} nonce={view.nonce} />
+    </div>
+  )
+}
+
+function SharedNote({
+  title,
+  doc,
+  onOpenLink,
+  blockId,
+  nonce,
+}: {
+  title: string
+  doc: PMNode
+  /** Multi-note links: opens another note of the link (by its code). */
+  onOpenLink?: (noteId: string, blockId?: string) => void
+  /** After a switch (`nonce` set): the block to scroll to; without one the page goes to the top. */
+  blockId?: string | null
+  nonce?: number
+}) {
   // The same editor schema and styles as the app, on a throwaway document filled from the snapshot.
   const extensions = useMemo(() => {
     const ydoc = new Y.Doc()
-    prosemirrorJSONToYXmlFragment(editorSchema(), snapshot.doc, ydoc.getXmlFragment('content'))
-    return createExtensions(ydoc, { noteId: '' } as unknown as EditorContext)
-  }, [snapshot])
+    prosemirrorJSONToYXmlFragment(editorSchema(), doc, ydoc.getXmlFragment('content'))
+    return createExtensions(ydoc, { noteId: '', ...(onOpenLink && { shared: { open: onOpenLink } }) } as unknown as EditorContext)
+  }, [doc, onOpenLink])
   const editor = useEditor({ extensions, editable: false, editorProps: { attributes: { class: 'note-editor', 'aria-label': '筆記內容' } } }, [extensions])
+  useEffect(() => {
+    if (!editor || nonce === undefined) return
+    const frame = requestAnimationFrame(() => {
+      const el = blockId ? document.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(blockId)}"]`) : null
+      if (el) el.scrollIntoView?.({ block: 'start' })
+      else window.scrollTo?.(0, 0)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [editor, blockId, nonce])
   const entries = useMemo<OutlineEntry[]>(
-    () => [{ id: TITLE, level: 0, text: snapshot.title }, ...extractHeadings(editorSchema().nodeFromJSON(snapshot.doc))],
-    [snapshot],
+    () => [{ id: TITLE, level: 0, text: title }, ...extractHeadings(editorSchema().nodeFromJSON(doc))],
+    [title, doc],
   )
   const [activeId, setActiveId] = useState<string | null>(null)
   useEffect(() => {
@@ -155,7 +240,7 @@ function SharedNote({ snapshot }: { snapshot: ShareSnapshot }) {
     <main className="note-card mx-auto min-h-dvh max-w-[920px] bg-surface px-6 pb-32 pt-12 sm:my-4 sm:min-h-0 sm:rounded-card sm:shadow-card">
       <div className="mx-auto" style={{ maxWidth: 'var(--editor-width, 680px)' }}>
         <h1 data-share-title className="mb-4 font-semibold text-fg" style={{ fontSize: 'var(--text-display)', letterSpacing: '-0.022em', lineHeight: 1.25 }}>
-          {snapshot.title}
+          {title}
         </h1>
         <EditorContent editor={editor} />
       </div>

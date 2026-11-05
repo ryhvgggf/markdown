@@ -252,6 +252,16 @@ describe('multi-note links (service)', () => {
     expect(await store.update(record.id, own!.ciphertext, null)).toBe('changed')
   })
 
+  it('stopping a note\'s own links leaves the multi-note links that show it', async () => {
+    const m = await service.createMulti(content(['REAL_A', 'REAL_B']))
+    const s1 = await service.create('REAL_B', buildShareSnapshot({ title: 't', doc: doc(), sharedAt: 1, linkLabel }))
+    const s2 = await service.create('REAL_B', buildShareSnapshot({ title: 't', doc: doc(), sharedAt: 2, linkLabel }))
+    await service.stopForNote('REAL_B')
+    expect(await errKind(open(s1.url))).toBe('not-found')
+    expect(await errKind(open(s2.url))).toBe('not-found')
+    expect(await open(m.url)).toMatchObject({ v: 2 })
+  })
+
   it('removing any of its notes (permanent delete) stops the whole link; other links stay', async () => {
     const m = await service.createMulti({ noteIds: ['REAL_A', 'REAL_B', 'REAL_C'], snapshot: multi(['REAL_A', 'REAL_B', 'REAL_C']) })
     const single = await service.create('REAL_C', buildShareSnapshot({ title: 't', doc: doc(), sharedAt: 1, linkLabel }))

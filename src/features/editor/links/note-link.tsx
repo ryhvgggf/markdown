@@ -107,7 +107,12 @@ function NoteLinkView({ node, extension, editor, updateAttributes }: ReactNodeVi
   const target: LinkTarget = { noteId: node.attrs.noteId as string, blockId: (node.attrs.blockId as string | null) ?? null }
   useNoteSnapshot(ctx?.vault, target.noteId)
   const blockText = useBlockText(ctx?.db, target.noteId, target.blockId, ctx?.peekNoteDoc)
-  const label = ctx?.vault ? noteLinkLabel(ctx.vault, target, blockText) : { text: '已刪除的筆記', state: 'deleted-note' as const }
+  const shared = ctx?.shared
+  const label = shared
+    ? { text: (node.attrs.label as string | null) || '筆記', state: 'ok' as const }
+    : ctx?.vault
+      ? noteLinkLabel(ctx.vault, target, blockText)
+      : { text: '已刪除的筆記', state: 'deleted-note' as const }
   const ok = label.state === 'ok'
   const own = (node.attrs.label as string | null) || null
   const shown = ok && own ? own : label.text
@@ -139,10 +144,11 @@ function NoteLinkView({ node, extension, editor, updateAttributes }: ReactNodeVi
         onClick={(e) => {
           if (!ok) return
           e.preventDefault()
-          ctx?.openNote(target.noteId, target.blockId ?? undefined)
+          if (shared) shared.open(target.noteId, target.blockId ?? undefined)
+          else ctx?.openNote(target.noteId, target.blockId ?? undefined)
         }}
         onContextMenu={(e) => {
-          if (!ok) return
+          if (!ok || shared) return
           e.preventDefault()
           setRenaming(true)
         }}
@@ -247,7 +253,9 @@ export const NoteLink = Node.create<NoteLinkOptions>({
         // The node view knows the live state (including deleted blocks); deleted links do nothing.
         const dom = editor.view.nodeDOM(sel.from) as HTMLElement | null
         if (dom?.querySelector('[data-state]')?.getAttribute('data-state') !== 'ok') return true
-        this.options.ctx?.openNote(noteId, blockId ?? undefined)
+        const shared = this.options.ctx?.shared
+        if (shared) shared.open(noteId, blockId ?? undefined)
+        else this.options.ctx?.openNote(noteId, blockId ?? undefined)
         return true
       },
     }

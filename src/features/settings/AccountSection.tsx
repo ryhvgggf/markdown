@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import type { DeviceRecord } from '@/adapters/devices/types'
-import type { ShareRecord } from '@/adapters/share/types'
 import { useServices } from '@/app/services-context'
 import type { AccountService, AccountState } from '@/app/account-service'
 import { useAccount, useSyncStatus } from '@/app/use-account'
@@ -365,7 +364,6 @@ function Unlocked({ account, email }: { account: AccountService; email: string }
     <div className="flex flex-col gap-3 py-2">
       <p className="text-base text-fg">已登入 {email}</p>
       <SyncProblems account={account} />
-      <SharedNotes />
       <Devices account={account} />
       <ErrorLine text={error} />
       <div className="flex flex-wrap gap-2">
@@ -549,91 +547,6 @@ function Devices({ account }: { account: AccountService }) {
               移除
             </Button>
             <Button variant="ghost" onClick={() => setRemoving(null)}>
-              取消
-            </Button>
-          </div>
-        </div>
-      )}
-      <ErrorLine text={error} />
-    </section>
-  )
-}
-
-/** 已分享的筆記: every link of this account (titles come from this device only). */
-export function SharedNotes() {
-  const { share, vault } = useServices()
-  const [list, setList] = useState<ShareRecord[] | null>(null)
-  const [failed, setFailed] = useState(false)
-  const [stopping, setStopping] = useState<ShareRecord | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [now] = useState(() => Date.now())
-  const [version, setVersion] = useState(0)
-  useEffect(() => {
-    let live = true
-    share.run((svc) => svc.listAll()).then(
-      (r) => {
-        if (!live) return
-        setList(r)
-        setFailed(false)
-      },
-      () => live && setFailed(true),
-    )
-    return () => {
-      live = false
-    }
-  }, [share, version])
-
-  if (failed) return <Note>無法載入已分享的筆記</Note>
-  if (!list) return null
-  const expiryText = (r: ShareRecord) => (r.expiresAt === null ? '永久' : r.expiresAt <= now ? '已過期' : `到期 ${dateText(r.expiresAt)}`)
-  return (
-    <section aria-label="已分享的筆記" className="flex max-w-md flex-col gap-1">
-      <SectionLabel>已分享的筆記</SectionLabel>
-      {list.length === 0 && <Note>目前沒有分享中的筆記</Note>}
-      <ul className="flex flex-col">
-        {list.map((r) => {
-          const note = vault.getNote(r.noteId)
-          return (
-            <li key={r.id} className="flex min-h-11 items-center justify-between gap-3 py-1">
-              <div className="min-w-0">
-                <p className="truncate text-base text-fg">{note ? displayTitle(note.title) : '其他裝置的筆記'}</p>
-                <p className="text-xs text-fg-tertiary">
-                  快照 {dateText(r.updatedAt)}・{expiryText(r)}
-                  {r.password && '・有密碼'}
-                </p>
-              </div>
-              <Button variant="ghost" onClick={() => setStopping(r)}>
-                停止分享
-              </Button>
-            </li>
-          )
-        })}
-      </ul>
-      {stopping && (
-        <div role="alertdialog" aria-label="停止分享" className="flex flex-col gap-2 rounded-control bg-fill px-3 py-2">
-          <p className="text-sm text-fg">停止分享？連結將立即失效。</p>
-          <div className="flex gap-2">
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true)
-                setError(null)
-                try {
-                  await share.run((svc) => svc.removeForNotes([stopping.noteId]))
-                  setStopping(null)
-                  setVersion((v) => v + 1)
-                } catch {
-                  setError('無法完成，請稍後再試')
-                } finally {
-                  setBusy(false)
-                }
-              }}
-            >
-              停止分享
-            </Button>
-            <Button variant="ghost" onClick={() => setStopping(null)}>
               取消
             </Button>
           </div>

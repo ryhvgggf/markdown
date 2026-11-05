@@ -19,6 +19,7 @@ const NoteEditor = lazy(() => import('@/features/editor/NoteEditor').then((m) =>
 const QuickSwitcher = lazy(() => import('@/features/search/QuickSwitcher').then((m) => ({ default: m.QuickSwitcher })))
 const ImportDialog = lazy(() => import('@/features/transfer/ImportDialog').then((m) => ({ default: m.ImportDialog })))
 const DataDialog = lazy(() => import('@/features/settings/DataDialog').then((m) => ({ default: m.DataDialog })))
+const SharesPage = lazy(() => import('@/features/share/SharesPage').then((m) => ({ default: m.SharesPage })))
 const ShareDialog = lazy(() => import('@/features/share/ShareDialog').then((m) => ({ default: m.ShareDialog })))
 const SettingsDialog = lazy(() => import('@/features/settings/SettingsDialog').then((m) => ({ default: m.SettingsDialog })))
 
@@ -117,12 +118,20 @@ function MainNote() {
   const { vault, account } = useServices()
   const loadingFromCloud = useSyncStatus(account).loading
   const openNoteId = useUi((s) => s.openNoteId)
+  const sharesOpen = useUi((s) => s.sharesOpen)
   // After the first switch every note shown fades in (noteSwitchFade in Shell); the first one on start does not.
   const [firstId] = useState(openNoteId)
   const [switched, setSwitched] = useState(false)
   if (!switched && openNoteId !== firstId) setSwitched(true)
   const [, bump] = useState(0)
   useEffect(() => vault.observe(() => bump((n) => n + 1)), [vault])
+  if (sharesOpen) {
+    return (
+      <Suspense fallback={null}>
+        <SharesPage />
+      </Suspense>
+    )
+  }
   if (!openNoteId || !vault.getNote(openNoteId)) {
     return <p className="p-6 text-fg-secondary">選擇或新增一篇筆記</p>
   }
@@ -154,9 +163,10 @@ function ShareButton({ noteId }: { noteId: string }) {
 function NoteOverlay() {
   const { vault } = useServices()
   const openNoteId = useUi((s) => s.openNoteId)
+  const sharesOpen = useUi((s) => s.sharesOpen)
   const [, bump] = useState(0)
   useEffect(() => vault.observe(() => bump((n) => n + 1)), [vault])
-  if (!openNoteId || !vault.getNote(openNoteId)) return null
+  if (sharesOpen || !openNoteId || !vault.getNote(openNoteId)) return null
   return (
     <>
       <OutlineTicks key={openNoteId} noteId={openNoteId} />

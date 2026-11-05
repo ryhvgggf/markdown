@@ -241,6 +241,15 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
       await adapter.remove(shareId)
     },
 
+    /**
+     * Stops this note's own single-note links (the 停止分享 button of the note's dialog). Links that show the note
+     * together with others stay: they are stopped from the 分享 page, or by deleting the note for good.
+     */
+    async stopForNote(noteId: string): Promise<void> {
+      const a = need()
+      for (const r of await adapter.listForNote(a.vaultId, noteId)) await adapter.remove(r.id)
+    },
+
     async listForNote(noteId: string): Promise<ShareRecord[]> {
       return adapter.listForNote(need().vaultId, noteId)
     },
