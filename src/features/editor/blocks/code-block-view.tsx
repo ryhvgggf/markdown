@@ -16,6 +16,20 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: ReactN
     editor.chain().focus(undefined, { scrollIntoView: false }).setTextSelection(end).run()
   }
 
+  // Read-only (the share page): the language is only a label, never a menu.
+  if (!editor.isEditable) {
+    return (
+      <NodeViewWrapper className="code-block">
+        <span className="code-lang pointer-events-none" contentEditable={false}>
+          {current}
+        </span>
+        <pre spellCheck={false}>
+          <NodeViewContent as={'code' as 'div'} className={language ? `language-${language}` : undefined} />
+        </pre>
+      </NodeViewWrapper>
+    )
+  }
+
   return (
     <NodeViewWrapper className="code-block">
       <Menu
@@ -27,7 +41,6 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: ReactN
             className="code-lang"
             contentEditable={false}
             aria-label="程式語言"
-            disabled={!editor.isEditable}
             onMouseDown={(e) => e.preventDefault()}
           >
             {current}

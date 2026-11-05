@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
 import { MemoryShare, type MemoryShareRow } from '@/adapters/share/memory-share'
@@ -320,6 +320,7 @@ describe('分享頁的附件', () => {
     const { adapter } = await shared([{ name: '圖.svg', mime: 'image/svg+xml', kind: 'image', body: '<svg onload="alert(1)"/>' }])
     render(<SharePage adapter={adapter} />)
     expect(await screen.findByText('圖.svg')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '下載 圖.svg' })).toBeInTheDocument()
     expect(screen.queryByRole('img')).toBeNull()
     const types = (URL.createObjectURL as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as Blob).type)
     expect(types).toEqual(['application/octet-stream'])
@@ -502,6 +503,24 @@ describe('分享頁', () => {
     const body = await screen.findByLabelText('筆記內容')
     expect(body).toHaveTextContent('給大家看的內容')
     expect(body).toHaveAttribute('contenteditable', 'false')
+  })
+
+  it('the language of a code block is shown but cannot be changed', async () => {
+    const adapter = new MemoryShare()
+    const kek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+    const svc = createShareService({ adapter, account: () => ({ userId: 'u', vaultId: 'v', kek }), origin: 'https://notes.test' })
+    const code = { type: 'codeBlock', attrs: { language: 'javascript' }, content: [{ type: 'text', text: 'let a = 1' }] }
+    const snapshot = buildShareSnapshot({ title: '程式', doc: { type: 'doc', content: [code] }, sharedAt: 1, linkLabel: () => null })
+    const { url } = await svc.create('n1', snapshot)
+    const u = new URL(url)
+    window.history.replaceState(null, '', `${u.pathname}${u.hash}`)
+    render(<SharePage adapter={adapter} />)
+    const label = await screen.findByText('JavaScript')
+    expect(screen.queryByRole('button', { name: '程式語言' })).toBeNull()
+    fireEvent.pointerDown(label)
+    fireEvent.click(label)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(screen.queryByRole('menuitem')).toBeNull()
   })
 
   it('a stopped link and a wrong key both say the link is invalid; nothing else leaks', async () => {
