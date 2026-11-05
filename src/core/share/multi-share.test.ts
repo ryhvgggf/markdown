@@ -22,6 +22,8 @@ const titles: Record<string, string> = { REAL_A: 'A 篇', REAL_B: 'B 篇', REAL_
 const linkLabel = (id: string, blockId: string | null) => (titles[id] ? (blockId ? `${titles[id]} › 段落` : titles[id]) : null)
 const multi = (ids: string[], docs: Record<string, PMNode> = {}, at = 1) =>
   buildMultiShareSnapshot({ notes: ids.map((noteId) => ({ noteId, title: titles[noteId] ?? noteId, doc: docs[noteId] ?? doc(para(txt(`內容 ${titles[noteId] ?? ''}`))) })), sharedAt: at, linkLabel })
+/** Notes and the snapshot built from them, as `snapshotOfNotes` returns them. */
+const content = (ids: string[], docs: Record<string, PMNode> = {}, at = 1) => ({ noteIds: ids, snapshot: multi(ids, docs, at) })
 const gz = (v: unknown) => gzipSync(strToU8(JSON.stringify(v)))
 const errKind = async (p: Promise<unknown> | (() => unknown)) => {
   try {
@@ -90,6 +92,11 @@ describe('sanitize (multi-note)', () => {
     expect(out).toEqual(doc({ type: 'codeBlock', content: [txt('x')] }))
   })
 
+  it('ignores node types named like Object.prototype members instead of throwing', () => {
+    for (const type of ['constructor', '__proto__', 'toString', 'hasOwnProperty'])
+      expect(sanitizeShareDoc(doc({ type, attrs: {}, content: [txt('x')] }, para(txt('ok'))))).toEqual(doc(para(txt('ok'))))
+  })
+
   it('caps a long label', () => {
     const out = sanitizeShareDoc(doc(para(link('n0', null, 'x'.repeat(10_000)))), { linkTargets: targets })
     expect((out.content![0].content![0].attrs!.label as string).length).toBe(2000)
@@ -153,7 +160,7 @@ describe('multi-note links (service)', () => {
 
   it('one link opens all its notes; the viewer sees codes only, and the schema check runs on every note', async () => {
     const s = multi(['REAL_A', 'REAL_B'], { REAL_A: doc(para(link('REAL_B'))) })
-    const { url, record } = await service.createMulti(['REAL_A', 'REAL_B'], s)
+    const { url, record } = await service.createMulti({ noteIds: ['REAL_A', 'REAL_B'], snapshot: s })
     expect(record).toMatchObject({ noteId: 'REAL_A', noteIds: ['REAL_A', 'REAL_B'] })
     const checked: PMNode[] = []
     const opened = await open(url, undefined, (d) => void checked.push(d))
@@ -169,31 +176,33 @@ describe('multi-note links (service)', () => {
 
   it('is listed with every link but not in a note\'s own list', async () => {
     await service.create('REAL_A', buildShareSnapshot({ title: 't', doc: doc(para(txt('x'))), sharedAt: 1, linkLabel }))
-    await service.createMulti(['REAL_A', 'REAL_B'], multi(['REAL_A', 'REAL_B']))
+    await service.createMulti({ noteIds: ['REAL_A', 'REAL_B'], snapshot: multi(['REAL_A', 'REAL_B']) })
     expect((await service.listForNote('REAL_A')).map((r) => r.noteIds)).toEqual([null])
     expect((await service.listAll()).map((r) => r.noteIds)).toEqual([['REAL_A', 'REAL_B'], null])
   })
 
   it('refuses a note list that does not match the snapshot, or a snapshot of the wrong kind', async () => {
-    expect(await errKind(service.createMulti(['REAL_A'], multi(['REAL_A', 'REAL_B'])))).toBe('invalid')
-    expect(await errKind(service.createMulti(['REAL_A', 'REAL_A'], multi(['REAL_A', 'REAL_B'])))).toBe('invalid')
-    expect(await errKind(service.createMulti([], multi(['REAL_A'])))).toBe('invalid')
+    expect(await errKind(service.createMulti({ noteIds: ['REAL_A'], snapshot: multi(['REAL_A', 'REAL_B']) }))).toBe('invalid')
+    expect(await errKind(service.createMulti({ noteIds: ['REAL_A', 'REAL_A'], snapshot: multi(['REAL_A', 'REAL_B']) }))).toBe('invalid')
+    expect(await errKind(service.createMulti({ noteIds: [], snapshot: multi(['REAL_A']) }))).toBe('invalid')
     const single = buildShareSnapshot({ title: 't', doc: doc(), sharedAt: 1, linkLabel })
     // @ts-expect-error a v2 snapshot is not a single-note snapshot
     expect(await errKind(service.create('REAL_A', multi(['REAL_A'])))).toBe('invalid')
-    const { record } = await service.createMulti(['REAL_A'], multi(['REAL_A']))
+    // @ts-expect-error a bare v2 snapshot without its note ids is not accepted
+    expect(await errKind(service.createMulti(multi(['REAL_A'])))).toBe('invalid')
+    const { record } = await service.createMulti({ noteIds: ['REAL_A'], snapshot: multi(['REAL_A']) })
     expect(await errKind(service.update(record, single))).toBe('invalid')
     const one = await service.create('REAL_A', single)
-    expect(await errKind(service.update(one.record, multi(['REAL_A'])))).toBe('invalid')
-    expect(await errKind(service.setNotes(one.record.id, ['REAL_A'], multi(['REAL_A'])))).toBe('invalid')
+    expect(await errKind(service.update(one.record, content(['REAL_A'])))).toBe('invalid')
+    expect(await errKind(service.setNotes(one.record.id, content(['REAL_A'])))).toBe('invalid')
   })
 
   it('changing the notes keeps the link, expiry and password, and replaces what it shows', async () => {
-    const { url, record } = await service.createMulti(['REAL_A', 'REAL_B'], multi(['REAL_A', 'REAL_B']))
+    const { url, record } = await service.createMulti({ noteIds: ['REAL_A', 'REAL_B'], snapshot: multi(['REAL_A', 'REAL_B']) })
     await service.setExpiry(record.id, 86_400)
     await service.setPassword(record.id, '六個字的密碼')
     const next = multi(['REAL_C', 'REAL_A'], {}, 5)
-    const updated = await service.setNotes(record.id, ['REAL_C', 'REAL_A'], next)
+    const updated = await service.setNotes(record.id, { noteIds: ['REAL_C', 'REAL_A'], snapshot: next })
     expect(updated).toMatchObject({ id: record.id, noteId: 'REAL_C', noteIds: ['REAL_C', 'REAL_A'] })
     expect(await open(url, '六個字的密碼')).toEqual(next)
     const [listed] = await service.listAll()
@@ -202,41 +211,49 @@ describe('multi-note links (service)', () => {
   })
 
   it('update snapshot keeps the notes; refused when another device changed them meanwhile', async () => {
-    const { url, record } = await service.createMulti(['REAL_A', 'REAL_B'], multi(['REAL_A', 'REAL_B']))
-    const fresh = multi(['REAL_A', 'REAL_B'], { REAL_A: doc(para(txt('新的'))) }, 9)
+    const { url, record } = await service.createMulti({ noteIds: ['REAL_A', 'REAL_B'], snapshot: multi(['REAL_A', 'REAL_B']) })
+    const fresh = content(['REAL_A', 'REAL_B'], { REAL_A: doc(para(txt('新的'))) }, 9)
     await service.update(record, fresh)
-    expect(await open(url)).toEqual(fresh)
-    await other.setNotes(record.id, ['REAL_C'], multi(['REAL_C']))
+    expect(await open(url)).toEqual(fresh.snapshot)
+    // a snapshot of other notes than the link's is refused outright
+    expect(await errKind(service.update(record, content(['REAL_B', 'REAL_A'])))).toBe('invalid')
+    await other.setNotes(record.id, content(['REAL_C']))
     // this device still thinks the link shows A and B: writing A and B back would show notes the list no longer has
     expect(await errKind(service.update(record, fresh))).toBe('unknown')
     expect(await open(url)).toEqual(multi(['REAL_C']))
   })
 
   it('a concurrent snapshot change from another device makes changing the notes retry on the fresh state', async () => {
-    const { url, record } = await service.createMulti(['REAL_A', 'REAL_B'], multi(['REAL_A', 'REAL_B']))
+    const { url, record } = await service.createMulti({ noteIds: ['REAL_A', 'REAL_B'], snapshot: multi(['REAL_A', 'REAL_B']) })
     const setNotes = store.setNotes.bind(store)
     let raced = false
     store.setNotes = async (...args) => {
       if (!raced) {
         raced = true
-        await other.update(record, multi(['REAL_A', 'REAL_B'], {}, 7))
+        await other.update(record, content(['REAL_A', 'REAL_B'], {}, 7))
       }
       return setNotes(...args)
     }
-    await service.setNotes(record.id, ['REAL_B'], multi(['REAL_B'], {}, 8))
+    await service.setNotes(record.id, content(['REAL_B'], {}, 8))
     expect(await open(url)).toEqual(multi(['REAL_B'], {}, 8))
   })
 
   it('renewing carries the notes over', async () => {
-    const { record } = await service.createMulti(['REAL_A', 'REAL_B'], multi(['REAL_A', 'REAL_B']))
+    const { record } = await service.createMulti({ noteIds: ['REAL_A', 'REAL_B'], snapshot: multi(['REAL_A', 'REAL_B']) })
     const renewed = await service.renew(record.id)
     expect(renewed.record.noteIds).toEqual(['REAL_A', 'REAL_B'])
     expect(await open(renewed.url)).toEqual(multi(['REAL_A', 'REAL_B']))
     expect((await service.listAll()).map((r) => r.noteIds)).toEqual([['REAL_A', 'REAL_B']])
   })
 
+  it('the plain snapshot write cannot replace a multi-note link\'s content (only together with its notes)', async () => {
+    const { record } = await service.createMulti(content(['REAL_A', 'REAL_B']))
+    const own = await store.getOwn(record.id)
+    expect(await store.update(record.id, own!.ciphertext, null)).toBe('changed')
+  })
+
   it('removing any of its notes (permanent delete) stops the whole link; other links stay', async () => {
-    const m = await service.createMulti(['REAL_A', 'REAL_B', 'REAL_C'], multi(['REAL_A', 'REAL_B', 'REAL_C']))
+    const m = await service.createMulti({ noteIds: ['REAL_A', 'REAL_B', 'REAL_C'], snapshot: multi(['REAL_A', 'REAL_B', 'REAL_C']) })
     const single = await service.create('REAL_C', buildShareSnapshot({ title: 't', doc: doc(), sharedAt: 1, linkLabel }))
     await service.removeForNotes(['REAL_B'])
     expect(await errKind(open(m.url))).toBe('not-found')

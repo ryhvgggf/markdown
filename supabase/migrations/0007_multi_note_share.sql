@@ -6,20 +6,9 @@
 -- 2. set_share_notes：換「分享的筆記清單」與密文在同一個寫入（比照 0006 比對密碼鹽與快照）。
 -- 3. remove_shares_for_notes：永久刪除筆記、停止分享時，合併連結只要含其中一篇就整條停止。
 -- 4. renew_share_link：換新連結時一併帶過 note_ids。
+-- 5. 筆記清單檢查（share_note_ids_ok）；合併連結的快照不能經由 update_share_snapshot 只換內容。
 
 alter table share_links add column if not exists note_ids text[];
-
--- 1 到 30 篇、一維、沒有空值、第一篇就是 note_id；每個 id 不超過 64 字。
-alter table share_links drop constraint if exists share_links_note_ids;
-alter table share_links add constraint share_links_note_ids check (
-  note_ids is null or (
-    array_ndims(note_ids) = 1
-    and cardinality(note_ids) between 1 and 30
-    and array_position(note_ids, null) is null
-    and note_ids[1] = note_id
-    and octet_length(array_to_string(note_ids, '')) <= 30 * 64
-  )
-);
 
 create index if not exists share_links_note_ids_idx on share_links using gin (note_ids);
 
@@ -110,3 +99,49 @@ end;
 $$;
 revoke all on function renew_share_link(text, text, text, bytea, bytea, text, text, bytea) from public, anon;
 grant execute on function renew_share_link(text, text, text, bytea, bytea, text, text, bytea) to authenticated;
+
+-- 審查補強：
+-- (a) 筆記清單的檢查改用函式：陣列從 1 開始、不重複、每個 id 1 到 64 字（檢查條件不能用子查詢）。
+create or replace function share_note_ids_ok(p_ids text[], p_first text)
+returns boolean
+language sql
+immutable
+set search_path = public
+as $$
+  select coalesce(
+    array_ndims(p_ids) = 1
+    and array_lower(p_ids, 1) = 1
+    and cardinality(p_ids) between 1 and 30
+    and array_position(p_ids, null) is null
+    and p_ids[1] = p_first
+    and not exists (select 1 from unnest(p_ids) x where length(x) not between 1 and 64)
+    and (select count(distinct x) from unnest(p_ids) x) = cardinality(p_ids),
+    false);
+$$;
+alter table share_links drop constraint if exists share_links_note_ids;
+alter table share_links add constraint share_links_note_ids check (note_ids is null or share_note_ids_ok(note_ids, note_id));
+
+-- (b) 合併連結的快照只能和筆記清單一起換（set_share_notes），舊版程式的「更新快照」不能只換內容。
+create or replace function update_share_snapshot(p_id text, p_ciphertext bytea, p_expected_salt text)
+returns text
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+  perform set_config('notes.share_write', 'on', true);
+  update share_links set ciphertext = p_ciphertext
+    where id = p_id and note_ids is null and pw_salt is not distinct from p_expected_salt;
+  if found then
+    perform set_config('notes.share_write', '', true);
+    return 'ok';
+  end if;
+  perform set_config('notes.share_write', '', true);
+  if exists (select 1 from share_links where id = p_id) then
+    return 'changed';
+  end if;
+  return 'not-found';
+end;
+$$;
+revoke all on function update_share_snapshot(text, bytea, text) from public, anon;
+grant execute on function update_share_snapshot(text, bytea, text) to authenticated;

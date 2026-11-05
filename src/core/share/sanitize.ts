@@ -158,7 +158,7 @@ export function sanitizeShareDoc(input: unknown, opts: SanitizeOptions = {}): PM
       return [{ type: 'text', text: label, ...(marks && { marks }) }]
     }
 
-    const spec = SPECS[type]
+    const spec = Object.hasOwn(SPECS, type) ? SPECS[type] : undefined
     if (!spec) return []
     const attrs = cleanAttrs(raw.attrs, spec.attrs)
     if (spec.leaf) return [{ type, ...(attrs && { attrs }) }]

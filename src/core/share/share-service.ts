@@ -16,6 +16,15 @@ import { buildShareUrl, exportShareKey, importShareKey, newShareId, parseShareUr
 import type { PMNode } from '@/core/markdown/types'
 import { decodeSnapshot, encodeSnapshot, sanitizeSnapshot, type AnyShareSnapshot, type MultiShareSnapshot, type ShareSnapshot } from './snapshot'
 
+/**
+ * A multi-note link's notes together with the snapshot built from them (`snapshotOfNotes`), so the list the
+ * server keeps (what permanent delete matches on) cannot drift from what the link shows.
+ */
+export interface MultiShareContent {
+  noteIds: string[]
+  snapshot: MultiShareSnapshot
+}
+
 /** The unlocked account sharing needs; null when signed out (sharing needs an account, opening a link does not). */
 export type ShareAccount = { userId: string; vaultId: string; kek: CryptoKey }
 
@@ -84,7 +93,7 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
    * With `expectNotes`, refuses (`ShareError('unknown')`) if the link's notes are no longer those (another device
    * changed them; the caller should reload and rebuild the snapshot).
    */
-  const writeNotes = async (shareId: string, noteIds: string[], snapshot: MultiShareSnapshot, expectNotes: string[] | null) => {
+  const writeNotes = async (shareId: string, { noteIds, snapshot }: MultiShareContent, expectNotes: string[] | null) => {
     const a = need()
     checkNoteIds(noteIds, snapshot)
     const bytes = encodeSnapshot(snapshot)
@@ -112,7 +121,7 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
      * Creates one link showing several notes (`noteIds`, in the order of `snapshot.notes`). `ShareError('invalid')`
      * for an empty, repeating or too long list, or one that does not match the snapshot.
      */
-    async createMulti(noteIds: string[], snapshot: MultiShareSnapshot): Promise<{ record: ShareRecord; url: string }> {
+    async createMulti({ noteIds, snapshot }: MultiShareContent): Promise<{ record: ShareRecord; url: string }> {
       checkNoteIds(noteIds, snapshot)
       return createLink([...noteIds], snapshot, noteIds[0])
     },
@@ -122,8 +131,8 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
      * password stay). Refused if another device replaced the snapshot or the password meanwhile, then retried once
      * on the fresh state. Returns the new record.
      */
-    async setNotes(shareId: string, noteIds: string[], snapshot: MultiShareSnapshot): Promise<ShareRecord> {
-      return writeNotes(shareId, noteIds, snapshot, null)
+    async setNotes(shareId: string, content: MultiShareContent): Promise<ShareRecord> {
+      return writeNotes(shareId, content, null)
     },
 
     /** The link again (any device of the account). A protected link still needs its password to open. */
@@ -136,11 +145,17 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
      * Replaces what the same link shows (keeps its password and, for a multi-note link, its notes).
      * `ShareError('not-found')` if the link was stopped; `'invalid'` if the snapshot kind does not match the link.
      */
-    async update(record: ShareRecord, snapshot: AnyShareSnapshot): Promise<void> {
+    async update(record: ShareRecord, content: ShareSnapshot | MultiShareContent): Promise<void> {
       const a = need()
-      if ((record.noteIds === null) !== (snapshot.v === 1)) throw new ShareError('invalid', 'snapshot kind does not match the link')
+      const multi = 'noteIds' in content
+      if ((record.noteIds !== null) !== multi) throw new ShareError('invalid', 'snapshot kind does not match the link')
       // A multi-note link's list and content change together: the list is what permanent delete matches on.
-      if (record.noteIds && snapshot.v === 2) return void (await writeNotes(record.id, record.noteIds, snapshot, record.noteIds))
+      if (multi) {
+        if (!sameList(record.noteIds!, content.noteIds)) throw new ShareError('invalid', 'snapshot is not of the link\'s notes')
+        return void (await writeNotes(record.id, content, record.noteIds))
+      }
+      const snapshot = content
+      if (snapshot.v !== 1) throw new ShareError('invalid', 'not a single-note snapshot')
       const bytes = encodeSnapshot(snapshot)
       await withFresh(record.id, record, async (r) => {
         const ciphertext = await encryptShareSnapshot(await contentKeyOf(a, r), r.id, bytes)
@@ -251,8 +266,9 @@ const sameList = (a: string[], b: string[]) => a.length === b.length && a.every(
 
 /** A multi-note link's notes: 1 to `MAX_SHARE_NOTES` distinct ids, one per note of the snapshot. */
 function checkNoteIds(noteIds: string[], snapshot: MultiShareSnapshot) {
-  if (snapshot.v !== 2) throw new ShareError('invalid', 'not a multi-note snapshot')
+  if (snapshot?.v !== 2) throw new ShareError('invalid', 'not a multi-note snapshot')
   const ok =
+    Array.isArray(noteIds) &&
     noteIds.length >= 1 &&
     noteIds.length <= MAX_SHARE_NOTES &&
     new Set(noteIds).size === noteIds.length &&

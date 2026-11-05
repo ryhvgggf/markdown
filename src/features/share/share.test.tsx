@@ -76,7 +76,8 @@ describe('note snapshot', () => {
     const linkTo = (noteId: string) => ({ type: 'noteLink', attrs: { noteId, blockId: null } })
     prosemirrorJSONToYXmlFragment(editorSchema(), { type: 'doc', content: [{ type: 'paragraph', content: [linkTo(b.id), { type: 'text', text: ' ' }, linkTo(out.id)] }] }, frag)
     services.notes.release(note.id)
-    const s = await snapshotOfNotes(services, [note.id, b.id], 9)
+    const { noteIds, snapshot: s } = await snapshotOfNotes(services, [note.id, b.id], 9)
+    expect(noteIds).toEqual([note.id, b.id])
     expect(s.notes.map((x) => x.title)).toEqual(['我的筆記', 'B 篇'])
     expect(s.notes[0].doc.content?.[0].content).toEqual([
       { type: 'noteLink', attrs: { noteId: 'n1', blockId: null, label: 'B 篇' } },

@@ -1,7 +1,8 @@
 import type { AppServices } from '@/app/bootstrap'
 import { toJSON } from '@/app/doc-io'
 import type { PMNode } from '@/core/markdown/types'
-import { buildMultiShareSnapshot, buildShareSnapshot, type MultiShareSnapshot, type ShareSnapshot } from '@/core/share/snapshot'
+import type { MultiShareContent } from '@/core/share/share-service'
+import { buildMultiShareSnapshot, buildShareSnapshot, type ShareSnapshot } from '@/core/share/snapshot'
 import { displayTitle } from '@/core/vault/titles'
 import { noteLinkLabel } from '@/features/editor/links/note-link'
 
@@ -45,11 +46,12 @@ export async function snapshotOfNote(s: Services, noteId: string, now = Date.now
 }
 
 /**
- * The current content of several notes as one multi-note snapshot, in the order given: links between them stay
+ * The current content of several notes as one multi-note snapshot (with the ids it was built from), in order: links between them stay
  * links (to in-snapshot codes), links to anything else become the text the editor shows.
  */
-export async function snapshotOfNotes(s: Services, noteIds: string[], now = Date.now()): Promise<MultiShareSnapshot> {
+export async function snapshotOfNotes(s: Services, noteIds: string[], now = Date.now()): Promise<MultiShareContent> {
   const notes = []
   for (const noteId of noteIds) notes.push({ noteId, ...(await contentOf(s, noteId)) })
-  return buildMultiShareSnapshot({ notes, sharedAt: now, linkLabel: await labelsFor(s, notes.map((n) => n.doc)) })
+  const snapshot = buildMultiShareSnapshot({ notes, sharedAt: now, linkLabel: await labelsFor(s, notes.map((n) => n.doc)) })
+  return { noteIds: [...noteIds], snapshot }
 }

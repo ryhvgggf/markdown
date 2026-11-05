@@ -5,7 +5,8 @@ import type { GuardedWrite, NewShare, NewSharePassword, ProtectedOpen, PublicSha
 export type MemoryShareRow = ShareRecord & { userId: string; ciphertext: Uint8Array; verifier: Uint8Array | null }
 
 /** What the database's `share_links_note_ids` check accepts (migration 0007). */
-const validNoteIds = (ids: string[], first: string) => ids.length >= 1 && ids.length <= MAX_SHARE_NOTES && ids[0] === first && ids.every((n) => typeof n === 'string' && n.length > 0 && n.length <= 64)
+const validNoteIds = (ids: string[], first: string) =>
+  ids.length >= 1 && ids.length <= MAX_SHARE_NOTES && ids[0] === first && new Set(ids).size === ids.length && ids.every((n) => typeof n === 'string' && n.length > 0 && n.length <= 64)
 
 const sha256 = async (b: Uint8Array) => new Uint8Array(await crypto.subtle.digest('SHA-256', b as Uint8Array<ArrayBuffer>))
 const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i])
@@ -59,7 +60,8 @@ export class MemoryShare implements ShareAdapter {
   update(id: string, ciphertext: Uint8Array, expectedSalt: string | null): Promise<GuardedWrite> {
     return this.tx(async (rows) => {
       const r = rows.get(id)
-      const g = await this.guard(r, expectedSalt)
+      // Multi-note links change their snapshot only together with their notes (migration 0007).
+      const g = r?.noteIds ? 'changed' : await this.guard(r, expectedSalt)
       if (g === 'ok') Object.assign(r!, { ciphertext: ciphertext.slice(), updatedAt: this.now() })
       return g
     })
