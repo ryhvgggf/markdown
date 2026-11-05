@@ -1,5 +1,6 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import { BLOCK_TYPES } from '@/core/blocks'
 import { newId } from '@/core/ids'
 
@@ -47,7 +48,14 @@ export const BlockId = Extension.create({
             }
           })
           if (!changed) return null
-          tr.setMeta('addToHistory', false)
+          // y-prosemirror decides whether a whole view update goes on the undo stack from the LAST
+          // transaction's `addToHistory`. Marking this appended one `false` unconditionally hid the user's own
+          // edit that triggered it (Enter creating a block) from Ctrl+Z. So only opt out when nothing the
+          // user did is in this batch (remote changes and undo/redo themselves).
+          const userEdit = trs.some(
+            (t) => t.docChanged && t.getMeta('addToHistory') !== false && !t.getMeta(ySyncPluginKey)?.isChangeOrigin,
+          )
+          if (!userEdit) tr.setMeta('addToHistory', false)
           return tr
         },
       }),

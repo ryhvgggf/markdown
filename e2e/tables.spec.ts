@@ -106,6 +106,7 @@ test('拖曳欄的邊線調整欄寬', async ({ page }, info) => {
 
 test('欄寬拖曳可以用 Ctrl+Z 復原、Ctrl+Shift+Z 重做', async ({ page }) => {
   const editor = await insertTable(page)
+  await page.waitForTimeout(600) // past Yjs' 500 ms merge window: inserting the table and dragging are separate undo steps
   const first = editor.locator('th').first()
   const before = (await first.boundingBox())!
   const edgeX = before.x + before.width + 1

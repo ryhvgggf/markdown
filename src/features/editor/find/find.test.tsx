@@ -74,6 +74,7 @@ describe('FindBar', () => {
 
   it('全部套用 replaces every match with the given text, in one undo step', async () => {
     await setup('<p>[123] and [123] again</p>')
+    await new Promise((r) => setTimeout(r, 520)) // the initial content is its own undo step, apart from the replace
     await act(async () => void fireEvent.keyDown(editor!.view.dom, { key: 'f', ctrlKey: true }))
     const input = await screen.findByLabelText('尋找文字')
     await userEvent.type(input, '[[123]')
