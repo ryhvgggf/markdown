@@ -75,8 +75,11 @@ export type ProtectedOpen =
 
 export interface ShareAdapter {
   create(share: NewShare): Promise<void>
-  /** Replaces the snapshot, if the link still has password salt `expectedSalt` (null = no password). */
-  update(id: string, ciphertext: Uint8Array, expectedSalt: string | null): Promise<GuardedWrite>
+  /**
+   * Replaces the snapshot, if the link still has password salt `expectedSalt` (null = no password) and, when
+   * given, its snapshot still hashes to `expectedHash` (migration 0008).
+   */
+  update(id: string, ciphertext: Uint8Array, expectedSalt: string | null, expectedHash?: Uint8Array): Promise<GuardedWrite>
   /** Stops one link (no-op if it is already gone). */
   remove(id: string): Promise<void>
   /**
@@ -113,6 +116,23 @@ export interface ShareAdapter {
   getPublic(id: string): Promise<PublicShare | null>
   /** A protected link's ciphertext for the right proof; null if there is no such link. */
   openProtected(id: string, proof: Uint8Array): Promise<ProtectedOpen | null>
+
+  // ---- attachments (phase 4d, migration 0008). Objects live at `<shareId>/<objectName>` in a private bucket. ----
+  /**
+   * Makes this account the owner of the link's file folder (idempotent). Needed before uploading; the folder
+   * outlives the link, so its files can still be deleted after the link is gone.
+   */
+  claimFolder(shareId: string): Promise<void>
+  uploadFile(shareId: string, objectName: string, ciphertext: Uint8Array): Promise<void>
+  /** Copies files to another folder of this account (renewing a link). */
+  copyFiles(fromShareId: string, toShareId: string, objectNames: string[]): Promise<void>
+  deleteFiles(shareId: string, objectNames: string[]): Promise<void>
+  /** Deletes every file of the folder, then the folder itself (once the link is gone). */
+  releaseFolder(shareId: string): Promise<void>
+  /** This account's folders whose link no longer exists (and that are not brand new: a link may be on its way). */
+  orphanFolders(): Promise<string[]>
+  /** Viewer side: one file's ciphertext, while the link exists and has not expired; null otherwise. */
+  downloadFile(shareId: string, objectName: string): Promise<Uint8Array | null>
 }
 
 /** Expiry choices, in seconds (null = never). */
@@ -124,6 +144,14 @@ export const MIN_SHARE_PASSWORD = 6
 
 /** Most notes one multi-note link may show. */
 export const MAX_SHARE_NOTES = 30
+
+/** Attachment limits of one link (phase 4d), counted on the plaintext. */
+export const MAX_SHARE_FILE_BYTES = 20 * 1024 * 1024
+export const MAX_SHARE_FILES_BYTES = 50 * 1024 * 1024
+/** AES-GCM adds a 12-byte IV and a 16-byte tag. */
+export const SHARE_FILE_OVERHEAD = 28
+/** Folders younger than this are not orphans yet (the link is written after its files are uploaded). */
+export const ORPHAN_FOLDER_GRACE_MS = 60 * 60 * 1000
 
 /** How many notes one `removeForNotes` call covers. */
 export const REMOVE_BATCH = 10
@@ -141,12 +169,18 @@ export type ShareErrorKind =
   | 'wrong-password'
   /** phase 4b, owner side: a password shorter than `MIN_SHARE_PASSWORD` */
   | 'weak-password'
+  /** phase 4d, owner side: one file over `MAX_SHARE_FILE_BYTES` (its name in `detail`), or all over `MAX_SHARE_FILES_BYTES` */
+  | 'file-too-large'
+  | 'files-too-large'
 
 export class ShareError extends Error {
   kind: ShareErrorKind
-  constructor(kind: ShareErrorKind, message?: string, options?: { cause?: unknown }) {
+  /** For `'file-too-large'`: the file's name (shown to the owner). */
+  detail?: string
+  constructor(kind: ShareErrorKind, message?: string, options?: { cause?: unknown; detail?: string }) {
     super(message ?? kind, options)
     this.name = 'ShareError'
     this.kind = kind
+    if (options?.detail !== undefined) this.detail = options.detail
   }
 }

@@ -77,6 +77,8 @@ export function createShareFacade(deps: {
       }
       await writePending((ids) => ids.filter((x) => !batch.includes(x)))
     }
+    // Files of links that are gone (deleted here or elsewhere, or a clean-up that failed): never rejects.
+    await svc.cleanupFiles()
   }
 
   const facade: ShareFacade = {

@@ -13,7 +13,8 @@ import { buildMultiShareSnapshot, buildShareSnapshot } from '@/core/share/snapsh
 import { ShareDialog } from './ShareDialog'
 import { SharesPage } from './SharesPage'
 import { SharePage } from './SharePage'
-import { snapshotOfNote, snapshotOfNotes } from './note-snapshot'
+import { shareContentOfNote, snapshotOfNote, snapshotOfNotes } from './note-snapshot'
+import { openShareFile, openSharedLink } from '@/core/share/share-service'
 
 let n = 0
 const doc = (...texts: string[]) => ({ type: 'doc', content: texts.map((text) => ({ type: 'paragraph', content: [{ type: 'text', text }] })) })
@@ -86,6 +87,36 @@ describe('note snapshot', () => {
     ])
     for (const x of s.notes) editorSchema().nodeFromJSON(x.doc).check()
     for (const id of [note.id, b.id, out.id]) expect(JSON.stringify(s)).not.toContain(id)
+  })
+})
+
+describe('note attachments in a link (phase 4d)', () => {
+  it('includes downloaded attachments under codes the editor schema accepts; trashed and missing ones stay out', async () => {
+    const { services, note, adapter } = await setup()
+    const add = async (name: string, mimeType: string, body: string | null) => {
+      const a = services.vault.addAttachment({ filename: name, mimeType, size: body?.length ?? 5 })
+      if (body !== null) await services.storage.putBlob(a.id, new Blob([body], { type: mimeType }))
+      return a
+    }
+    const img = await add('貓.png', 'image/png', 'PNGDATA')
+    const gone = await add('別台.png', 'image/png', null)
+    const trashed = await add('垃圾.pdf', 'application/pdf', 'PDF')
+    services.vault.trashAttachment(trashed.id)
+    const ydoc = await services.notes.acquire(note.id)
+    const frag = ydoc.getXmlFragment('content')
+    frag.delete(0, frag.length)
+    const m = (attachmentId: string) => ({ type: 'media', attrs: { attachmentId, kind: 'image', width: 300 } })
+    prosemirrorJSONToYXmlFragment(editorSchema(), { type: 'doc', content: [m(img.id), m(gone.id), m(img.id), m(trashed.id)] }, frag)
+    services.notes.release(note.id)
+
+    const { snapshot, files, missing } = await shareContentOfNote(services, note.id, 5)
+    expect(missing).toBe(1)
+    expect(files.map((f) => [f.code, f.name])).toEqual([['a0', '貓.png']])
+    const { url } = await services.share.run((svc) => svc.create(note.id, snapshot, files))
+    const opened = await openSharedLink(adapter, new URL(url), (d) => editorSchema().nodeFromJSON(d).check())
+    expect(opened.v === 1 && opened.doc.content?.map((n) => n.type)).toEqual(['media', 'paragraph', 'media', 'paragraph'])
+    expect(new TextDecoder().decode(await openShareFile(adapter, new URL(url), opened.files![0]))).toBe('PNGDATA')
+    for (const id of [img.id, gone.id, trashed.id]) expect(JSON.stringify(opened)).not.toContain(id)
   })
 })
 

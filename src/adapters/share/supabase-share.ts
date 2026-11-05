@@ -64,8 +64,13 @@ export class SupabaseShare implements ShareAdapter {
     throw new ShareError('unknown', `unexpected ${fn} result`)
   }
 
-  update(id: string, ciphertext: Uint8Array, expectedSalt: string | null): Promise<GuardedWrite> {
-    return this.guarded('update_share_snapshot', { p_id: id, p_ciphertext: bytesToPgHex(ciphertext), p_expected_salt: expectedSalt })
+  update(id: string, ciphertext: Uint8Array, expectedSalt: string | null, expectedHash?: Uint8Array): Promise<GuardedWrite> {
+    return this.guarded('update_share_snapshot', {
+      p_id: id,
+      p_ciphertext: bytesToPgHex(ciphertext),
+      p_expected_salt: expectedSalt,
+      ...(expectedHash && { p_expected_hash: bytesToPgHex(expectedHash) }),
+    })
   }
 
   setPassword(
@@ -181,4 +186,68 @@ export class SupabaseShare implements ShareAdapter {
     if (row.status === 'ok' && row.ciphertext !== null) return { status: 'ok', ciphertext: pgHexToBytes(row.ciphertext), passwordSalt: row.pw_salt }
     throw new ShareError('unknown', 'unexpected snapshot status')
   }
+
+  // ---- files (migration 0008): bucket `share-files`, objects at `<shareId>/<objectName>` ----
+  private get bucket() {
+    return this.client.storage.from(SHARE_BUCKET)
+  }
+
+  async claimFolder(shareId: string): Promise<void> {
+    const { data, error } = await this.client.rpc('claim_share_folder', { p_id: shareId })
+    if (error) throw toError(error)
+    if (data !== 'ok') throw new ShareError('unknown', 'share folder belongs to someone else')
+  }
+
+  async uploadFile(shareId: string, objectName: string, ciphertext: Uint8Array): Promise<void> {
+    const body = new Blob([ciphertext as Uint8Array<ArrayBuffer>], { type: 'application/octet-stream' })
+    const { error } = await this.bucket.upload(`${shareId}/${objectName}`, body, { contentType: 'application/octet-stream', upsert: false })
+    if (error) throw storageError(error)
+  }
+
+  async copyFiles(fromShareId: string, toShareId: string, objectNames: string[]): Promise<void> {
+    for (const o of objectNames) {
+      const { error } = await this.bucket.copy(`${fromShareId}/${o}`, `${toShareId}/${o}`)
+      if (error) throw storageError(error)
+    }
+  }
+
+  async deleteFiles(shareId: string, objectNames: string[]): Promise<void> {
+    for (let i = 0; i < objectNames.length; i += STORAGE_BATCH) {
+      const { error } = await this.bucket.remove(objectNames.slice(i, i + STORAGE_BATCH).map((o) => `${shareId}/${o}`))
+      if (error) throw storageError(error)
+    }
+  }
+
+  async releaseFolder(shareId: string): Promise<void> {
+    for (;;) {
+      const { data, error } = await this.bucket.list(shareId, { limit: STORAGE_BATCH })
+      if (error) throw storageError(error)
+      const names = (data ?? []).map((o) => o.name).filter((n) => !!n)
+      if (!names.length) break
+      await this.deleteFiles(shareId, names)
+    }
+    const { error } = await this.client.from('share_folders').delete().eq('share_id', shareId)
+    if (error) throw toError(error)
+  }
+
+  async orphanFolders(): Promise<string[]> {
+    const { data, error } = await this.client.rpc('orphan_share_folders')
+    if (error) throw toError(error)
+    return ((data ?? []) as unknown[]).filter((x): x is string => typeof x === 'string')
+  }
+
+  async downloadFile(shareId: string, objectName: string): Promise<Uint8Array | null> {
+    const { data, error } = await this.bucket.download(`${shareId}/${objectName}`)
+    if (error) {
+      // Gone, stopped or expired all look like "not found" to an anonymous reader.
+      const status = Number((error as { status?: number; statusCode?: string | number }).status ?? (error as { statusCode?: string | number }).statusCode)
+      if (status === 400 || status === 403 || status === 404) return null
+      throw storageError(error)
+    }
+    return new Uint8Array(await data.arrayBuffer())
+  }
 }
+
+export const SHARE_BUCKET = 'share-files'
+const STORAGE_BATCH = 100
+const storageError = (e: { message: string }) => new ShareError('unknown', e.message, { cause: e })

@@ -2,6 +2,7 @@ import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate'
 import { MAX_SHARE_NOTES, ShareError } from '@/adapters/share/types'
 import type { PMNode } from '@/core/markdown/types'
 import { ATTACHMENT_OMITTED_TEXT, newSanitizeBudget, sanitizeShareDoc } from './sanitize'
+import { sanitizeShareFiles, type ShareFile } from './files'
 
 export { ShareError }
 
@@ -16,6 +17,8 @@ export interface ShareSnapshot {
   title: string
   sharedAt: number
   doc: PMNode
+  /** Phase 4d: the attachments its `media` nodes point at (filled in by the share service on upload). */
+  files?: ShareFile[]
 }
 
 export { ATTACHMENT_OMITTED_TEXT }
@@ -33,6 +36,8 @@ export interface MultiShareSnapshot {
   v: 2
   sharedAt: number
   notes: MultiShareNote[]
+  /** Phase 4d: as in `ShareSnapshot`, one list for all notes. */
+  files?: ShareFile[]
 }
 export interface MultiShareNote {
   id: string
@@ -47,15 +52,22 @@ const NOTE_CODE = /^n(?:0|[1-9]\d?)$/
 
 type LinkLabel = (noteId: string, blockId: string | null) => string | null
 
+/** Attachments to include (phase 4d): real attachment id → its in-snapshot code and MIME type. */
+export type SnapshotFiles = ReadonlyMap<string, { code: string; mime: string }>
+const mimesOf = (files: SnapshotFiles | undefined) => new Map([...(files?.values() ?? [])].map((f) => [f.code, f.mime]))
+
 /**
  * Replaces attachments with the placeholder and rewrites note links: to `codes.get(noteId)` if the target is in
  * the snapshot (a v2 link, labelled), otherwise to the text the editor shows (dropped if the note is gone).
  */
-function prepareDoc(root: PMNode, linkLabel: LinkLabel, codes?: ReadonlyMap<string, string>): PMNode {
+function prepareDoc(root: PMNode, linkLabel: LinkLabel, codes?: ReadonlyMap<string, string>, files?: SnapshotFiles): PMNode {
   const placeholder = (): PMNode => ({ type: 'paragraph', content: [{ type: 'text', text: ATTACHMENT_OMITTED_TEXT, marks: [{ type: 'italic' }] }] })
 
   const visit = (node: PMNode): PMNode[] => {
-    if (node.type === 'media') return [placeholder()]
+    if (node.type === 'media') {
+      const f = files?.get(String(node.attrs?.attachmentId ?? ''))
+      return f ? [{ type: 'media', attrs: { ...node.attrs, attachmentId: f.code } }] : [placeholder()]
+    }
     if (node.type === 'noteLink') {
       const attrs = node.attrs ?? {}
       const noteId = String(attrs.noteId ?? '')
@@ -79,9 +91,12 @@ export function buildShareSnapshot(input: {
   sharedAt: number
   /** The text a link to another note shows (e.g. its title, or "title › block"); null if the note is gone. */
   linkLabel: LinkLabel
+  /** Attachments to keep (the others become the placeholder); their `files` entries are added on upload. */
+  files?: SnapshotFiles
 }): ShareSnapshot {
   // The same allow-list the share page applies on opening (belt and braces).
-  return { v: 1, title: input.title, sharedAt: input.sharedAt, doc: sanitizeShareDoc(prepareDoc(input.doc, input.linkLabel)) }
+  const doc = sanitizeShareDoc(prepareDoc(input.doc, input.linkLabel, undefined, input.files), { files: mimesOf(input.files) })
+  return { v: 1, title: input.title, sharedAt: input.sharedAt, doc }
 }
 
 /**
@@ -92,16 +107,24 @@ export function buildMultiShareSnapshot(input: {
   notes: Array<{ noteId: string; title: string; doc: PMNode }>
   sharedAt: number
   linkLabel: LinkLabel
+  files?: SnapshotFiles
 }): MultiShareSnapshot {
   const { notes } = input
   if (notes.length < 1 || notes.length > MAX_SHARE_NOTES) throw new ShareError('invalid', 'bad note count')
   const codes = new Map(notes.map((n, i) => [n.noteId, shareNoteCode(i)]))
   if (codes.size !== notes.length) throw new ShareError('invalid', 'repeated note')
-  return sanitizeSnapshot({
+  const s: MultiShareSnapshot = {
     v: 2,
     sharedAt: input.sharedAt,
-    notes: notes.map((n, i) => ({ id: shareNoteCode(i), title: n.title, doc: prepareDoc(n.doc, input.linkLabel, codes) })),
-  })
+    notes: notes.map((n, i) => ({ id: shareNoteCode(i), title: n.title, doc: prepareDoc(n.doc, input.linkLabel, codes, input.files) })),
+  }
+  return sanitizeNotes(s, mimesOf(input.files))
+}
+
+function sanitizeNotes(s: MultiShareSnapshot, files: ReadonlyMap<string, string>): MultiShareSnapshot {
+  const budget = newSanitizeBudget()
+  const linkTargets = new Set(s.notes.map((n) => n.id))
+  return { ...s, notes: s.notes.map((n) => ({ id: n.id, title: n.title, doc: sanitizeShareDoc(n.doc, { linkTargets, budget, files }) })) }
 }
 
 /**
@@ -109,10 +132,15 @@ export function buildMultiShareSnapshot(input: {
  * shares one node budget across its notes, and only links to its own codes survive as links.
  */
 export function sanitizeSnapshot<S extends AnyShareSnapshot>(s: S): S {
-  if (s.v === 1) return { ...s, doc: sanitizeShareDoc(s.doc) }
-  const budget = newSanitizeBudget()
-  const linkTargets = new Set(s.notes.map((n) => n.id))
-  return { ...s, notes: s.notes.map((n) => ({ id: n.id, title: n.title, doc: sanitizeShareDoc(n.doc, { linkTargets, budget }) })) }
+  const snap: AnyShareSnapshot = s
+  const files = sanitizeShareFiles(snap.files)
+  const mimes = new Map(files.map((f) => [f.code, f.mime]))
+  const out: AnyShareSnapshot =
+    snap.v === 1
+      ? { v: 1, title: snap.title, sharedAt: snap.sharedAt, doc: sanitizeShareDoc(snap.doc, { files: mimes }) }
+      : sanitizeNotes({ v: 2, sharedAt: snap.sharedAt, notes: snap.notes }, mimes)
+  if (files.length) out.files = files
+  return out as S
 }
 
 /** gzip(JSON). Throws `ShareError('too-large')` past `MAX_SNAPSHOT_BYTES`. */
@@ -124,6 +152,8 @@ export function encodeSnapshot(s: AnyShareSnapshot): Uint8Array {
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const isDoc = (v: unknown) => isObj(v) && v.type === 'doc'
+/** Untrusted until `sanitizeSnapshot` (which callers run right after decoding). */
+const filesOf = (v: Record<string, unknown>) => (Array.isArray(v.files) ? { files: v.files as ShareFile[] } : {})
 
 /** Inverse of `encodeSnapshot`; throws `ShareError('invalid')` for anything that is not a snapshot (v1 or v2). */
 export function decodeSnapshot(bytes: Uint8Array): AnyShareSnapshot {
@@ -139,7 +169,7 @@ export function decodeSnapshot(bytes: Uint8Array): AnyShareSnapshot {
   if (!isObj(value) || typeof value.sharedAt !== 'number') throw new ShareError('invalid', 'not a snapshot')
   if (value.v === 1) {
     if (typeof value.title !== 'string' || !isDoc(value.doc)) throw new ShareError('invalid', 'not a snapshot')
-    return { v: 1, title: value.title, sharedAt: value.sharedAt, doc: value.doc as PMNode }
+    return { v: 1, title: value.title, sharedAt: value.sharedAt, doc: value.doc as PMNode, ...filesOf(value) }
   }
   if (value.v === 2) {
     const notes = value.notes
@@ -152,7 +182,7 @@ export function decodeSnapshot(bytes: Uint8Array): AnyShareSnapshot {
       seen.add(n.id)
       out.push({ id: n.id, title: n.title, doc: n.doc as PMNode })
     }
-    return { v: 2, sharedAt: value.sharedAt, notes: out }
+    return { v: 2, sharedAt: value.sharedAt, notes: out, ...filesOf(value) }
   }
   throw new ShareError('invalid', 'not a snapshot')
 }

@@ -1,4 +1,4 @@
-import { MAX_EXPIRY_SECONDS, MAX_SHARE_NOTES, ShareError } from './types'
+import { MAX_EXPIRY_SECONDS, MAX_SHARE_FILE_BYTES, MAX_SHARE_NOTES, ORPHAN_FOLDER_GRACE_MS, SHARE_FILE_OVERHEAD, ShareError } from './types'
 import type { GuardedWrite, NewShare, NewSharePassword, ProtectedOpen, PublicShare, ShareAdapter, ShareRecord } from './types'
 
 /** One stored link, as the server keeps it (the verifier is SHA-256 of the proof, never the proof). */
@@ -29,6 +29,12 @@ const recordOf = ({ id, vaultId, noteId, noteIds, wrappedKey, createdAt, updated
  */
 export class MemoryShare implements ShareAdapter {
   rows = new Map<string, MemoryShareRow>()
+  /** Share-file folders (migration 0008): owner and creation time; they outlive their link. */
+  folders = new Map<string, { userId: string; createdAt: number }>()
+  /** Stored files by `<shareId>/<objectName>`. */
+  files = new Map<string, Uint8Array>()
+  /** The signed-in account, for the folder ownership the server checks (tests can switch it). */
+  userId = 'u1'
   constructor(
     private now: () => number = Date.now,
     private persist?: { load(): Map<string, MemoryShareRow>; save(rows: Map<string, MemoryShareRow>): void },
@@ -57,11 +63,11 @@ export class MemoryShare implements ShareAdapter {
       rows.set(s.id, { ...s, noteIds, ciphertext: s.ciphertext.slice(), createdAt: t, updatedAt: t, expiresAt: null, password: null, verifier: null })
     })
   }
-  update(id: string, ciphertext: Uint8Array, expectedSalt: string | null): Promise<GuardedWrite> {
+  update(id: string, ciphertext: Uint8Array, expectedSalt: string | null, expectedHash?: Uint8Array): Promise<GuardedWrite> {
     return this.tx(async (rows) => {
       const r = rows.get(id)
       // Multi-note links change their snapshot only together with their notes (migration 0007).
-      const g = r?.noteIds ? 'changed' : await this.guard(r, expectedSalt)
+      const g = r?.noteIds ? 'changed' : await this.guard(r, expectedSalt, expectedHash)
       if (g === 'ok') Object.assign(r!, { ciphertext: ciphertext.slice(), updatedAt: this.now() })
       return g
     })
@@ -170,5 +176,57 @@ export class MemoryShare implements ShareAdapter {
       if (proof.length !== 32 || !same(await sha256(proof), r.verifier)) return { status: 'wrong' as const }
       return { status: 'ok' as const, ciphertext: r.ciphertext.slice(), passwordSalt: r.password!.saltB64 }
     })
+  }
+
+  // ---- files (migration 0008) ----
+  private ownFolder(shareId: string) {
+    const f = this.folders.get(shareId)
+    if (!f || f.userId !== this.userId) throw new ShareError('signed-out', 'not your folder')
+  }
+  async claimFolder(shareId: string): Promise<void> {
+    const f = this.folders.get(shareId)
+    if (f && f.userId === this.userId) return
+    const link = this.rows.get(shareId)
+    if (f || (link && link.userId !== this.userId)) throw new ShareError('signed-out', 'folder belongs to someone else')
+    this.folders.set(shareId, { userId: this.userId, createdAt: this.now() })
+  }
+  async uploadFile(shareId: string, objectName: string, ciphertext: Uint8Array): Promise<void> {
+    this.ownFolder(shareId)
+    if (ciphertext.length > MAX_SHARE_FILE_BYTES + SHARE_FILE_OVERHEAD) throw new ShareError('too-large')
+    const k = `${shareId}/${objectName}`
+    if (this.files.has(k)) throw new ShareError('unknown', 'object exists')
+    this.files.set(k, ciphertext.slice())
+  }
+  async copyFiles(fromShareId: string, toShareId: string, objectNames: string[]): Promise<void> {
+    this.ownFolder(fromShareId)
+    this.ownFolder(toShareId)
+    for (const o of objectNames) {
+      const b = this.files.get(`${fromShareId}/${o}`)
+      if (!b) throw new ShareError('unknown', 'no such object')
+      this.files.set(`${toShareId}/${o}`, b.slice())
+    }
+  }
+  async deleteFiles(shareId: string, objectNames: string[]): Promise<void> {
+    if (!objectNames.length) return
+    this.ownFolder(shareId)
+    for (const o of objectNames) this.files.delete(`${shareId}/${o}`)
+  }
+  async releaseFolder(shareId: string): Promise<void> {
+    if (!this.folders.has(shareId)) return
+    this.ownFolder(shareId)
+    for (const k of [...this.files.keys()]) if (k.startsWith(`${shareId}/`)) this.files.delete(k)
+    this.folders.delete(shareId)
+  }
+  async orphanFolders(): Promise<string[]> {
+    const t = this.now()
+    return [...this.folders]
+      .filter(([id, f]) => f.userId === this.userId && f.createdAt < t - ORPHAN_FOLDER_GRACE_MS && !this.rows.has(id))
+      .map(([id]) => id)
+  }
+  async downloadFile(shareId: string, objectName: string): Promise<Uint8Array | null> {
+    if (this.persist) this.rows = this.persist.load()
+    const r = this.rows.get(shareId)
+    if (!r || this.expired(r)) return null
+    return this.files.get(`${shareId}/${objectName}`)?.slice() ?? null
   }
 }

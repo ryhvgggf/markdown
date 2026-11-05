@@ -35,6 +35,7 @@ const save = (rows: Map<string, MemoryShareRow>) =>
 export class LocalStorageShare extends MemoryShare {
   constructor() {
     super(Date.now, { load, save })
+    this.userId = 'e2e-user'
   }
 }
 

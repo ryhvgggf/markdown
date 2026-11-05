@@ -1,10 +1,21 @@
 import { deriveBitsFromSecret, fromB64, toB64 } from '@/adapters/crypto/webcrypto-crypto'
-import { MAX_EXPIRY_SECONDS, MAX_SHARE_NOTES, MIN_SHARE_PASSWORD, ShareError } from '@/adapters/share/types'
+import {
+  MAX_EXPIRY_SECONDS,
+  MAX_SHARE_FILE_BYTES,
+  MAX_SHARE_FILES_BYTES,
+  MAX_SHARE_NOTES,
+  MIN_SHARE_PASSWORD,
+  SHARE_FILE_OVERHEAD,
+  ShareError,
+} from '@/adapters/share/types'
 import type { GuardedWrite, NewSharePassword, ShareAdapter, ShareRecord } from '@/adapters/share/types'
 import {
+  decryptShareFile,
   decryptShareSnapshot,
   deriveSharePasswordSecrets,
+  encryptShareFile,
   encryptShareSnapshot,
+  shareFileRef,
   generateShareKey,
   shareProofVerifier,
   unwrapSharePwBits,
@@ -12,7 +23,8 @@ import {
   wrapSharePwBits,
   wrapShareKey,
 } from '@/core/sync-engine/doc-crypto'
-import { buildShareUrl, exportShareKey, importShareKey, newShareId, parseShareUrl } from './link'
+import { buildShareUrl, exportShareKey, fromB64Url, importShareKey, newShareId, parseShareUrl, toB64Url } from './link'
+import { cleanFileInfo, type PendingShareFile, type ShareFile } from './files'
 import type { PMNode } from '@/core/markdown/types'
 import { decodeSnapshot, encodeSnapshot, sanitizeSnapshot, type AnyShareSnapshot, type MultiShareSnapshot, type ShareSnapshot } from './snapshot'
 
@@ -23,6 +35,8 @@ import { decodeSnapshot, encodeSnapshot, sanitizeSnapshot, type AnyShareSnapshot
 export interface MultiShareContent {
   noteIds: string[]
   snapshot: MultiShareSnapshot
+  /** Phase 4d: the attachments its `media` nodes point at (uploaded with the snapshot). */
+  files?: PendingShareFile[]
 }
 
 /** The unlocked account sharing needs; null when signed out (sharing needs an account, opening a link does not). */
@@ -61,31 +75,135 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
     if (g === 'not-found') throw new ShareError('not-found')
     return g === 'ok'
   }
-  /**
-   * Runs a write that depends on the link's password; if another device changed the password meanwhile
-   * (`'changed'`), runs it once more on the fresh state.
-   */
-  const withFresh = async <T>(id: string, first: ShareRecord | null, write: (r: ShareRecord) => Promise<{ g: GuardedWrite; out: T }>) => {
-    let r = first ?? (await adapter.getOwn(id))?.record
-    for (let attempt = 0; ; attempt++) {
-      if (!r) throw new ShareError('not-found')
-      const { g, out } = await write(r)
-      if (settle(g)) return out
-      if (attempt > 0) throw new ShareError('unknown', 'the link keeps changing')
-      r = (await adapter.getOwn(id))?.record
+  /** Best effort: whatever is left behind is found again by `cleanupFiles` (the folder outlives its link). */
+  const quietly = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn()
+    } catch (e) {
+      console.warn('[share]', e)
     }
   }
 
-  const createLink = async (noteIds: string[] | null, snapshot: AnyShareSnapshot, noteId: string) => {
+  /**
+   * Uploads `pending` into the link's folder for a snapshot that replaces one listing `previous`: files already
+   * uploaded for the same attachment are reused, the rest are encrypted (each under a fresh key) and uploaded.
+   * Checks the size limits before uploading anything. On failure, deletes what this call uploaded.
+   * Returns the snapshot's `files`, what was uploaded now, and the previous objects the new snapshot no longer uses.
+   */
+  const uploadFiles = async (shareId: string, pending: PendingShareFile[], previous: ShareFile[]) => {
+    let total = 0
+    for (const p of pending) {
+      if (p.size > MAX_SHARE_FILE_BYTES) throw new ShareError('file-too-large', undefined, { detail: p.name })
+      total += p.size
+    }
+    if (total > MAX_SHARE_FILES_BYTES) throw new ShareError('files-too-large')
+    const reused = new Set<string>()
+    const files: ShareFile[] = []
+    const uploaded: string[] = []
+    try {
+      let claimed = false
+      total = 0
+      for (const p of pending) {
+        const info = cleanFileInfo(p.name, p.mime)
+        let found: ShareFile | undefined
+        for (const f of previous) {
+          if (reused.has(f.obj)) continue
+          if (toB64Url(await shareFileRef(fromB64Url(f.key), p.attachmentId)) === f.ref) {
+            found = f
+            break
+          }
+        }
+        if (found) {
+          reused.add(found.obj)
+          total += found.size
+          files.push({ ...found, code: p.code, ...info })
+          continue
+        }
+        const bytes = await p.read()
+        if (bytes.length > MAX_SHARE_FILE_BYTES) throw new ShareError('file-too-large', undefined, { detail: p.name })
+        total += bytes.length
+        if (total > MAX_SHARE_FILES_BYTES) throw new ShareError('files-too-large')
+        if (!claimed) {
+          await adapter.claimFolder(shareId)
+          claimed = true
+        }
+        const key = crypto.getRandomValues(new Uint8Array(32))
+        const obj = toB64Url(crypto.getRandomValues(new Uint8Array(16)))
+        await adapter.uploadFile(shareId, obj, await encryptShareFile(key, obj, bytes))
+        uploaded.push(obj)
+        files.push({ code: p.code, obj, key: toB64Url(key), ref: toB64Url(await shareFileRef(key, p.attachmentId)), ...info, size: bytes.length })
+      }
+    } catch (e) {
+      await quietly(() => adapter.deleteFiles(shareId, uploaded))
+      throw e
+    }
+    return { files, uploaded, unused: previous.filter((f) => !reused.has(f.obj)).map((f) => f.obj) }
+  }
+
+  const withFiles = <S extends AnyShareSnapshot>(snapshot: S, files: ShareFile[]): S => {
+    const { files: _ignored, ...rest } = snapshot
+    void _ignored
+    return (files.length ? { ...rest, files } : rest) as S
+  }
+
+  /** The files listed by a link's current snapshot (owner side). */
+  const filesIn = (bytes: Uint8Array) => sanitizeSnapshot(decodeSnapshot(bytes)).files ?? []
+
+  const createLink = async (noteIds: string[] | null, snapshot: AnyShareSnapshot, noteId: string, pending: PendingShareFile[]) => {
     const a = need()
     const id = newShareId()
     const key = await generateShareKey()
-    const ciphertext = await encryptShareSnapshot(key, id, encodeSnapshot(snapshot))
+    const { files, uploaded } = await uploadFiles(id, pending, [])
     const wrappedKey = toB64(await wrapShareKey(a.kek, a.vaultId, id, key))
-    await adapter.create({ id, vaultId: a.vaultId, noteId, ...(noteIds && { noteIds }), userId: a.userId, wrappedKey, ciphertext })
+    try {
+      const ciphertext = await encryptShareSnapshot(key, id, encodeSnapshot(withFiles(snapshot, files)))
+      await adapter.create({ id, vaultId: a.vaultId, noteId, ...(noteIds && { noteIds }), userId: a.userId, wrappedKey, ciphertext })
+    } catch (e) {
+      if (uploaded.length) await quietly(() => adapter.releaseFolder(id))
+      throw e
+    }
     const now = Date.now()
     const record: ShareRecord = { id, vaultId: a.vaultId, noteId, noteIds, wrappedKey, createdAt: now, updatedAt: now, expiresAt: null, password: null }
     return { record, url: buildShareUrl(origin, id, await exportShareKey(key)) }
+  }
+
+  /**
+   * Replaces a link's snapshot (uploading its files first), guarded on the password salt and the current snapshot;
+   * on `'changed'` undoes the uploads and tries once more on the fresh state. After the write, deletes the files
+   * the previous snapshot had and the new one does not.
+   */
+  const writeSnapshot = async (
+    shareId: string,
+    snapshot: AnyShareSnapshot,
+    pending: PendingShareFile[],
+    write: (record: ShareRecord, ciphertext: Uint8Array, hash: Uint8Array) => Promise<GuardedWrite>,
+    accept: (record: ShareRecord) => void,
+  ): Promise<ShareRecord> => {
+    const a = need()
+    for (let attempt = 0; ; attempt++) {
+      const own = await adapter.getOwn(shareId)
+      if (!own) throw new ShareError('not-found')
+      const { record } = own
+      accept(record)
+      const key = await contentKeyOf(a, record)
+      const previous = filesIn(await decryptShareSnapshot(key, shareId, own.ciphertext))
+      const { files, uploaded, unused } = await uploadFiles(shareId, pending, previous)
+      let g: GuardedWrite
+      try {
+        const ciphertext = await encryptShareSnapshot(key, shareId, encodeSnapshot(withFiles(snapshot, files)))
+        g = await write(record, ciphertext, await shareProofVerifier(own.ciphertext))
+      } catch (e) {
+        await quietly(() => adapter.deleteFiles(shareId, uploaded))
+        throw e
+      }
+      if (g === 'ok') {
+        if (unused.length) await quietly(() => adapter.deleteFiles(shareId, unused))
+        return record
+      }
+      await quietly(() => adapter.deleteFiles(shareId, uploaded))
+      settle(g)
+      if (attempt > 0) throw new ShareError('unknown', 'the link keeps changing')
+    }
   }
 
   /**
@@ -93,37 +211,38 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
    * With `expectNotes`, refuses (`ShareError('unknown')`) if the link's notes are no longer those (another device
    * changed them; the caller should reload and rebuild the snapshot).
    */
-  const writeNotes = async (shareId: string, { noteIds, snapshot }: MultiShareContent, expectNotes: string[] | null) => {
-    const a = need()
+  const writeNotes = async (shareId: string, { noteIds, snapshot, files }: MultiShareContent, expectNotes: string[] | null) => {
     checkNoteIds(noteIds, snapshot)
-    const bytes = encodeSnapshot(snapshot)
-    for (let attempt = 0; ; attempt++) {
-      const own = await adapter.getOwn(shareId)
-      if (!own) throw new ShareError('not-found')
-      const { record } = own
-      if (record.noteIds === null) throw new ShareError('invalid', 'not a multi-note link')
-      if (expectNotes && !sameList(record.noteIds, expectNotes)) throw new ShareError('unknown', 'the notes of the link changed')
-      const ciphertext = await encryptShareSnapshot(await contentKeyOf(a, record), shareId, bytes)
-      const g = await adapter.setNotes(shareId, [...noteIds], ciphertext, record.password?.saltB64 ?? null, await shareProofVerifier(own.ciphertext))
-      if (settle(g)) return { ...record, noteId: noteIds[0], noteIds: [...noteIds], updatedAt: snapshot.sharedAt }
-      if (attempt > 0) throw new ShareError('unknown', 'the link keeps changing')
-    }
+    const record = await writeSnapshot(
+      shareId,
+      snapshot,
+      files ?? [],
+      (r, ciphertext, hash) => adapter.setNotes(shareId, [...noteIds], ciphertext, r.password?.saltB64 ?? null, hash),
+      (r) => {
+        if (r.noteIds === null) throw new ShareError('invalid', 'not a multi-note link')
+        if (expectNotes && !sameList(r.noteIds, expectNotes)) throw new ShareError('unknown', 'the notes of the link changed')
+      },
+    )
+    return { ...record, noteId: noteIds[0], noteIds: [...noteIds], updatedAt: snapshot.sharedAt }
   }
 
   return {
-    /** Creates a new single-note link showing `snapshot` (no expiry, no password). */
-    async create(noteId: string, snapshot: ShareSnapshot): Promise<{ record: ShareRecord; url: string }> {
+    /**
+     * Creates a new single-note link showing `snapshot` (no expiry, no password), with the attachments `files`
+     * (phase 4d). `ShareError('file-too-large' | 'files-too-large')` past the limits, before anything is uploaded.
+     */
+    async create(noteId: string, snapshot: ShareSnapshot, files: PendingShareFile[] = []): Promise<{ record: ShareRecord; url: string }> {
       if (snapshot.v !== 1) throw new ShareError('invalid', 'not a single-note snapshot')
-      return createLink(null, snapshot, noteId)
+      return createLink(null, snapshot, noteId, files)
     },
 
     /**
      * Creates one link showing several notes (`noteIds`, in the order of `snapshot.notes`). `ShareError('invalid')`
      * for an empty, repeating or too long list, or one that does not match the snapshot.
      */
-    async createMulti({ noteIds, snapshot }: MultiShareContent): Promise<{ record: ShareRecord; url: string }> {
+    async createMulti({ noteIds, snapshot, files }: MultiShareContent): Promise<{ record: ShareRecord; url: string }> {
       checkNoteIds(noteIds, snapshot)
-      return createLink([...noteIds], snapshot, noteIds[0])
+      return createLink([...noteIds], snapshot, noteIds[0], files ?? [])
     },
 
     /**
@@ -145,8 +264,8 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
      * Replaces what the same link shows (keeps its password and, for a multi-note link, its notes).
      * `ShareError('not-found')` if the link was stopped; `'invalid'` if the snapshot kind does not match the link.
      */
-    async update(record: ShareRecord, content: ShareSnapshot | MultiShareContent): Promise<void> {
-      const a = need()
+    async update(record: ShareRecord, content: ShareSnapshot | MultiShareContent, files: PendingShareFile[] = []): Promise<void> {
+      need()
       const multi = 'noteIds' in content
       if ((record.noteIds !== null) !== multi) throw new ShareError('invalid', 'snapshot kind does not match the link')
       // A multi-note link's list and content change together: the list is what permanent delete matches on.
@@ -156,11 +275,15 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
       }
       const snapshot = content
       if (snapshot.v !== 1) throw new ShareError('invalid', 'not a single-note snapshot')
-      const bytes = encodeSnapshot(snapshot)
-      await withFresh(record.id, record, async (r) => {
-        const ciphertext = await encryptShareSnapshot(await contentKeyOf(a, r), r.id, bytes)
-        return { g: await adapter.update(r.id, ciphertext, r.password?.saltB64 ?? null), out: undefined }
-      })
+      await writeSnapshot(
+        record.id,
+        snapshot,
+        files,
+        (r, ciphertext, hash) => adapter.update(r.id, ciphertext, r.password?.saltB64 ?? null, hash),
+        (r) => {
+          if (r.noteIds !== null) throw new ShareError('invalid', 'snapshot kind does not match the link')
+        },
+      )
     },
 
     /** Sets when the link stops opening, counted by the server from now (`null` = never). */
@@ -225,7 +348,21 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
         }
         const ciphertext = await encryptShareSnapshot(key, id, bytes)
         const wrappedKey = toB64(await wrapShareKey(a.kek, record.vaultId, id, linkKey))
-        const g = await adapter.renew(shareId, { id, wrappedKey, ciphertext, verifier, pwKey }, record.password?.saltB64 ?? null, hash)
+        // The files move with the link: copied into the new link's folder first, the old folder emptied after.
+        const objs = filesIn(bytes).map((f) => f.obj)
+        let g: GuardedWrite
+        try {
+          if (objs.length) {
+            await adapter.claimFolder(id)
+            await adapter.copyFiles(shareId, id, objs)
+          }
+          g = await adapter.renew(shareId, { id, wrappedKey, ciphertext, verifier, pwKey }, record.password?.saltB64 ?? null, hash)
+        } catch (e) {
+          if (objs.length) await quietly(() => adapter.releaseFolder(id))
+          throw e
+        }
+        if (g !== 'ok' && objs.length) await quietly(() => adapter.releaseFolder(id))
+        if (g === 'ok') await quietly(() => adapter.releaseFolder(shareId))
         if (settle(g))
           return {
             record: { ...record, id, wrappedKey, createdAt: Date.now(), password: record.password && pwKey ? { ...record.password, pwKey } : null },
@@ -239,6 +376,7 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
     async stop(shareId: string): Promise<void> {
       need()
       await adapter.remove(shareId)
+      await quietly(() => adapter.releaseFolder(shareId))
     },
 
     /**
@@ -247,7 +385,10 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
      */
     async stopForNote(noteId: string): Promise<void> {
       const a = need()
-      for (const r of await adapter.listForNote(a.vaultId, noteId)) await adapter.remove(r.id)
+      for (const r of await adapter.listForNote(a.vaultId, noteId)) {
+        await adapter.remove(r.id)
+        await quietly(() => adapter.releaseFolder(r.id))
+      }
     },
 
     async listForNote(noteId: string): Promise<ShareRecord[]> {
@@ -265,6 +406,17 @@ export function createShareService(deps: { adapter: ShareAdapter; account: () =>
      */
     async removeForNotes(noteIds: string[]): Promise<void> {
       await adapter.removeForNotes(need().vaultId, noteIds)
+    },
+
+    /**
+     * Deletes the files of this account's links that are gone (stopped elsewhere, deleted with their note, or a
+     * clean-up that failed). Never rejects; run on start and after sign-in, and after permanent deletes.
+     */
+    async cleanupFiles(): Promise<void> {
+      need()
+      let ids: string[] = []
+      await quietly(async () => (ids = await adapter.orphanFolders()))
+      for (const id of ids) await quietly(() => adapter.releaseFolder(id))
     },
   }
 }
@@ -356,5 +508,23 @@ const validSalt = (b64: string) => {
     return n >= 16 && n <= 32
   } catch {
     return false
+  }
+}
+
+/**
+ * Viewer side: one attachment of an opened link (`file` from its snapshot's `files`), decrypted.
+ * `ShareError('not-found')` if the link is gone or expired, or the file is missing; `'invalid'` if the stored
+ * object is not that file.
+ */
+export async function openShareFile(adapter: Pick<ShareAdapter, 'downloadFile'>, url: URL, file: ShareFile): Promise<Uint8Array> {
+  const parsed = parseShareUrl(url)
+  if (!parsed) throw new ShareError('invalid', 'not a share link')
+  const ciphertext = await adapter.downloadFile(parsed.shareId, file.obj)
+  if (!ciphertext) throw new ShareError('not-found')
+  if (ciphertext.length !== file.size + SHARE_FILE_OVERHEAD) throw new ShareError('invalid', 'unexpected file size')
+  try {
+    return await decryptShareFile(fromB64Url(file.key), file.obj, ciphertext)
+  } catch (e) {
+    throw new ShareError('invalid', 'cannot decrypt file', { cause: e })
   }
 }

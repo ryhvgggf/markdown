@@ -1,4 +1,5 @@
 import type { PMMark, PMNode } from '@/core/markdown/types'
+import { shareMediaKind } from './files'
 
 /** Shown where an attachment was. */
 export const ATTACHMENT_OMITTED_TEXT = '附件未包含'
@@ -128,6 +129,11 @@ export interface SanitizeOptions {
    */
   linkTargets?: ReadonlySet<string>
   budget?: SanitizeBudget
+  /**
+   * Phase 4d: the snapshot's files (code → MIME type). A `media` node pointing at one of them stays (code, how it
+   * may be shown, width); every other `media` node becomes the "附件未包含" placeholder as before.
+   */
+  files?: ReadonlyMap<string, string>
 }
 
 /** The allow-listed copy of a snapshot document. Always returns a document (an empty one for anything that is not). */
@@ -145,7 +151,13 @@ export function sanitizeShareDoc(input: unknown, opts: SanitizeOptions = {}): PM
       const marks = parent === 'codeBlock' ? undefined : cleanMarks(raw.marks)
       return [{ type: 'text', text: raw.text, ...(marks && { marks }) }]
     }
-    if (type === 'media') return [paragraph(ATTACHMENT_OMITTED_TEXT, true)]
+    if (type === 'media') {
+      const a = isObj(raw.attrs) ? raw.attrs : {}
+      const mime = typeof a.attachmentId === 'string' && opts.files ? opts.files.get(a.attachmentId) : undefined
+      const blockParent = parent === 'doc' || (Object.hasOwn(SPECS, parent) && !SPECS[parent].inline && !SPECS[parent].leaf)
+      if (mime === undefined || !blockParent) return [paragraph(ATTACHMENT_OMITTED_TEXT, true)]
+      return [{ type: 'media', attrs: { attachmentId: a.attachmentId as string, kind: shareMediaKind(a.kind, mime), width: int(80, 5000)(a.width) ?? null } }]
+    }
     if (type === 'noteLink') {
       const a = isObj(raw.attrs) ? raw.attrs : {}
       const label = typeof a.label === 'string' ? a.label.slice(0, MAX_LABEL) : ''

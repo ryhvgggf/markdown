@@ -100,3 +100,31 @@ export const wrapSharePwBits = (kek: CryptoKey, vaultId: string, shareId: string
 
 export const unwrapSharePwBits = (kek: CryptoKey, vaultId: string, shareId: string, wrapped: Uint8Array) =>
   decrypt(kek, wrapped, sharePwKeyAad(vaultId, shareId))
+
+// ---- share-link attachments (phase 4d) ----
+// Every shared file has its own random key, kept only inside the (encrypted) snapshot; the stored object is bound
+// to its random object name. So: a protected link's files cannot be opened without the password (their keys are in
+// the snapshot), changing the password or renewing the link never re-encrypts them, and the server cannot serve
+// one file in place of another (another name, another key).
+
+export const shareFileAad = (objectName: string) => te.encode(`notes-v2|share-blob|v1|${objectName}`)
+const shareRefInfo = (attachmentId: string) => te.encode(`notes-v2|share-ref|v1|${attachmentId}`)
+
+const importShareFileKey = (raw: Uint8Array) =>
+  crypto.subtle.importKey('raw', raw as Uint8Array<ArrayBuffer>, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+
+export const encryptShareFile = async (rawKey: Uint8Array, objectName: string, bytes: Uint8Array) =>
+  encrypt(await importShareFileKey(rawKey), bytes, shareFileAad(objectName))
+
+/** Throws `CryptoError` for a wrong key or an object that is not `objectName`. */
+export const decryptShareFile = async (rawKey: Uint8Array, objectName: string, ciphertext: Uint8Array) =>
+  decrypt(await importShareFileKey(rawKey), ciphertext, shareFileAad(objectName))
+
+/**
+ * Lets the owner recognise which of its attachments a shared file is (to reuse the upload when the snapshot is
+ * updated) without the real attachment id leaving the device: HMAC-SHA256 keyed with that file's own key.
+ */
+export async function shareFileRef(rawKey: Uint8Array, attachmentId: string): Promise<Uint8Array> {
+  const k = await crypto.subtle.importKey('raw', rawKey as Uint8Array<ArrayBuffer>, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  return new Uint8Array(await crypto.subtle.sign('HMAC', k, shareRefInfo(attachmentId)))
+}
