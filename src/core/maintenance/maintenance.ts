@@ -7,8 +7,8 @@ import type { NoteDocCache } from '../note-doc/cache'
 import type { Vault } from '../vault/vault'
 
 /** Bump when derived index data changes shape; startup maintenance then rebuilds it once. */
-/** 3: link snippet tokens carry the target block id. 4: attachmentRefs (which notes use which attachment). */
-export const INDEX_VERSION = 4
+/** 3: link snippet tokens carry the target block id. 4: attachmentRefs (which notes use which attachment). 5: noteText.formulas. */
+export const INDEX_VERSION = 5
 export const INDEX_VERSION_KEY = 'indexVersion'
 /** meta: ids of notes whose permanent delete has started but not finished (crash-safe purge). */
 export const PENDING_PURGE_KEY = 'pendingPurge'

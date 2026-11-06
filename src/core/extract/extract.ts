@@ -98,12 +98,18 @@ export function extractNote(content: Y.XmlFragment): {
   links: ExtractedLink[]
   tags: string[]
   attachmentIds: string[]
+  /** Formulas used (phase 5 graph), deduplicated, compared as written (whitespace counts). */
+  formulas: string[]
 } {
   const blocks: ExtractedBlock[] = []
   const links: ExtractedLink[] = []
   const textLines: string[] = []
   const tags: string[] = []
   const attachmentIds: string[] = []
+  const formulas: string[] = []
+  const addFormula = (f: string) => {
+    if (f && !formulas.includes(f)) formulas.push(f)
+  }
 
   const walk = (parent: Parent, blockId: string, blockText: string): void => {
     for (const child of parent.toArray() as XmlChild[]) {
@@ -129,10 +135,12 @@ export function extractNote(content: Y.XmlFragment): {
           break
         }
         case 'mathInline':
+          addFormula(latexOf(child))
           break
         case 'mathBlock': {
           const id = child.getAttribute('id')
           const text = latexOf(child)
+          addFormula(text)
           if (id) blocks.push({ id, type: 'mathBlock', text })
           if (text) textLines.push(text)
           break
@@ -144,6 +152,8 @@ export function extractNote(content: Y.XmlFragment): {
           const text = ownText(child)
           if (id) blocks.push({ id, type: child.nodeName, text })
           if (isTextblock) textLines.push(text)
+          // An imported ```math fence counts as a formula (its ends trimmed like an edited formula); other code does not.
+          if (child.nodeName === 'codeBlock' && child.getAttribute('language') === 'math') addFormula(text.trim())
           if (child.nodeName === 'media') {
             const att = child.getAttribute('attachmentId')
             if (att && !attachmentIds.includes(att)) attachmentIds.push(att)
@@ -155,5 +165,5 @@ export function extractNote(content: Y.XmlFragment): {
   }
 
   walk(content, '', '')
-  return { text: textLines.join('\n'), blocks, links, tags, attachmentIds }
+  return { text: textLines.join('\n'), blocks, links, tags, attachmentIds, formulas }
 }

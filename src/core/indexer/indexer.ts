@@ -292,7 +292,7 @@ export class Indexer {
       written = { title, updatedAt, trashed: live.deletedAt !== null }
       // Clear the dirty marker with the rows, unless a newer edit is already scheduled (it re-marks).
       if (!this.timers.has(noteId)) await meta.delete(DIRTY_PREFIX + noteId)
-      await noteText.put({ noteId, title, text: x.text, updatedAt, trashed: live.deletedAt !== null })
+      await noteText.put({ noteId, title, text: x.text, updatedAt, trashed: live.deletedAt !== null, formulas: x.formulas })
       await links.where('sourceNoteId').equals(noteId).delete()
       await blocks.where('noteId').equals(noteId).delete()
       await tags.where('[noteId+tag]').between([noteId, ''], [noteId, '￿']).delete()

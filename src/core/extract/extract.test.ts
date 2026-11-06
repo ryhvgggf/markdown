@@ -32,6 +32,23 @@ describe('extractNote', () => {
     expect(r.links[0].snippet.startsWith('式 1+1')).toBe(true)
   })
 
+  it('collects formulas anywhere, deduplicated and compared as written', () => {
+    const cell = el('tableCell', {}, [el('paragraph', { id: 'c1' }, [el('mathInline', { latex: 'a^2' })])])
+    const f = build([
+      el('heading', { id: 'h1' }, [el('mathInline', { latex: '1+1' })]),
+      el('paragraph', { id: 'b1' }, [el('mathInline', { latex: '1 + 1' }), el('mathInline', { latex: '1+1' })]),
+      el('blockquote', { id: 'q1' }, [el('paragraph', { id: 'b2' }, [el('mathInline', { latex: 'x' })])]),
+      el('table', { id: 't1' }, [el('tableRow', {}, [cell])]),
+      el('mathBlock', { id: 'm1', latex: 'E=mc^2' }),
+      el('mathBlock', { id: 'm2', latex: '' }),
+      el('codeBlock', { id: 'k1', language: 'math' }, [new Y.XmlText('\ny\n')]),
+      el('codeBlock', { id: 'k2', language: 'js' }, [new Y.XmlText('z')]),
+      el('codeBlock', { id: 'k3' }, [new Y.XmlText('$1+1$')]),
+      el('paragraph', { id: 'b3' }, [new Y.XmlText('$w$')]),
+    ])
+    expect(extractNote(f).formulas).toEqual(['1+1', '1 + 1', 'x', 'a^2', 'E=mc^2', 'y'])
+  })
+
   it('extracts text, blocks, links, tags', () => {
     const f = build([
       el('paragraph', { id: 'b1' }, [

@@ -11,6 +11,11 @@ export interface NoteTextRow {
   updatedAt: number
   /** Mirrors the vault note's deletedAt !== null; missing = false. Not indexed. */
   trashed?: boolean
+  /**
+   * Formulas the note uses (phase 5 graph; see extractNote). Not indexed. Written as [] when none, so a missing
+   * field means the row was written by an older version (or is a title-only placeholder) and must be re-extracted.
+   */
+  formulas?: string[]
 }
 export interface LinkRow {
   id?: number
