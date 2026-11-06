@@ -122,25 +122,30 @@ function mathInlineRule(state: StateInline, silent: boolean): boolean {
   return true
 }
 
-/** `$$` … `$$` block → a `math_block` token (a block formula). A ```` ```math ```` fence stays a code block. */
+/**
+ * `$$` … `$$` block → a `math_block` token (a block formula). A ```` ```math ```` fence stays a code block.
+ * The opening line is `$$` (optionally with the formula's first line after it) or a whole `$$…$$` line; a line that
+ * only starts with `$$` and has more after a closing `$$` (`$$x$$ y`) is ordinary text with an inline formula.
+ */
 function mathBlockRule(state: StateBlock, startLine: number, endLine: number, silent: boolean): boolean {
   const pos = state.bMarks[startLine] + state.tShift[startLine]
   const max = state.eMarks[startLine]
-  const first = state.src.slice(pos, max)
+  const first = state.src.slice(pos, max).trimEnd()
   if (!first.startsWith('$$')) return false
-  if (silent) return true
+  const rest = first.slice(2)
   let content: string
   let next = startLine
-  const rest = first.slice(2)
-  if (rest.trimEnd().endsWith('$$') && rest.trim().length > 2) {
-    content = rest.trimEnd().slice(0, -2)
+  if (rest.endsWith('$$') && rest.length > 2 && !rest.slice(0, -2).includes('$$')) {
+    content = rest.slice(0, -2)
   } else {
+    if (rest.includes('$$')) return false
     const lines = rest.trim() ? [rest] : []
     let found = false
     while (++next < endLine) {
-      const l = state.src.slice(state.bMarks[next] + state.tShift[next], state.eMarks[next])
-      if (l.trimEnd().endsWith('$$')) {
-        const before = l.trimEnd().slice(0, -2)
+      const l = state.src.slice(state.bMarks[next] + state.tShift[next], state.eMarks[next]).trimEnd()
+      if (l.endsWith('$$')) {
+        const before = l.slice(0, -2)
+        if (before.includes('$$')) return false
         if (before) lines.push(before)
         found = true
         break
@@ -151,6 +156,7 @@ function mathBlockRule(state: StateBlock, startLine: number, endLine: number, si
     if (!found) return false
     content = lines.join('\n')
   }
+  if (silent) return true
   const tok = state.push('math_block', '', 0)
   tok.content = content
   tok.map = [startLine, next + 1]

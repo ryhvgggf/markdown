@@ -24,6 +24,26 @@ describe('formulas in Markdown', () => {
     expect(md(doc(p(math('x\\'))))).toBe('`x\\`\n')
   })
 
+  it('a | in a table cell is escaped so the table and the formula survive', () => {
+    const d = doc(table([['h']], [[[math('|x| + \\|y\\|')]]]))
+    expect(md(d)).toBe('| h |\n| --- |\n| $\\|x\\| + \\\\|y\\\\|$ |\n')
+    expect(back(d)).toEqual(JSON.parse(JSON.stringify(stripIds(d as PMNode))))
+  })
+
+  it('a digit right after a formula, an even backslash ending and marks round-trip', () => {
+    for (const d of [doc(p(math('x'), '2 個')), doc(p(math('a\\\\'))), doc(p({ ...math('b'), marks: [{ type: 'bold' }] }))]) {
+      expect(back(d)).toEqual(JSON.parse(JSON.stringify(stripIds(d as PMNode))))
+    }
+  })
+
+  it('a line that only starts with $$ does not swallow what follows', () => {
+    const blocks = (s: string) => (JSON.parse(JSON.stringify(stripIds(parseMarkdown(s).doc))) as PMNode).content!
+    expect(blocks('$$x$$ y\n\npara\n\n$$\nz\n$$').map((b) => b.type)).toEqual(['paragraph', 'paragraph', 'mathBlock'])
+    expect(blocks('$$x$$ y')[0].content![0]).toEqual({ type: 'mathInline', attrs: { latex: 'x' } })
+    expect(blocks('- $$x$$ y\n- b $$')[0].content!.length).toBe(2)
+    expect(blocks('line one\n$$5 未閉合').map((b) => b.type)).toEqual(['paragraph'])
+  })
+
   it('a block formula inside a table cell is written inline', () => {
     const t = table(['h'], [['c']])
     t.content![1].content![0].content = [mathBlock('a\nb')]

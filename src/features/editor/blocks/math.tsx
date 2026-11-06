@@ -30,13 +30,29 @@ const pendingEdit = new WeakMap<Editor, number>()
 /** Node views listening for "edit the formula at this position" (Enter on a selected formula). */
 const editListeners = new WeakMap<Editor, Set<(pos: number) => void>>()
 
-function requestEdit(editor: Editor, pos: number) {
+/**
+ * Marks the new (empty) formula about to mount at `pos` for editing. Forgotten after a few seconds and only ever
+ * opens an empty formula, so a remote change that shifts positions cannot open some other formula later.
+ */
+function markPending(editor: Editor, pos: number) {
   pendingEdit.set(editor, pos)
+  setTimeout(() => {
+    if (pendingEdit.get(editor) === pos) pendingEdit.delete(editor)
+  }, 5000)
+}
+
+function requestEdit(editor: Editor, pos: number) {
+  markPending(editor, pos)
   editListeners.get(editor)?.forEach((f) => f(pos))
 }
 
-/** `$x$`: not `$ x$`, `$x $`, `\$x$`, `$$x$`. The rule only sees the closing `$` as it is typed. */
-const INLINE_INPUT = /(?:^|[^$\\])\$([^\s$](?:[^$]*[^\s$\\])?)\$$/
+/**
+ * `$x$`: not `$ x$`, `$x $`, `\$x$`, `$$x$`, nor a currency sign after a letter or digit (`NT$100 至 NT$`). The rule
+ * only sees the closing `$` as it is typed.
+ */
+const INLINE_INPUT = /(?:^|[^$\\\p{L}\p{N}])\$([^\s$](?:[^$]*[^\s$\\])?)\$$/u
+/** `$5-$`, `$5 至 6$`, `$5 to 6$`: amounts of money, not formulas (`$1 + 1$`, `$2x$` still are). */
+const looksLikeMoney = (latex: string) => /^\d[\d,.]*\s*(?:[-~–]|\p{Script=Han}|[A-Za-z]{2,})/u.test(latex)
 
 const latexAttr = {
   latex: {
@@ -55,7 +71,7 @@ function MathView({ node, editor, getPos, updateAttributes, selected }: ReactNod
   }
   const [editing, setEditing] = useState(() => {
     const p = pos()
-    if (p === null || !editor.isEditable || pendingEdit.get(editor) !== p) return false
+    if (p === null || !editor.isEditable || pendingEdit.get(editor) !== p || latex !== '') return false
     pendingEdit.delete(editor)
     return true
   })
@@ -81,8 +97,11 @@ function MathView({ node, editor, getPos, updateAttributes, selected }: ReactNod
     return () => void set.delete(listen)
   })
 
-  /** Back to the document: the cursor after an inline formula, a block formula selected. */
-  const finish = (save: boolean) => {
+  /**
+   * Back to the document: the cursor after an inline formula, a block formula selected. Leaving by clicking
+   * elsewhere (`refocus` false) only saves: the click has already put the cursor where the user wants it.
+   */
+  const finish = (save: boolean, refocus = true) => {
     if (done.current) return
     done.current = true
     setEditing(false)
@@ -90,10 +109,12 @@ function MathView({ node, editor, getPos, updateAttributes, selected }: ReactNod
     if (p === null) return
     const value = save ? draft.trim() : latex
     if (!block && value === '') {
-      editor.chain().focus().deleteRange({ from: p, to: p + node.nodeSize }).run()
+      const del = editor.chain()
+      ;(refocus ? del.focus() : del).deleteRange({ from: p, to: p + node.nodeSize }).run()
       return
     }
     if (value !== latex) updateAttributes({ latex: value })
+    if (!refocus) return
     const chain = editor.chain().focus()
     if (block) chain.setNodeSelection(p).run()
     else chain.setTextSelection(p + node.nodeSize).run()
@@ -131,7 +152,7 @@ function MathView({ node, editor, getPos, updateAttributes, selected }: ReactNod
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={onKeyDown}
-              onBlur={() => finish(true)}
+              onBlur={() => finish(true, false)}
             />
           ) : (
             <input
@@ -143,7 +164,7 @@ function MathView({ node, editor, getPos, updateAttributes, selected }: ReactNod
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={onKeyDown}
-              onBlur={() => finish(true)}
+              onBlur={() => finish(true, false)}
             />
           )}
           {draft.trim() && <Formula latex={draft.trim()} display={block} className="math-preview" />}
@@ -246,6 +267,7 @@ export const MathInline = Node.create({
       new InputRule({
         find: INLINE_INPUT,
         handler: ({ state, range, match }) => {
+          if (looksLikeMoney(match[1])) return null
           const from = range.from + match[0].length - match[1].length - 2 // the opening `$` (the match may start one character before it)
           state.tr.replaceWith(from, range.to, type.create({ latex: match[1] }))
         },
@@ -263,7 +285,7 @@ export const MathInline = Node.create({
           if (dispatch) {
             const at = state.selection.from
             tr.replaceSelectionWith(this.type.create({ latex: '' }), false)
-            pendingEdit.set(editor, at)
+            markPending(editor, at)
           }
           return true
         },
@@ -306,10 +328,20 @@ export const MathBlock = Node.create({
           const container = $from.node(-1)
           const index = $from.index(-1)
           const node = type.create({ latex: '' })
-          if (!container.canReplace(index, index + 1, Fragment.from(node))) return null
-          const at = $from.before()
-          state.tr.replaceWith(at, $from.after(), node)
-          pendingEdit.set(editor, at)
+          const tr = state.tr
+          if (container.canReplace(index, index + 1, Fragment.from(node))) {
+            const at = $from.before()
+            tr.replaceWith(at, $from.after(), node)
+            markPending(editor, at)
+            return
+          }
+          // A list item's first line must stay a paragraph: the formula goes right after it.
+          if (!container.canReplace(index + 1, index + 1, Fragment.from(node))) return null
+          tr.delete(range.from, range.to)
+          const at = tr.mapping.map($from.after())
+          tr.insert(at, node)
+          tr.setSelection(NodeSelection.create(tr.doc, at))
+          markPending(editor, at)
         },
       }),
     ]
@@ -324,7 +356,7 @@ export const MathBlock = Node.create({
           if (at === null) return false
           if (dispatch) {
             tr.setSelection(NodeSelection.create(tr.doc, at))
-            pendingEdit.set(editor, at)
+            markPending(editor, at)
           }
           return true
         },

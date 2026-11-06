@@ -49,7 +49,7 @@ describe('formula input', () => {
   })
 
   it('leaves money, spaced dollars and code alone', () => {
-    for (const s of ['$5 與 $', '$ x$', '\\$x$']) {
+    for (const s of ['$5 與 $', '$ x$', '\\$x$', 'NT$100 至 NT$', 'US$5 or US$', '$5-$', '$5 to $']) {
       const e = make()
       type(e, s)
       expect(body(e)).toEqual([p(t(s))])
@@ -71,6 +71,10 @@ describe('formula input', () => {
     const other = make()
     type(other, 'a$$')
     expect(body(other)).toEqual([p(t('a$$'))])
+    const list = make(doc({ type: 'bulletList', content: [{ type: 'listItem', content: [p()] }] }))
+    list.view.dispatch(list.state.tr.setSelection(TextSelection.create(list.state.doc, 3)))
+    type(list, '$$')
+    expect(body(list)).toEqual([{ type: 'bulletList', content: [{ type: 'listItem', content: [p(), { type: 'mathBlock', attrs: { latex: '' } }] }] }])
   })
 
   it('slash items insert a block or an inline formula', () => {
@@ -195,6 +199,18 @@ describe('formula view', () => {
     const { container } = render(<EditorContent editor={ro} />)
     await act(async () => void fireEvent.click(await formula(container)))
     expect(container.querySelector('.math-inline input')).toBeNull()
+  })
+
+  it('leaving by clicking elsewhere saves without moving the cursor back', async () => {
+    const e = make(doc(p(t('abc'), { type: 'mathInline', attrs: { latex: 'x' } })))
+    const { container } = render(<EditorContent editor={e} />)
+    await act(async () => void fireEvent.click(await formula(container)))
+    const input = await screen.findByLabelText('公式（LaTeX）')
+    fireEvent.change(input, { target: { value: 'y' } })
+    e.view.dispatch(e.state.tr.setSelection(TextSelection.create(e.state.doc, 2)))
+    await act(async () => void fireEvent.blur(input))
+    expect(body(e)[0].content[1].attrs.latex).toBe('y')
+    expect(e.state.selection.from).toBe(2)
   })
 
   it('a formula with an error shows its text', async () => {

@@ -15,12 +15,12 @@ export function loadKatex(): Promise<Katex> {
 
 /**
  * Renders `latex` into `el`. Formulas may come from someone else (a share link), so KaTeX runs with `trust` off
- * (no `\href`, `\url`, `\html…`) and with size / macro-expansion limits. Returns false when the formula has an
+ * (no `\href`, `\url`, `\html…`) and with size (`\rule`, `\kern`… at most 20em) / macro-expansion limits. Returns false when the formula has an
  * error; `el` then shows the formula's text.
  */
 export function renderMath(katex: Katex, latex: string, el: HTMLElement, displayMode: boolean): boolean {
   try {
-    katex.render(latex, el, { displayMode, throwOnError: true, trust: false, strict: 'ignore', maxSize: 100, maxExpand: 1000, output: 'htmlAndMathml' })
+    katex.render(latex, el, { displayMode, throwOnError: true, trust: false, strict: 'ignore', maxSize: 20, maxExpand: 1000, output: 'htmlAndMathml' })
     return true
   } catch {
     el.textContent = latex

@@ -93,7 +93,7 @@ describe('parseMarkdown', () => {
     expect(inline('$1 + 1$ 與 $1+1$')).toEqual([m('1 + 1'), t(' 與 '), m('1+1')])
     expect(inline('$5 與 $6')).toEqual([t('$5 與 $6')])
     expect(parseMarkdown('$x^2 + y^2$ 與 $a~b~$').lossy).toEqual([])
-    expect(inline('**$x$**')).toEqual([m('x')])
+    expect(inline('**$x$**')).toEqual([{ ...m('x'), marks: [{ type: 'bold' }] }])
     expect(inline('`$x$`')).toEqual([t('$x$', 'code')])
     expect(blocks('```\n$x$\n```')).toEqual([{ type: 'codeBlock', attrs: { language: null }, content: [t('$x$')] }])
     expect(blocks('# 標題 $x$')).toEqual([{ type: 'heading', attrs: { level: 1 }, content: [t('標題 '), m('x')] }])

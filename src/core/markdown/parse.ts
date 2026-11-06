@@ -268,7 +268,7 @@ class Converter {
           text(k.content, { type: 'code' })
           break
         case 'math_inline':
-          push({ type: 'mathInline', attrs: { latex: k.content } })
+          push({ type: 'mathInline', attrs: { latex: k.content }, ...(marks.length && { marks: [...marks] }) })
           break
         case 'tag':
           push({ type: 'tag', attrs: { name: (k.meta as { name: string }).name } })

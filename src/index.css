@@ -149,12 +149,14 @@
 .note-editor .math-inline { display: inline; }
 .note-editor .math-block { margin: 0.4em 0; }
 .note-editor .math-render { cursor: pointer; border-radius: 4px; }
-.note-editor .math-block .math-render { display: block; padding: 6px 8px; overflow-x: auto; overflow-y: hidden; }
+.note-editor .math-block .math-render { display: block; padding: 6px 8px; overflow-x: auto; overflow-y: hidden; contain: paint; }
 .note-editor .math-block .math-render .katex-display { margin: 0; }
 .note-editor[contenteditable='false'] .math-render { cursor: default; }
 .note-editor .math-render:hover { background: var(--color-fill); }
 .note-editor .math-error { color: #C62828; font: 0.9em 'SF Mono', ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; }
-.note-editor .math-empty { display: block; padding: 10px 12px; border-radius: 8px; background: #f5f5f7; color: var(--color-fg-tertiary); cursor: pointer; font-size: 14px; }
+.note-editor .math-inline .math-empty { display: inline-block; padding: 0 6px; min-width: 2em; }
+.note-editor .math-block .math-empty { display: block; padding: 10px 12px; }
+.note-editor .math-empty { border-radius: 8px; background: #f5f5f7; color: var(--color-fg-tertiary); cursor: pointer; font-size: 14px; }
 .note-editor .math-edit { display: inline-flex; flex-direction: column; gap: 4px; vertical-align: top; }
 .note-editor .math-block .math-edit { display: flex; background: #f5f5f7; border-radius: 12px; padding: 10px 12px; }
 .note-editor .math-input {

@@ -184,7 +184,7 @@ function cellText(cell: PMNode, ctx: SerializeContext): string {
           walk(rest)
         })
       } else if (b.type === 'mathBlock') {
-        lines.push(prefix + mathInline(String(b.attrs?.latex ?? '').replace(/\s*\n\s*/g, ' ')))
+        lines.push(prefix + mathInline(String(b.attrs?.latex ?? '').replace(/\s*\n\s*/g, ' '), true))
       } else if (b.type === 'codeBlock') {
         lines.push(...(b.content ?? []).map((t) => t.text ?? '').join('').split('\n').map((l) => escapeText(l, { lineStart: false, prev: '', inTable: true })))
       } else walk(b.content ?? [], prefix)

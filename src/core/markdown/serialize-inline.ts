@@ -72,16 +72,18 @@ function codeSpan(text: string): string {
 
 /**
  * An inline formula as `$latex$`. What the importer could not read back as the same formula (empty, edge
- * spaces, a bare `$`, a newline) is written as inline code instead, so the text is kept.
+ * spaces, a bare `$`, a newline, an odd number of trailing backslashes) is written as inline code instead, so the
+ * text is kept. In a table cell `|` is written `\\|` (the table reads it back as `|`).
  */
-export function mathInline(latex: string): string {
+export function mathInline(latex: string, inTable = false): string {
   const bareDollar = /(^|[^\\])(\\\\)*\$/.test(latex)
-  if (!latex || /^\s|\s$/.test(latex) || bareDollar || latex.includes('\n') || latex.endsWith('\\')) return codeSpan(latex || ' ')
-  return `$${latex}$`
+  const oddBackslashEnd = /(^|[^\\])\\(\\\\)*$/.test(latex)
+  if (!latex || /^\s|\s$/.test(latex) || bareDollar || latex.includes('\n') || oddBackslashEnd) return codeSpan(latex || ' ')
+  return `$${inTable ? latex.replace(/\|/g, '\\|') : latex}$`
 }
 
-function atomText(n: PMNode, ctx: InlineContext): string {
-  if (n.type === 'mathInline') return mathInline(String(n.attrs?.latex ?? ''))
+function atomText(n: PMNode, ctx: InlineContext, inTable = false): string {
+  if (n.type === 'mathInline') return mathInline(String(n.attrs?.latex ?? ''), inTable)
   if (n.type === 'noteLink') {
     const noteId = String(n.attrs?.noteId ?? '')
     const blockId = (n.attrs?.blockId as string | null) ?? null
@@ -126,7 +128,7 @@ export function serializeInline(nodes: PMNode[], ctx: InlineContext, o: { lineSt
     open = open.slice(0, k)
   }
 
-  for (const { node, marks, bare } of items) {
+  for (const [idx, { node, marks, bare }] of items.entries()) {
     if (node.type === 'hardBreak') {
       closeTo(0)
       out = out.replace(/[ \t]+$/, '')
@@ -137,7 +139,7 @@ export function serializeInline(nodes: PMNode[], ctx: InlineContext, o: { lineSt
     let k = 0
     while (k < open.length && k < marks.length && markKey(open[k]) === markKey(marks[k])) k++
     closeTo(k)
-    let text = node.type === 'text' ? (node.text ?? '') : atomText(node, ctx)
+    let text = node.type === 'text' ? (node.text ?? '') : atomText(node, ctx, o.inTable)
     const isCode = marks.some((m) => m.type === 'code')
     if (marks.length > k) {
       const lead = /^\s+/.exec(text)?.[0] ?? ''
@@ -148,7 +150,12 @@ export function serializeInline(nodes: PMNode[], ctx: InlineContext, o: { lineSt
     }
     if (isCode) out += codeSpan(text)
     else if (node.type !== 'text' || bare) out += text
-    else out += escapeText(text, { lineStart: lineStart && (out === '' || out.endsWith('\n')), prev: out.at(-1) ?? '', inTable: o.inTable })
+    else {
+      let escaped = escapeText(text, { lineStart: lineStart && (out === '' || out.endsWith('\n')), prev: out.at(-1) ?? '', inTable: o.inTable })
+      // `$x$2` would not read back as a formula: the digit right after one is written as an entity.
+      if (out.endsWith('$') && items[idx - 1]?.node.type === 'mathInline') escaped = escaped.replace(/^\d/, (d) => `&#${d.charCodeAt(0)};`)
+      out += escaped
+    }
     if (text) lineStart = false
   }
   closeTo(0)
