@@ -31,6 +31,7 @@ export const a = (t: string, href: string) =>
   marked(t, { type: 'link', attrs: { href, target: '_blank', rel: 'noopener noreferrer nofollow' } })
 export const noteLink = (noteId: string, blockId: string | null = null): J => ({ type: 'noteLink', attrs: { noteId, blockId } })
 export const tag = (name: string): J => ({ type: 'tag', attrs: { name } })
+export const math = (latex: string): J => ({ type: 'mathInline', attrs: { latex } })
 /** `Ctrl+B`／`⌘B` */
 export const keys = (win: string, mac?: string): Inline[] => (mac ? [code(win), '／', code(mac)] : [code(win)])
 
@@ -44,6 +45,7 @@ export const quote = (...blocks: J[]): J => ({ type: 'blockquote', content: bloc
 export const callout = (icon: 'info' | 'warning' | 'tip', ...blocks: J[]): J => ({ type: 'callout', attrs: { icon }, content: blocks })
 export const codeBlock = (language: string | null, text: string, id?: string): J =>
   withContent('codeBlock', flat([text]), { language, ...(id && { id }) })
+export const mathBlock = (latex: string, id?: string): J => ({ type: 'mathBlock', attrs: { ...(id && { id }), latex } })
 export const media = (attachmentId: string, kind: 'image' | 'video' | 'file', width: number | null = null): J => ({
   type: 'media',
   attrs: { attachmentId, kind, width },

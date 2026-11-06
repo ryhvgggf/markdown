@@ -16,6 +16,22 @@ function build(nodes: Y.XmlElement[]) {
 }
 
 describe('extractNote', () => {
+  it('formulas are part of the text, block text and link snippets', () => {
+    const f = build([
+      el('paragraph', { id: 'b1' }, [new Y.XmlText('式 '), el('mathInline', { latex: '1+1' }), el('noteLink', { noteId: 'n2' })]),
+      el('paragraph', { id: 'b2' }, [el('mathInline', { latex: 'x' })]),
+      el('mathBlock', { id: 'b3', latex: 'E=mc^2' }),
+    ])
+    const r = extractNote(f)
+    expect(r.text).toBe('式 1+1\nx\nE=mc^2')
+    expect(r.blocks).toEqual([
+      { id: 'b1', type: 'paragraph', text: '式 1+1' },
+      { id: 'b2', type: 'paragraph', text: 'x' },
+      { id: 'b3', type: 'mathBlock', text: 'E=mc^2' },
+    ])
+    expect(r.links[0].snippet.startsWith('式 1+1')).toBe(true)
+  })
+
   it('extracts text, blocks, links, tags', () => {
     const f = build([
       el('paragraph', { id: 'b1' }, [

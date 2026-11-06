@@ -16,6 +16,7 @@ export const BLOCK_TYPES: readonly string[] = [
   'table',
   'horizontalRule',
   'media',
+  'mathBlock',
 ]
 
 /** Gives every block that carries an id a fresh one when it has none or repeats an earlier one (document order). */

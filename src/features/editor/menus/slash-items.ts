@@ -55,6 +55,8 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: 'clear-color', group: 'color', label: '清除顏色', hint: '', aliases: ['clear', 'reset', 'default', 'qingchu'], run: (e) => void chain(e).unsetColor().unsetHighlight().run() },
   { id: 'media', group: 'insert', label: '圖片或影片', hint: '上傳或拖入圖片、影片', aliases: ['image', 'video', 'media', 'tu', 'pic'], run: (e) => void e.commands.pickMedia() },
   { id: 'file', group: 'insert', label: '檔案', hint: '上傳任意檔案，提供下載', aliases: ['file', 'pdf', 'attach', 'dangan'], run: (e) => void e.commands.pickFile() },
+  { id: 'math', group: 'insert', label: '公式', hint: '自成一段的公式（LaTeX）', aliases: ['math', 'latex', 'formula', 'equation', 'gongshi'], run: (e) => void chain(e).insertMathBlock().run() },
+  { id: 'math-inline', group: 'insert', label: '行內公式', hint: '放在文字中的公式（LaTeX）', aliases: ['math', 'latex', 'inline', 'formula', 'gongshi'], run: (e) => void chain(e).insertMathInline().run() },
   { id: 'note-link', group: 'insert', label: '連結筆記', hint: '連到另一篇筆記', aliases: ['link', 'note', 'wiki', 'lianjie'], run: (e) => void chain(e).insertContent('[[').run() },
   { id: 'tag', group: 'insert', label: '標籤', hint: '輸入 # 與名稱，空白鍵完成', aliases: ['tag', 'hashtag', 'biaoqian'], run: (e) => void chain(e).insertContent('#').run() },
 ]

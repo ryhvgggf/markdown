@@ -97,7 +97,7 @@ function tagRule(state: StateInline, silent: boolean): boolean {
   return true
 }
 
-/** `$x$` / `$$x$$` inline → code (shown as code until phase 5). Not `$5 and $6`. */
+/** `$x$` / `$$x$$` inline → a `math_inline` token (an inline formula). Not `$5 and $6`. */
 function mathInlineRule(state: StateInline, silent: boolean): boolean {
   const src = state.src
   const start = state.pos
@@ -117,12 +117,12 @@ function mathInlineRule(state: StateInline, silent: boolean): boolean {
     i++
   }
   if (i >= state.posMax || i === from) return false
-  if (!silent) state.push('code_inline', 'code', 0).content = src.slice(from, i)
+  if (!silent) state.push('math_inline', '', 0).content = src.slice(from, i)
   state.pos = i + fence.length
   return true
 }
 
-/** `$$` … `$$` block → fence with language `math`. */
+/** `$$` … `$$` block → a `math_block` token (a block formula). A ```` ```math ```` fence stays a code block. */
 function mathBlockRule(state: StateBlock, startLine: number, endLine: number, silent: boolean): boolean {
   const pos = state.bMarks[startLine] + state.tShift[startLine]
   const max = state.eMarks[startLine]
@@ -145,14 +145,14 @@ function mathBlockRule(state: StateBlock, startLine: number, endLine: number, si
         found = true
         break
       }
-      lines.push(state.src.slice(state.bMarks[next], state.eMarks[next]))
+      // Inside a list item the line still carries the item's indent; keep only the formula's own.
+      lines.push(state.src.slice(state.bMarks[next] + Math.min(state.tShift[next], state.blkIndent), state.eMarks[next]))
     }
     if (!found) return false
     content = lines.join('\n')
   }
-  const tok = state.push('fence', 'code', 0)
-  tok.info = 'math'
-  tok.content = content + '\n'
+  const tok = state.push('math_block', '', 0)
+  tok.content = content
   tok.map = [startLine, next + 1]
   state.line = next + 1
   return true

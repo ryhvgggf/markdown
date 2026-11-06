@@ -78,12 +78,27 @@ describe('parseMarkdown', () => {
     expect(blocks(':::quote\n引言\n:::')[0].type).toBe('paragraph')
   })
 
-  it('code blocks, mermaid and math keep their text', () => {
+  it('code blocks and mermaid keep their text; a ```math fence stays a code block', () => {
     expect(blocks('```ts\nconst a = 1\n```')).toEqual([{ type: 'codeBlock', attrs: { language: 'ts' }, content: [t('const a = 1')] }])
     expect(blocks('```mermaid\ngraph TD\n```')[0].attrs).toEqual({ language: 'mermaid' })
-    expect(blocks('$$\nE=mc^2\n$$')).toEqual([{ type: 'codeBlock', attrs: { language: 'math' }, content: [t('E=mc^2')] }])
-    expect(inline('質能 $E=mc^2$ 式')).toEqual([t('質能 '), t('E=mc^2', 'code'), t(' 式')])
+    expect(blocks('```math\nx\n```')).toEqual([{ type: 'codeBlock', attrs: { language: 'math' }, content: [t('x')] }])
+  })
+
+  it('$…$ and $$…$$ become formulas, exactly as written', () => {
+    const m = (latex: string) => ({ type: 'mathInline', attrs: { latex } })
+    expect(blocks('$$\nE=mc^2\n$$')).toEqual([{ type: 'mathBlock', attrs: { latex: 'E=mc^2' } }])
+    expect(blocks('$$a\nb$$')).toEqual([{ type: 'mathBlock', attrs: { latex: 'a\nb' } }])
+    expect(blocks('$$ x^2 $$')).toEqual([{ type: 'mathBlock', attrs: { latex: ' x^2 ' } }])
+    expect(inline('質能 $E=mc^2$ 式')).toEqual([t('質能 '), m('E=mc^2'), t(' 式')])
+    expect(inline('$1 + 1$ 與 $1+1$')).toEqual([m('1 + 1'), t(' 與 '), m('1+1')])
     expect(inline('$5 與 $6')).toEqual([t('$5 與 $6')])
+    expect(parseMarkdown('$x^2 + y^2$ 與 $a~b~$').lossy).toEqual([])
+    expect(inline('**$x$**')).toEqual([m('x')])
+    expect(inline('`$x$`')).toEqual([t('$x$', 'code')])
+    expect(blocks('```\n$x$\n```')).toEqual([{ type: 'codeBlock', attrs: { language: null }, content: [t('$x$')] }])
+    expect(blocks('# 標題 $x$')).toEqual([{ type: 'heading', attrs: { level: 1 }, content: [t('標題 '), m('x')] }])
+    expect(blocks('- $y$')[0].content![0].content![0].content).toEqual([m('y')])
+    expect(blocks('> $$\n> z\n> $$')).toEqual([{ type: 'blockquote', content: [{ type: 'mathBlock', attrs: { latex: 'z' } }] }])
   })
 
   it('tables with <br> and escaped pipes', () => {

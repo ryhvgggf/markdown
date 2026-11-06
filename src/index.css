@@ -145,6 +145,30 @@
   border-radius: 4px;
 }
 
+/* Formulas (KaTeX) */
+.note-editor .math-inline { display: inline; }
+.note-editor .math-block { margin: 0.4em 0; }
+.note-editor .math-render { cursor: pointer; border-radius: 4px; }
+.note-editor .math-block .math-render { display: block; padding: 6px 8px; overflow-x: auto; overflow-y: hidden; }
+.note-editor .math-block .math-render .katex-display { margin: 0; }
+.note-editor[contenteditable='false'] .math-render { cursor: default; }
+.note-editor .math-render:hover { background: var(--color-fill); }
+.note-editor .math-error { color: #C62828; font: 0.9em 'SF Mono', ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; }
+.note-editor .math-empty { display: block; padding: 10px 12px; border-radius: 8px; background: #f5f5f7; color: var(--color-fg-tertiary); cursor: pointer; font-size: 14px; }
+.note-editor .math-edit { display: inline-flex; flex-direction: column; gap: 4px; vertical-align: top; }
+.note-editor .math-block .math-edit { display: flex; background: #f5f5f7; border-radius: 12px; padding: 10px 12px; }
+.note-editor .math-input {
+  font: 13.5px/1.6 'SF Mono', ui-monospace, Menlo, Consolas, monospace; color: inherit;
+  background: #fff; border: 1px solid var(--color-separator, rgba(0,0,0,.15)); border-radius: 6px; padding: 2px 6px; outline: none; resize: vertical;
+}
+.note-editor .math-input:focus { border-color: var(--accent); }
+.note-editor .math-preview { cursor: default; }
+.note-editor .ProseMirror-selectednode .math-render,
+.note-editor .ProseMirror-selectednode.math-block .math-render {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 1px;
+}
+
 .media-block { margin: 0.5em 0; }
 .media-frame { position: relative; line-height: 0; }
 .media-placeholder { display: flex; align-items: center; justify-content: center; min-height: 120px; border-radius: 12px; background: var(--fill, rgba(127,127,127,.12)); font-size: 14px; line-height: 1.4; }

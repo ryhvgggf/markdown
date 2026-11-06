@@ -70,7 +70,18 @@ function codeSpan(text: string): string {
   return fence + pad + text + pad + fence
 }
 
+/**
+ * An inline formula as `$latex$`. What the importer could not read back as the same formula (empty, edge
+ * spaces, a bare `$`, a newline) is written as inline code instead, so the text is kept.
+ */
+export function mathInline(latex: string): string {
+  const bareDollar = /(^|[^\\])(\\\\)*\$/.test(latex)
+  if (!latex || /^\s|\s$/.test(latex) || bareDollar || latex.includes('\n') || latex.endsWith('\\')) return codeSpan(latex || ' ')
+  return `$${latex}$`
+}
+
 function atomText(n: PMNode, ctx: InlineContext): string {
+  if (n.type === 'mathInline') return mathInline(String(n.attrs?.latex ?? ''))
   if (n.type === 'noteLink') {
     const noteId = String(n.attrs?.noteId ?? '')
     const blockId = (n.attrs?.blockId as string | null) ?? null

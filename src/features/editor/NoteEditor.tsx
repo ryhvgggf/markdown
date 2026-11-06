@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { EditorContent, useEditor } from '@tiptap/react'
+import { EditorContent, useEditor, type Editor } from '@tiptap/react'
+import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import * as Y from 'yjs'
 import { useServices } from '@/app/services-context'
 import { useUi } from '@/app/ui-store'
@@ -105,6 +106,7 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
   )
 
   useBlockHighlight(editor)
+  const unsupported = useUnsupportedContent(editor)
 
   useEffect(() => {
     registerEditor(noteId, editor)
@@ -117,6 +119,11 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
 
   return (
     <div data-note-editor className="px-6 pb-32">
+      {unsupported && (
+        <div className="mb-2 overflow-hidden rounded-lg">
+          <Banner tone="error">{UNSUPPORTED_CONTENT_TEXT}</Banner>
+        </div>
+      )}
       {mediaError && (
         <div className="mb-2 overflow-hidden rounded-lg">
           <Banner tone="error" onDismiss={() => setMediaError(null)}>
@@ -131,4 +138,23 @@ function EditorBody({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
       <FindBar editor={editor} />
     </div>
   )
+}
+
+export const UNSUPPORTED_CONTENT_TEXT = '這篇筆記含有新版本的內容，這個版本無法顯示或編輯。請重新整理頁面。'
+
+/**
+ * True while the note holds content this version's editor does not know (written by a newer version on another
+ * tab or device). The sync binding then shows nothing and refuses edits — the content itself is kept — so the
+ * note says why instead of looking empty.
+ */
+function useUnsupportedContent(editor: Editor | null): boolean {
+  const [bad, setBad] = useState(false)
+  useEffect(() => {
+    if (!editor) return
+    const check = () => setBad(ySyncPluginKey.getState(editor.state)?.binding?.projectionError != null)
+    check()
+    editor.on('transaction', check)
+    return () => void editor.off('transaction', check)
+  }, [editor])
+  return bad
 }

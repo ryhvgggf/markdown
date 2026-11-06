@@ -35,6 +35,7 @@ import { createLinkSuggestion } from './links/link-suggestion'
 import { NoteLink } from './links/note-link'
 import { Tag } from './links/tag'
 import { Media } from './blocks/media'
+import { MathBlock, MathInline } from './blocks/math'
 import { FindReplace } from './find/find-extension'
 
 export { BLOCK_TYPES }
@@ -193,6 +194,8 @@ export function createExtensions(doc: Y.Doc, ctx: EditorContext): AnyExtension[]
     BlockLinkPaste.configure({ ctx }),
     BlockHighlight,
     Media.configure({ ctx }),
+    MathInline,
+    MathBlock,
     BlockId,
     FindReplace,
     Collaboration.configure({ document: doc, field: 'content' }),

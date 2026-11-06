@@ -1,5 +1,5 @@
 import { blockAnchor, encodeLinkPath } from './paths'
-import { escapeText, serializeInline, type InlineContext } from './serialize-inline'
+import { escapeText, mathInline, serializeInline, type InlineContext } from './serialize-inline'
 import type { PMNode } from './types'
 
 export type SerializeContext = InlineContext & {
@@ -102,9 +102,16 @@ function blockBody(n: PMNode, ctx: SerializeContext, altMarker: boolean): string
       return ['---']
     case 'media':
       return [media(n, ctx)]
+    case 'mathBlock':
+      return mathBlock(String(n.attrs?.latex ?? ''))
     default:
       return c.length ? blocks(c, ctx) : []
   }
+}
+
+/** `$$` / the formula's lines / `$$`. */
+function mathBlock(latex: string): string[] {
+  return ['$$', ...(latex ? latex.split('\n') : []), '$$']
 }
 
 function quoted(lines: string[]): string[] {
@@ -176,6 +183,8 @@ function cellText(cell: PMNode, ctx: SerializeContext): string {
           walk(first ? [first] : [], marker)
           walk(rest)
         })
+      } else if (b.type === 'mathBlock') {
+        lines.push(prefix + mathInline(String(b.attrs?.latex ?? '').replace(/\s*\n\s*/g, ' ')))
       } else if (b.type === 'codeBlock') {
         lines.push(...(b.content ?? []).map((t) => t.text ?? '').join('').split('\n').map((l) => escapeText(l, { lineStart: false, prev: '', inTable: true })))
       } else walk(b.content ?? [], prefix)

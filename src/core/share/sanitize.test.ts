@@ -25,6 +25,31 @@ describe('sanitizeShareDoc', () => {
     expect(sanitizeShareDoc(d)).toEqual(d)
   })
 
+  it('keeps formulas (text only, in a place the schema allows)', () => {
+    const m = (latex: unknown, extra: Record<string, unknown> = {}) => ({ type: 'mathInline', attrs: { latex, ...extra } })
+    const out = sanitizeShareDoc(
+      doc(
+        para(txt('a'), m('x^2', { onclick: 'x()' }), m(42), m('y'.repeat(10_001))),
+        { type: 'mathBlock', attrs: { id: 'mb', latex: '\\href{javascript:alert(1)}{x}', style: 'x' } },
+        { type: 'mathBlock', attrs: { id: 'bad id!', latex: 'z' } },
+        m('top-level inline'),
+        { type: 'codeBlock', attrs: { id: 'c', language: null }, content: [m('in code')] },
+        { type: 'bulletList', content: [{ type: 'listItem', content: [para(txt('i')), { type: 'mathBlock', attrs: { latex: 'w' } }] }] },
+        para({ type: 'mathBlock', attrs: { latex: 'inline place' } }),
+      ),
+    )
+    expect(out).toEqual(
+      doc(
+        para(txt('a'), m('x^2')),
+        { type: 'mathBlock', attrs: { id: 'mb', latex: '\\href{javascript:alert(1)}{x}' } },
+        { type: 'mathBlock', attrs: { latex: 'z' } },
+        { type: 'codeBlock', attrs: { id: 'c', language: null } },
+        { type: 'bulletList', content: [{ type: 'listItem', content: [para(txt('i')), { type: 'mathBlock', attrs: { latex: 'w' } }] }] },
+        { type: 'paragraph', attrs: { id: 'b1' } },
+      ),
+    )
+  })
+
   it('drops block and mark types it does not know, and ignores extra attributes', () => {
     const out = sanitizeShareDoc(
       doc(

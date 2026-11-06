@@ -29,7 +29,7 @@ function isText(n: unknown): n is Y.XmlText {
   return n instanceof Y.XmlText
 }
 function isInlineNode(n: XmlChild): boolean {
-  return isText(n) || (isElement(n) && (n.nodeName === 'noteLink' || n.nodeName === 'tag'))
+  return isText(n) || (isElement(n) && (n.nodeName === 'noteLink' || n.nodeName === 'tag' || n.nodeName === 'mathInline'))
 }
 
 function plainText(t: Y.XmlText): string {
@@ -39,12 +39,19 @@ function plainText(t: Y.XmlText): string {
     .join('')
 }
 
-/** Own text of an element: its direct XmlText pieces, plus `#name` for tags. */
+/** A formula's text (phase 5): searchable and shown in snippets as written. */
+const latexOf = (el: Y.XmlElement): string => {
+  const v = el.getAttribute('latex') as unknown
+  return typeof v === 'string' ? v : ''
+}
+
+/** Own text of an element: its direct XmlText pieces, plus `#name` for tags and the text of inline formulas. */
 function ownText(el: Parent): string {
   let out = ''
   for (const c of el.toArray() as XmlChild[]) {
     if (isText(c)) out += plainText(c)
     else if (isElement(c) && c.nodeName === 'tag') out += `#${c.getAttribute('name') ?? ''}`
+    else if (isElement(c) && c.nodeName === 'mathInline') out += latexOf(c)
   }
   return out
 }
@@ -63,6 +70,7 @@ function snippetText(el: Parent): string {
     let piece = ''
     if (isText(c)) piece = plainText(c)
     else if (isElement(c) && c.nodeName === 'tag') piece = `#${c.getAttribute('name') ?? ''}`
+    else if (isElement(c) && c.nodeName === 'mathInline') piece = latexOf(c)
     else if (isElement(c) && c.nodeName === 'noteLink') {
       const id = c.getAttribute('noteId')
       if (id) {
@@ -118,6 +126,15 @@ export function extractNote(content: Y.XmlFragment): {
             const lower = name.toLowerCase()
             if (!tags.includes(lower)) tags.push(lower)
           }
+          break
+        }
+        case 'mathInline':
+          break
+        case 'mathBlock': {
+          const id = child.getAttribute('id')
+          const text = latexOf(child)
+          if (id) blocks.push({ id, type: 'mathBlock', text })
+          if (text) textLines.push(text)
           break
         }
         default: {

@@ -116,6 +116,8 @@ class Converter {
         const language = tok.type === 'fence' ? tok.info.trim().split(/\s+/)[0] || null : null
         return { type: 'codeBlock', attrs: { language }, ...(text && { content: [{ type: 'text', text }] }) }
       }
+      case 'math_block':
+        return { type: 'mathBlock', attrs: { latex: tok.content } }
       case 'hr':
         return { type: 'horizontalRule' }
       case 'table_open':
@@ -220,7 +222,10 @@ class Converter {
 
   /** Inline tokens → text nodes with marks, atoms and refs; adjacent equal-mark text merged. */
   inline(tok: Token): PMNode[] {
-    this.noteLossy(tok.content)
+    // A formula's `^` / `~` are TeX, not superscript / subscript.
+    let raw = tok.content
+    for (const k of tok.children ?? []) if (k.type === 'math_inline') raw = raw.replace(k.content, '')
+    this.noteLossy(raw)
     const out: PMNode[] = []
     const marks: PMMark[] = []
     const kids = tok.children ?? []
@@ -261,6 +266,9 @@ class Converter {
         case 'highlight_close': pop('highlight'); break
         case 'code_inline':
           text(k.content, { type: 'code' })
+          break
+        case 'math_inline':
+          push({ type: 'mathInline', attrs: { latex: k.content } })
           break
         case 'tag':
           push({ type: 'tag', attrs: { name: (k.meta as { name: string }).name } })

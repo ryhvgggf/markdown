@@ -19,6 +19,8 @@ export const SHARE_HIGHLIGHT_COLORS = ['#FFF1A8', '#CDEFD3', '#CFE3FB', '#FBD3DE
 export const MAX_DEPTH = 40
 export const MAX_NODES = 200_000
 const MAX_URL = 4096
+/** Longest formula a share link keeps; a longer one is dropped. */
+export const MAX_LATEX = 10_000
 
 type Attrs = Record<string, unknown>
 type AttrRule = (v: unknown) => unknown | undefined // undefined = drop the attribute (schema default applies)
@@ -157,6 +159,18 @@ export function sanitizeShareDoc(input: unknown, opts: SanitizeOptions = {}): PM
       const blockParent = parent === 'doc' || (Object.hasOwn(SPECS, parent) && !SPECS[parent].inline && !SPECS[parent].leaf)
       if (mime === undefined || !blockParent) return [paragraph(ATTACHMENT_OMITTED_TEXT, true)]
       return [{ type: 'media', attrs: { attachmentId: a.attachmentId as string, kind: shareMediaKind(a.kind, mime), width: int(80, 5000)(a.width) ?? null } }]
+    }
+    if (type === 'mathInline' || type === 'mathBlock') {
+      // Formulas (phase 5): only their text, in a place the schema allows. KaTeX renders it with `trust` off.
+      const a = isObj(raw.attrs) ? raw.attrs : {}
+      const latex = typeof a.latex === 'string' && a.latex.length <= MAX_LATEX ? a.latex : undefined
+      if (latex === undefined) return []
+      const inlineParent = Object.hasOwn(SPECS, parent) && !!SPECS[parent].inline && parent !== 'codeBlock'
+      const blockParent = parent === 'doc' || (Object.hasOwn(SPECS, parent) && !SPECS[parent].inline && !SPECS[parent].leaf)
+      if (type === 'mathInline') return inlineParent ? [{ type, attrs: { latex } }] : []
+      if (!blockParent) return []
+      const blockId = id(a.id)
+      return [{ type, attrs: { ...(blockId !== undefined && { id: blockId }), latex } }]
     }
     if (type === 'noteLink') {
       const a = isObj(raw.attrs) ? raw.attrs : {}
