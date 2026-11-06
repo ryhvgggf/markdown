@@ -224,3 +224,17 @@ export const VideoIcon = make(
     <path d="m16 10 5-3v10l-5-3" />
   </>,
 )
+
+/** 關聯: a filled dot branching into three curved lines, each ending in a hollow circle. */
+export const Graph = make(
+  'Graph',
+  <>
+    <circle cx="5" cy="12" r="2.1" fill="currentColor" stroke="none" />
+    <path d="M7 11.2C11 9.8 12.6 5 16.8 5M7.1 12C11 11 13 13 16.8 12M7 12.8C11 14.2 12.6 19 16.8 19" />
+    <circle cx="19" cy="5" r="2.1" />
+    <circle cx="19" cy="12" r="2.1" />
+    <circle cx="19" cy="19" r="2.1" />
+  </>,
+)
+/** ∑: the formula view switch and formula nodes. */
+export const Sigma = make('Sigma', <path d="M17.5 5H7l5.5 7L7 19h10.5" />)

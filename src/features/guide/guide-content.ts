@@ -3,7 +3,7 @@ import { HIGHLIGHT_COLORS, TEXT_COLORS } from '@/features/editor/marks/formattin
 import { SLASH_ITEMS } from '@/features/editor/menus/slash-items'
 import { ACCENTS } from '@/core/preferences/accents'
 import {
-  a, b, callout, code, codeBlock, color, doc, h, hid, hl, hr, i, keys, li, media, noteLink, ol, p, quote, s, table, tag, task,
+  a, b, callout, code, codeBlock, color, doc, h, hid, hl, hr, i, keys, li, math, mathBlock, media, noteLink, ol, p, quote, s, table, tag, task,
   tasks, u, ul, type Inline, type J,
 } from './pm-json'
 
@@ -13,7 +13,7 @@ export const GUIDE_TAG = '功能導覽'
  * Bump when the guide text changes. A device whose guide is still untouched is rewritten to this version on
  * start (`updateGuide` in ./guide); `addGuide` records it for fresh guides.
  */
-export const GUIDE_VERSION = 7
+export const GUIDE_VERSION = 8
 
 /** Order = order in the folder; the first one is opened after seeding. */
 export const GUIDE_NOTES = [
@@ -21,6 +21,8 @@ export const GUIDE_NOTES = [
   { key: 'editing', title: '編輯與格式' },
   { key: 'blocks', title: '區塊與 / 選單' },
   { key: 'links', title: '連結、標籤與反向連結' },
+  { key: 'math', title: '公式' },
+  { key: 'graph', title: '關聯' },
   { key: 'media', title: '圖片與附件' },
   { key: 'organize', title: '整理筆記' },
   { key: 'sync', title: '帳號與同步' },
@@ -53,11 +55,12 @@ function welcome(r: GuideRefs): J {
     p('打字時會自動儲存，不需要按「儲存」。'),
     h(2, '畫面配置'),
     ul(
-      [b('工具列'), '：滑鼠移到視窗最左緣，會滑出「搜尋、附件、資料、設定」圖示（視窗較窄時多一個「檔案」）；也可以按 ', keys('Ctrl+\\', '⌘\\'), ' 開關。設定裡可以改成固定顯示。'],
+      [b('工具列'), '：滑鼠移到視窗最左緣，會滑出「關聯、搜尋、附件、資料、設定」圖示（視窗較窄時多一個「檔案」）；也可以按 ', keys('Ctrl+\\', '⌘\\'), ' 開關。設定裡可以改成固定顯示。'],
       [b('側欄'), '：左邊的卡片是資料夾與筆記，最下方是「垃圾桶」。'],
       [b('筆記卡片'), '：中間就是正在看的筆記，最上面一行是標題。'],
       [b('大綱'), '：筆記卡片右緣的短線就是這篇的標題，滑鼠移上去會列出所有標題，點一下就跳過去。'],
       [b('分享'), '：筆記卡片右上角的分享圖示，可以為這篇建立唯讀連結，見「', link(r, 'share'), '」。'],
+      [b('關聯'), '：工具列最上面的圖示，把筆記之間的連結畫成一張圖，見「', link(r, 'graph'), '」。'],
       [b('反向連結'), '：有其他筆記連到或提到這篇時，右上角會出現「反向連結 N」（在分享圖示左邊），點一下叫出浮動面板，按 × 或 ', code('Esc'), ' 收起。'],
       ['打字時，左邊的拖曳把手和右緣的大綱短線會暫時讓開；移動滑鼠就會回來。'],
       ['視窗較窄時側欄會自動收起，點工具列的「檔案」就會浮出來。'],
@@ -69,6 +72,8 @@ function welcome(r: GuideRefs): J {
       [link(r, 'editing'), '：打字、Markdown 快捷輸入、格式列與快捷鍵'],
       [link(r, 'blocks'), '：/ 選單的每個區塊、拖曳把手、清單、表格、程式碼'],
       [link(r, 'links'), '：[[ 筆記連結、區塊連結、#標籤、大綱短線與反向連結面板'],
+      [link(r, 'math'), '：用 LaTeX 寫數學公式'],
+      [link(r, 'graph'), '：看筆記之間的連結全貌、共用的公式'],
       [link(r, 'media'), '：加入圖片與影片'],
       [link(r, 'organize'), '：資料夾、排序、改名、垃圾桶、匯入與匯出'],
       [link(r, 'sync'), '：登入、復原碼、選擇要同步的筆記、多裝置'],
@@ -77,10 +82,7 @@ function welcome(r: GuideRefs): J {
       [link(r, 'appearance'), '：背景、強調色、字級等設定'],
     ),
     h(2, '之後會有'),
-    ul(
-      '即時分享',
-      '知識圖譜、離線安裝（PWA）、Mermaid 圖表、數學公式、區塊嵌入',
-    ),
+    ul('離線安裝（PWA）、Mermaid 圖表、區塊嵌入'),
   )
 }
 
@@ -239,6 +241,62 @@ function links(r: GuideRefs): J {
     p('試試看：打開「搜尋與快速切換」這篇的反向連結——「整理筆記」只用文字提到它，所以會出現在「提到但未連結」。'),
     h(2, '改名不會斷連結'),
     p('連結記住的是筆記本身而不是標題，所以改了標題，所有連結都會自動顯示新名稱。'),
+    p('想一次看到所有連結的全貌，請看「', link(r, 'graph'), '」。'),
+  )
+}
+
+function mathNote(r: GuideRefs): J {
+  return doc(
+    p('用 LaTeX 語法寫數學公式。 ', tag(GUIDE_TAG)),
+    h(2, '輸入'),
+    ul(
+      [b('行內公式'), '：在文字中輸入 ', code('$x^2$'), '，打完結尾的 ', code('$'), ' 就會變成公式。例如', math('a^2+b^2=c^2'), '。'],
+      [b('區塊公式'), '：在空段落輸入 ', code('$$'), '，或用 ', code('/公式'), '（行內公式用 ', code('/行內公式'), '）。'],
+    ),
+    mathBlock('\\int_0^1 x^2\\,dx=\\tfrac{1}{3}'),
+    h(2, '編輯'),
+    ul(
+      ['點公式，或用方向鍵選取後按 ', code('Enter'), '，就能改它的 LaTeX。'],
+      ['行內公式按 ', code('Enter'), ' 確認；區塊公式裡的 ', code('Enter'), ' 是換行，要用 ', keys('Ctrl+Enter', '⌘Enter'), ' 確認。公式有錯時會顯示紅色提示。'],
+    ),
+    h(2, '匯出、匯入與分享'),
+    ul(
+      ['匯出成 Markdown 時寫成 ', code('$…$'), ' 和 ', code('$$…$$'), '，匯入時會還原。'],
+      ['分享頁也會顯示公式。'],
+      ['公式會被搜尋到，也會在「', link(r, 'graph'), '」的公式視圖裡把用到同一個公式的筆記連在一起。'],
+    ),
+  )
+}
+
+function graphNote(r: GuideRefs): J {
+  return doc(
+    p('看筆記之間的連結全貌。 ', tag(GUIDE_TAG)),
+    h(2, '打開'),
+    p('滑鼠移到最左緣，點工具列最上面的「關聯」。畫面會佈滿整個視窗，按 ', code('Esc'), ' 或右上角的 × 關閉。'),
+    h(2, '怎麼看'),
+    ul(
+      ['每個圓點是一篇筆記；兩篇之間有筆記連結或區塊連結，就連一條線（不分方向，連很多次也只算一條）。'],
+      ['顏色依資料夾區分；沒有連到任何筆記的，顏色較淡。垃圾桶裡的筆記不會出現。'],
+    ),
+    h(2, '局部與全部'),
+    ul(
+      [b('局部'), '（預設）以目前打開的筆記為中心，往外 1 層，可以調整層數。'],
+      [b('全部'), '顯示整個知識庫；超過 300 篇時，只顯示連結最多的 300 篇，上方會提示。'],
+    ),
+    h(2, '操作'),
+    ul(
+      ['拖曳圓點，或拖曳空白處移動畫面；滾輪或雙指縮放。'],
+      ['滑鼠移到圓點會顯示標題，並淡化不相干的；點圓點會打開那篇筆記並關閉圖譜。'],
+      ['上方的搜尋框輸入標題，可以跳到那個圓點。'],
+      ['旁邊的清單列出每篇筆記和它連到的筆記，用 ', code('Tab'), ' 與 ', code('Enter'), ' 或手指點都能打開，不必用滑鼠拖。'],
+    ),
+    h(2, '公式視圖'),
+    ul(
+      ['打開上方的「∑ 公式」，只畫「兩篇以上用到同一個公式」的筆記，公式本身是一個 ∑ 圓點。'],
+      ['滑鼠移到 ∑ 會顯示公式（太長會截短）；點它，旁邊會列出用到的筆記。'],
+      ['比對看的是寫得一不一樣，包含空白，所以 ', code('x^2'), ' 和 ', code('x ^ 2'), ' 算不同的公式。公式怎麼寫見「', link(r, 'math'), '」。'],
+    ),
+    p('相關：', link(r, 'links'), '。'),
   )
 }
 
@@ -420,7 +478,7 @@ function appearance(): J {
 }
 
 const BUILDERS: Record<GuideKey, (r: GuideRefs) => J> = {
-  welcome, editing, blocks, links, media: mediaNote, organize, sync: syncNote, share: shareNote, search, appearance,
+  welcome, editing, blocks, links, math: mathNote, graph: graphNote, media: mediaNote, organize, sync: syncNote, share: shareNote, search, appearance,
 }
 
 export function guideDoc(key: GuideKey, refs: GuideRefs): J {

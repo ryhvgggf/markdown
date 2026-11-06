@@ -53,6 +53,8 @@
     "@tiptap/react": "3.32.0",
     "@tiptap/suggestion": "3.32.0",
     "@tiptap/y-tiptap": "3.0.10",
+    "@types/d3-force": "3.0.10",
+    "d3-force": "3.0.1",
     "dexie": "4.4.6",
     "fake-indexeddb": "6.2.6",
     "fflate": "0.8.3",

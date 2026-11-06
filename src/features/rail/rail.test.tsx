@@ -97,6 +97,17 @@ describe('Rail', () => {
   })
 })
 
+describe('Rail 關聯', () => {
+  it('is the top button and opens the graph layer', () => {
+    useUi.setState({ graphOpen: false })
+    setup()
+    const nav = screen.getByRole('navigation', { name: '主要功能' })
+    expect(nav.querySelector('button')?.getAttribute('aria-label')).toBe('關聯')
+    fireEvent.click(screen.getByRole('button', { name: '關聯' }))
+    expect(useUi.getState().graphOpen).toBe(true)
+  })
+})
+
 describe('Rail 附件', () => {
   it('opens the attachments list in the sidebar (and the sheet when narrow)', () => {
     useUi.setState({ sidebarView: 'tree', sidebarOverlayOpen: false })

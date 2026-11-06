@@ -2,6 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { createUiStore } from './ui-store'
 
 describe('ui store', () => {
+  it('graph layer opens and closes', () => {
+    const s = createUiStore()
+    expect(s.getState().graphOpen).toBe(false)
+    s.getState().setGraph(true)
+    expect(s.getState().graphOpen).toBe(true)
+    s.getState().setGraph(false)
+    expect(s.getState().graphOpen).toBe(false)
+  })
   it('backlinks panel: toggle, pin, and close (an unpinned close is ignored while pinned)', () => {
     const s = createUiStore()
     s.getState().toggleBacklinks()

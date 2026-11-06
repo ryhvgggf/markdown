@@ -8,7 +8,7 @@ test('第一次開啟：建立「功能導覽」資料夾並打開歡迎使用',
   await page.goto('/')
   await expect(page.getByLabel('筆記標題')).toHaveValue('歡迎使用')
   await expect(page.getByRole('treeitem', { name: '功能導覽' })).toBeVisible()
-  for (const title of ['編輯與格式', '區塊與 / 選單', '連結、標籤與反向連結', '圖片與附件', '整理筆記', '搜尋與快速切換', '外觀設定']) {
+  for (const title of ['編輯與格式', '區塊與 / 選單', '連結、標籤與反向連結', '公式', '關聯', '圖片與附件', '整理筆記', '搜尋與快速切換', '外觀設定']) {
     await expect(page.getByRole('treeitem', { name: title, exact: true })).toBeVisible()
   }
   const editor = page.locator('.ProseMirror')

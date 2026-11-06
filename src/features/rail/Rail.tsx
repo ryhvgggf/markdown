@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useUi } from '@/app/ui-store'
 import { IconButton } from '@/ui/components/IconButton'
-import { Download, Folder, Paperclip, Search, Settings } from '@/ui/icons'
+import { Download, Folder, Graph, Paperclip, Search, Settings } from '@/ui/icons'
 import { useLayoutMode } from '@/features/shell/layout-mode'
 import { useRail } from './use-rail'
 
@@ -84,6 +84,9 @@ export function Rail() {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false)
         }}
       >
+        <IconButton label="關聯" tooltip tooltipSide="right" className={RAIL_BTN} onClick={() => ui.getState().setGraph(true)}>
+          <Graph />
+        </IconButton>
         {mode === 'narrow' && (
           // Only when the sidebar is tucked away: wide windows always show it, so a button there did nothing.
           <IconButton label="檔案" tooltip tooltipSide="right" className={RAIL_BTN} onClick={files}>

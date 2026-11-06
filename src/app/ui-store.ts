@@ -27,6 +27,8 @@ export interface UiState {
   shareNoteId: string | null
   /** The 分享 page (all links, multi-note links) is shown in place of the note. */
   sharesOpen: boolean
+  /** The full-screen 關聯 (knowledge graph) layer. */
+  graphOpen: boolean
   openNote(id: string, blockId?: string): void
   toggleBacklinks(): void
   /** Without `force` (pointer left) a pinned panel stays; `force` (×, Esc) closes and unpins. */
@@ -43,6 +45,7 @@ export interface UiState {
   clearHighlight(): void
   setShareNote(id: string | null): void
   setSharesOpen(v: boolean): void
+  setGraph(v: boolean): void
 }
 
 export function createUiStore(deps: { persistLastNote?: (id: string) => void } = {}) {
@@ -62,6 +65,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     highlightBlockId: null,
     shareNoteId: null,
     sharesOpen: false,
+    graphOpen: false,
     openNote: (id, blockId) => {
       set((s) => ({ openNoteId: id, sharesOpen: false, highlightBlockId: blockId ?? null, backlinksOpen: s.backlinksOpen && s.backlinksPinned }))
       deps.persistLastNote?.(id)
@@ -81,6 +85,7 @@ export function createUiStore(deps: { persistLastNote?: (id: string) => void } =
     clearHighlight: () => set({ highlightBlockId: null }),
     setShareNote: (shareNoteId) => set({ shareNoteId }),
     setSharesOpen: (sharesOpen) => set({ sharesOpen }),
+    setGraph: (graphOpen) => set({ graphOpen }),
   }))
 }
 

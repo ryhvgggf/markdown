@@ -21,6 +21,7 @@ const ImportDialog = lazy(() => import('@/features/transfer/ImportDialog').then(
 const DataDialog = lazy(() => import('@/features/settings/DataDialog').then((m) => ({ default: m.DataDialog })))
 const SharesPage = lazy(() => import('@/features/share/SharesPage').then((m) => ({ default: m.SharesPage })))
 const ShareDialog = lazy(() => import('@/features/share/ShareDialog').then((m) => ({ default: m.ShareDialog })))
+const GraphOverlay = lazy(() => import('@/features/graph/GraphOverlay').then((m) => ({ default: m.GraphOverlay })))
 const SettingsDialog = lazy(() => import('@/features/settings/SettingsDialog').then((m) => ({ default: m.SettingsDialog })))
 
 type State =
@@ -106,12 +107,21 @@ export function App({ boot = bootstrap }: { boot?: () => Promise<AppServices> } 
       <Suspense fallback={null}>
         <QuickSwitcher />
         <SettingsDialog />
+        <GraphLayer />
         <DataDialog />
         <ShareDialog />
         <ImportDialog />
       </Suspense>
     </ServicesProvider>
   )
+}
+
+/** The graph's code is fetched the first time 關聯 is opened, then kept mounted. */
+function GraphLayer() {
+  const open = useUi((s) => s.graphOpen)
+  const [wanted, setWanted] = useState(open)
+  if (open && !wanted) setWanted(true)
+  return wanted ? <GraphOverlay /> : null
 }
 
 function MainNote() {
